@@ -21,7 +21,18 @@ layout:
 
 # Release Notes
 
-## Ver. 3.2.1 **(**[**Github**](https://github.com/man572142/Bro_Audio/releases/tag/3.2.1)**,** [**Unity Asset Store**](https://assetstore.unity.com/packages/tools/audio/bro-audio-257362)**)**
+## **Ver. 3.2.2 (**[**Github,**](https://github.com/man572142/Bro_Audio/releases/tag/3.2.2) [**Unity Asset Store)**](https://assetstore.unity.com/packages/tools/audio/bro-audio-257362)
+
+#### Fixes
+
+* Fix mid-play SetPitch() leaving sample-accurate loop/scheduled-end times stale, causing loop-seam gaps or skipped audio.
+* Fix SetPitch(pitch, fadeTime) called before/during playback start snapping to the target pitch before fading from default.
+* Fix explicit SetPitch() being re-randomized by the entity's pitch randomization instead of used verbatim.
+* Fix AudioMixer.SetFloat() silently failing on the game's first Awake()/OnEnable() (long-standing Unity issue).
+* Fix a double-teardown "Invalid target player" error on players scheduled with SetScheduledEndTime().
+* Fix Library Manager entity list/SoundID dropdown not refreshing after duplicating an entity outside the asset output path.
+
+## Ver. 3.2.1 **(**[**Github,** ](https://github.com/man572142/Bro_Audio/releases/tag/3.2.1)**,** [**Unity Asset Store)**](https://assetstore.unity.com/packages/tools/audio/bro-audio-257362)**)**
 
 #### Fixes & Improvements
 
