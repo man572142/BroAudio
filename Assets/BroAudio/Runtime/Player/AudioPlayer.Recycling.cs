@@ -40,8 +40,9 @@ namespace Ami.BroAudio.Runtime
             _pitchCoroutine = null;
             _nextPlayer = null;
             
-            if (TryGetMixerAndTrack(out _, out var track))
+            if (TryGetMixerAndTrack(out var mixer, out var track))
             {
+                SilenceTrackBeforeReturn(mixer);
                 Mixer?.ReturnTrack(TrackType, track);
             }
             TrackType = AudioTrackType.Generic;
@@ -87,6 +88,9 @@ namespace Ami.BroAudio.Runtime
 
             _proxy?.Dispose();
             _proxy = null;
+            // Only the unrouted paths (pool exhausted, virtualized) drive loudness through the source itself,
+            // but the next borrower of this player relies on the track for it.
+            AudioSource.volume = AudioConstant.FullVolume;
         }
 
         private void DestroyAudioFilterReader()
