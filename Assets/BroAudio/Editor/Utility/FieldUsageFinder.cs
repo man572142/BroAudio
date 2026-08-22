@@ -64,7 +64,11 @@ public class FieldUsageFinder : EditorWindow
             _typeMap.Clear();
 
             var allTypes = new List<Type>();
+#if UNITY_6000_4_OR_NEWER
+            foreach (var assembly in UnityEngine.Assemblies.CurrentAssemblies.GetLoadedAssemblies())
+#else
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+#endif
             {
                 if (_window.ShouldExcludeAssembly(assembly))
                     continue;
@@ -94,13 +98,21 @@ public class FieldUsageFinder : EditorWindow
                         namespaceItem.AddChild(typeItem);
                     }
 
+#if UNITY_6000_5_OR_NEWER
+                    if (namespaceItem.childList.Count > 0)
+#else
                     if (namespaceItem.children.Any())
+#endif
                     {
                         assemblyItem.AddChild(namespaceItem);
                     }
                 }
 
+#if UNITY_6000_5_OR_NEWER
+                if (assemblyItem.childList.Count > 0)
+#else
                 if (assemblyItem.children.Any())
+#endif
                 {
                     root.AddChild(assemblyItem);
                 }
