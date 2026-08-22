@@ -28,6 +28,7 @@ namespace Ami.BroAudio.Tools
 		public const string MenuItem_Preferences = "Preferences";
 		public const string MenuItem_Info = "Info";
         public const string MenuItem_SetupWizard = "Setup Wizard";
+        public const string MenuItem_IssueReport = "Report an Issue";
 		#endregion
 
 		#region Audio Mixer
