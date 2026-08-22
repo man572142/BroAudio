@@ -27,6 +27,7 @@
 
         // Clip Editor
         ClipEditorConfirmationDialog = 30,
+        ClipEditorLossySourceFormat,
 
         // EntityIssue
         EntityIssue_HasEmptyName = 100,

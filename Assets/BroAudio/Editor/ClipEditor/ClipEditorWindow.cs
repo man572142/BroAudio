@@ -17,6 +17,7 @@ namespace Ami.BroAudio.Editor
         private const string PrefKey = "LastClipEditorSavePath";
         private const float Gap = 50f;
         private const string DefaultFileExt = "wav";
+        private const string LossyFormatHintLabel = "Note on .ogg / .mp3 build size";
         private static Vector2 DefaultWindowSize => new Vector2(640f, 490f);
 
         // The serialization is used for Undo/Redo 
@@ -31,6 +32,8 @@ namespace Ami.BroAudio.Editor
 		private bool _isLoop;
 		private bool _isPlaying;
         private bool _isShowPreferences;
+        private Vector2 _scrollPos;
+        private bool _isShowLossyFormatHint;
         private SerializedObject _serializedObject;
         private SerializedObject _editorSettingSO;
         private SerializedProperty _audioClipProp;
@@ -108,6 +111,7 @@ namespace Ami.BroAudio.Editor
 		private void OnGUI()
 		{
             _serializedObject.Update();
+            _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos);
             EditorGUILayout.Space(EditorGUIUtility.singleLineHeight);
             EditorGUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
@@ -125,6 +129,7 @@ namespace Ami.BroAudio.Editor
                 EditorGUILayout.EndVertical();
                 GUILayout.FlexibleSpace();
                 EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndScrollView();
                 return;
 			}
 
@@ -173,14 +178,13 @@ namespace Ami.BroAudio.Editor
                 }               
             }
             EditorGUILayout.EndFoldoutHeaderGroup();
-
+            DrawLossySourceFormatHint();
             GUILayout.FlexibleSpace();
             EditorGUI.BeginDisabledGroup(!HasEdited);
             {
                 DrawSavingButton();
             }
             EditorGUI.EndDisabledGroup();
-            EditorGUILayout.Space();
             EditorGUILayout.EndVertical();
             GUILayout.FlexibleSpace();
             EditorGUILayout.EndHorizontal();
@@ -191,6 +195,7 @@ namespace Ami.BroAudio.Editor
                 EditorAudioPreviewer.Instance.UpdatePreview();
                 EditorAudioPreviewer.Instance.PlaybackIndicator?.Draw();
             }
+            EditorGUILayout.EndScrollView();
         }
 
         private void GetPreferenceProperties(out SerializedProperty editNewClipOptionProp, out SerializedProperty pingNewClipOptionProp)
@@ -318,6 +323,25 @@ namespace Ami.BroAudio.Editor
             PlayClip(req);
         }
 
+		// The result is always written as wav. Reassure the user that this is the better outcome: Unity
+		// re-encodes every audio asset at build time anyway, so CopyImportSettings keeps the build size
+		// unchanged, and not re-compressing here saves a generation of lossy encoding.
+		private void DrawLossySourceFormatHint()
+		{
+			string extension = Path.GetExtension(AssetDatabase.GetAssetPath(TargetClip)).ToLowerInvariant();
+			if (extension != ".ogg" && extension != ".mp3")
+			{
+				return;
+			}
+
+			_isShowLossyFormatHint = EditorGUILayout.BeginFoldoutHeaderGroup(_isShowLossyFormatHint, LossyFormatHintLabel);
+			if (_isShowLossyFormatHint)
+			{
+				RichTextHelpBox(_instruction.GetText(Instruction.ClipEditorLossySourceFormat), MessageType.Info);
+			}
+			EditorGUILayout.EndFoldoutHeaderGroup();
+		}
+
 		private void DrawSavingButton()
 		{
             Rect savingZoneRect = EditorGUILayout.GetControlRect(GUILayout.Height(EditorGUIUtility.singleLineHeight * 2));
@@ -393,10 +417,31 @@ namespace Ami.BroAudio.Editor
 
             if (HasEdited)
             {
+                string sourcePath = AssetDatabase.GetAssetPath(TargetClip);
                 SavWav.Save(savePath, helper.GetResultClip());
                 _currSavingFilePath = savePath;
                 AssetDatabase.Refresh();
+                CopyImportSettings(sourcePath, savePath);
             }
+        }
+
+        // The saved file is always wav, but the build size is decided by the AudioImporter, not the file format.
+        // Carrying the original settings over keeps the compressed size the same as the source clip.
+        // ponytail: default settings only. Copy GetOverrideSampleSettings per BuildTarget if platform overrides matter.
+        private static void CopyImportSettings(string sourcePath, string destPath)
+        {
+            if (sourcePath == destPath
+                || !(AssetImporter.GetAtPath(sourcePath) is AudioImporter source)
+                || !(AssetImporter.GetAtPath(destPath) is AudioImporter dest))
+            {
+                return;
+            }
+
+            dest.defaultSampleSettings = source.defaultSampleSettings;
+            dest.forceToMono = source.forceToMono;
+            dest.loadInBackground = source.loadInBackground;
+            dest.ambisonic = source.ambisonic;
+            dest.SaveAndReimport();
         }
 
 		public void OnPostprocessAllAssets()

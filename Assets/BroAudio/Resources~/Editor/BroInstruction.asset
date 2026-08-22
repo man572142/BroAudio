@@ -203,8 +203,9 @@ MonoBehaviour:
     Value: Automatically collect the SoundID references found on the Target Object's
       scripts.
   - Key: 609
-    Value: '<b>Save Report</b> saves it to a file.<br><b>Create GitHub Issue</b> 
-	copies the report to your clipboard and opens a GitHub issue page — just paste it in.'
+    Value: "<b>Save Report</b> saves it to a file.<br><b>Create GitHub Issue</b> 
+      copies the report to your clipboard and opens a GitHub issue page \u2014 just
+      paste it in."
   - Key: 610
     Value: 'Please fill in the following required fields before saving: {0}'
   - Key: 611
@@ -225,3 +226,5 @@ MonoBehaviour:
     Value: Something is wrong while the game is running in the Editor's Play Mode.
   - Key: 618
     Value: Something is wrong only in a built player, not in the Editor.
+  - Key: 31
+    Value: Clips are saved as .wav files with the source's import settings copied over. Unity re-encodes them at build time, so the build size is unchanged, while skipping a lossy re-encode preserves higher quality.
