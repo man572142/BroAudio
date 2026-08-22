@@ -104,9 +104,13 @@ namespace Ami.BroAudio.Editor
 			}
 
 			samples.RemoveRange(i, samples.Count - i);
+#if UNITY_6000_7_OR_NEWER
+			var clip = AudioClip.Create("TempClip", samples.Count / channels, channels, hz, stream);
+#else
 #pragma warning disable CS0618
 			var clip = AudioClip.Create("TempClip", samples.Count / channels, channels, hz, _3D, stream);
 #pragma warning restore
+#endif
 
 			clip.SetData(samples.ToArray(), 0);
 
