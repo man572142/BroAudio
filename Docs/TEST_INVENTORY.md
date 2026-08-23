@@ -14,6 +14,20 @@ Detail lives in four section files; this file is the index, the ranking, and the
 
 Status values: **covered** · **planned (phase N)** · **deferred** · **out of scope**
 
+## Coverage ledger
+
+| Tier | Status | Test files |
+|---|---|---|
+| 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
+| 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `PlaybackSmokeTests.cs` |
+| 2 — Time-dependent | planned (phase 3) | — |
+| 3 — Selection and policy | planned (phase 4) | — |
+
+115 tests, green twice consecutively, ~1.7s per PlayMode run.
+
+`Tests.asmdef` gained a `Unity.Localization` reference for 0.6 — asmdef references are not transitive, so
+referencing `BroAudio` does not bring Localization types into scope. Phase 4 needs it regardless.
+
 ---
 
 ## Facts settled in the live Editor
