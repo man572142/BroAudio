@@ -16,6 +16,8 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 | 9 | Clip selection | `ShuffleClipStrategy` **can** repeat the previous clip, contradicting its documented contract | Open, characterized |
 | 10 | Clip selection | `out index` disagrees with the returned clip in `Velocity` and `Shuffle` | Open, characterized |
 | 11 | Music | `OnBGMChanged` fires twice per swap, once with a `null` argument | Open, characterized |
+| 12 | Playback group | Comb-filtering is bypassed for any global+positioned pair, without comparing distance | Open, characterized |
+| 13 | Looping | `HasLoop` populates its `transitionTime` out parameter even when it returns false | Open, characterized |
 
 ---
 
@@ -159,3 +161,67 @@ Two consequences for anyone writing against this:
 `UpdateInstance` deliberately writes the backing field rather than the property when a loop or chain hands over
 to a new player, precisely so this event does *not* fire for handovers — the logical BGM has not changed there.
 That guard is worth preserving; the null raise above is the case it does not cover.
+
+## 12. Comb-filtering prevention is bypassed whenever one play is global and the other positioned
+
+**Where:** `Assets/BroAudio/Runtime/Player/PlaybackGroup/DefaultPlaybackGroup.cs`, `HasPassedCombFilteringRule`
+
+The rule compares distance only when *both* plays are positioned:
+
+```csharp
+if (!currentIsGlobal && !previousIsGlobal)
+{
+    var sqrDistance = (currentPlayPos - previousPlayer.PlayingPosition).sqrMagnitude;
+    if (sqrDistance > Mathf.Pow(_ignoreIfDistanceIsGreaterThan, 2)) return true;
+}
+
+// Only one is played globally
+// TODO: use the AudioListener's position as the global position?
+if ((currentIsGlobal != previousIsGlobal) && _ignoreIfDistanceIsGreaterThan > 0f)
+{
+    return true;
+}
+```
+
+The second branch computes no distance at all. It exempts the pair whenever the distance threshold is merely
+*enabled*. A globally-played sound has position `Utility.GloballyPlayedPosition`, which is
+`Vector3.negativeInfinity` — there is no meaningful distance to compare, so the code opts out rather than
+choosing a position.
+
+`_ignoreIfDistanceIsGreaterThan` defaults to `0.1f`, i.e. enabled. So **by default, playing the same `SoundID`
+globally and positionally within the comb-filtering window never triggers prevention**, no matter how close
+together the two plays are — which is precisely the situation the rule exists to catch.
+
+The in-source `TODO` shows this is known and unresolved rather than intended; the AudioListener's position is
+the obvious candidate for the missing global position. Characterized by `PlaybackGroupTests`.
+
+## 13. `HasLoop` writes its out parameter even when it returns false
+
+**Where:** `Assets/BroAudio/Runtime/DataStruct/Core/AudioEntity.cs`, `HasLoop`
+
+```csharp
+else if (MulticlipsPlayMode == MulticlipsPlayMode.Chained)
+{
+    loopType = chainedDefaultLoop;
+    transitionTime = chainedDefaultTransitionTime;
+}
+return loopType != LoopType.None;
+```
+
+For a Chained entity, `transitionTime` is assigned *before* the return value is decided. If
+`DefaultChainedPlayModeLoop` is `LoopType.None`, the method returns `false` — correctly reporting no loop —
+but still hands back the configured transition time rather than `0`.
+
+The usual C# contract for a `bool TryX(out ...)` shape is that the out parameter is meaningless on `false`.
+Callers here happen to respect that (`SoundManager.Playback.cs` discards both with `out _, out _`), so nothing
+is broken today. It is a trap for the next caller that reads the out value without checking the return first.
+
+Characterized by `SelectionStateAndDecoratorTests`.
+
+---
+
+## Environmental note, not a product defect
+
+The PlayMode test scene contains no `AudioListener`, so Unity logs *"There are no audio listeners in the
+scene"* during runs. It is harmless, but it means `LogAssert.NoUnexpectedReceived()` cannot be used in this
+suite — it catches that message and fails the test. Assert specific expected logs instead, or assert behavior.
