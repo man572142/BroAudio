@@ -22,6 +22,7 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `PlaybackSmokeTests.cs` |
 | 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
+| 5 — Addressables | **covered** | `AddressablesTests.cs` |
 
 152 tests, green, ~18s per PlayMode run. Every fixture also passes in isolation, so no test depends on
 another having run. (`run_tests` has no shuffle or seed option, so per-fixture isolation is the closest
@@ -155,7 +156,7 @@ instance rather than the connected one.
 | `LayeredClipStrategy` | Dead code — no references, no enum member routing to it |
 | `SeamlessLoopHelper.cs` | File is entirely commented out; the real mechanism lives in `AudioPlayer.Playback.cs` / `.Scheduling.cs` |
 | Full `Play()` → `SoundManager` → localized clip resolution | No `AssetTable` exists in the project. The strategy itself is covered at 0.6 |
-| Addressables load / preload / cleanup | Phase 5 — needs the user's go-ahead, since it adds addressable entries to the project |
+| ~~Addressables load / preload / cleanup~~ | **Now covered** — two demo clips were marked addressable with the user's approval |
 | Editor windows, inspectors, Library Manager | Explicit anti-goal |
 
 ---
