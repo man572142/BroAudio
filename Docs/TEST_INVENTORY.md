@@ -20,10 +20,10 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 |---|---|---|
 | 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
 | 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `PlaybackSmokeTests.cs` |
-| 2 — Time-dependent | planned (phase 3) | — |
+| 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
 | 3 — Selection and policy | planned (phase 4) | — |
 
-115 tests, green twice consecutively, ~1.7s per PlayMode run.
+138 tests, green, ~17s per PlayMode run.
 
 `Tests.asmdef` gained a `Unity.Localization` reference for 0.6 — asmdef references are not transitive, so
 referencing `BroAudio` does not bring Localization types into scope. Phase 4 needs it regardless.
@@ -122,6 +122,26 @@ Real behaviors, deliberately not covered — cost far exceeds the confidence gai
 | `Utility.SliderToVolume` / `BroVolumeToSlider` piecewise math | Editor-slider presentation, not runtime behavior |
 | `PlaybackGroup.Parent` / `GlobalPlaybackGroup` multi-level fallback | Low-traffic path; not traced end to end |
 | Mid-playback `outputAudioMixerGroup` swap glitch behavior | Engine-level, flagged as unverified even in the engine notes |
+| Seamless loop with `TransitionTime` longer than the clip | **Not tested on purpose — see below.** |
+
+### The one case deliberately left untested
+
+A seamless loop whose `TransitionTime` exceeds its clip length was inventoried as an edge case worth
+characterizing (the DSP wait window goes negative and handover "collapses to immediate"). It is not covered.
+
+The writer who took that slice traced `ScheduleNextPlayback` together with `RestartCoroutine`'s
+run-synchronously-until-first-yield semantics and concluded the collapse is not a one-time quirk but unbounded
+recursion — each handover synchronously spawning the next — ending in a `StackOverflowException`. That
+exception cannot be caught by .NET and would terminate the Editor process rather than fail a test, so they
+declined to write it. That was the right call under uncertainty.
+
+A follow-up static read does **not** support the conclusion: the handover player's `PlayControl` reaches
+`while (_clipVolume.IsFading) yield return null;` for the seamless fade-in *before* it starts the next
+`ScheduleNextPlayback`, which breaks the synchronous chain. So the recursion probably terminates.
+
+Neither reading is certain, and the two outcomes are wildly asymmetric — a passing test on one side, a crashed
+Editor on the other. **Ask the user before running this one**, and if it is run, do it in a throwaway Editor
+instance rather than the connected one.
 
 ## Out of scope
 
