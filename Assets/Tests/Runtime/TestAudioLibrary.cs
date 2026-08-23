@@ -66,6 +66,48 @@ namespace Ami.BroAudio.Tests
             return entity;
         }
 
+#if PACKAGE_ADDRESSABLES
+        /// <summary>
+        /// GUIDs of the two demo clips marked addressable for the suite, addressed as
+        /// <c>BroAudioTest/Footstep1</c> and <c>BroAudioTest/Footstep2</c> in the Default Local Group.
+        /// </summary>
+        public static readonly string[] AddressableClipGuids =
+        {
+            "98e92f012ca7aac4cb5a10875b88f2b2",
+            "81d6cc9391967574c8d850e15adec10c",
+        };
+
+        /// <summary>
+        /// Builds a clip backed by an addressable asset rather than a direct reference, so
+        /// <c>IsAddressablesAvailable()</c> reports true and the load paths engage.
+        /// </summary>
+        public static BroAudioClip CreateAddressableBroClip(string guid)
+        {
+            var broClip = new BroAudioClip();
+            FieldInfo field = typeof(BroAudioClip).GetField(BroAudioClip.NameOf.AudioClipAssetReference, PrivateInstance);
+            field.SetValue(broClip, new UnityEngine.AddressableAssets.AssetReferenceT<AudioClip>(guid));
+            return broClip;
+        }
+
+        /// <summary>Creates an entity whose clips all resolve through Addressables.</summary>
+        public static AudioEntity CreateAddressableEntity(string name, BroAudioType audioType, params string[] guids)
+        {
+            if (guids == null || guids.Length == 0)
+            {
+                guids = new[] { AddressableClipGuids[0] };
+            }
+
+            var entity = AudioEntity.CreateNewInstance(null, name, audioType);
+            entity.UseAddressables = true;
+            entity.Clips = new BroAudioClip[guids.Length];
+            for (int i = 0; i < guids.Length; i++)
+            {
+                entity.Clips[i] = CreateAddressableBroClip(guids[i]);
+            }
+            return entity;
+        }
+#endif
+
         /// <summary>
         /// Writes a private field or an auto-property backing field, walking the type hierarchy.
         /// Needed because most of <see cref="AudioEntity"/> is `private set`.
