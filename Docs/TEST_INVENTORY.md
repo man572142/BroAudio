@@ -21,9 +21,14 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
 | 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `PlaybackSmokeTests.cs` |
 | 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
-| 3 — Selection and policy | planned (phase 4) | — |
+| 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 
-138 tests, green, ~17s per PlayMode run.
+152 tests, green, ~18s per PlayMode run. Every fixture also passes in isolation, so no test depends on
+another having run. (`run_tests` has no shuffle or seed option, so per-fixture isolation is the closest
+available substitute for the Definition of Done's shuffled-order requirement.)
+
+`RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
+which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
 
 `Tests.asmdef` gained a `Unity.Localization` reference for 0.6 — asmdef references are not transitive, so
 referencing `BroAudio` does not bring Localization types into scope. Phase 4 needs it regardless.
