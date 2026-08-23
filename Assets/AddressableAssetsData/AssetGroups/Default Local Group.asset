@@ -14,7 +14,17 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.Addressables.Editor::UnityEditor.AddressableAssets.Settings.AddressableAssetGroup
   m_GroupName: Default Local Group
   m_GUID: 3ec848560e5daec4da446cc248d8ed05
-  m_SerializeEntries: []
+  m_SerializeEntries:
+  - m_GUID: 81d6cc9391967574c8d850e15adec10c
+    m_Address: BroAudioTest/Footstep2
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 98e92f012ca7aac4cb5a10875b88f2b2
+    m_Address: BroAudioTest/Footstep1
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 886b6d903d805514d82c296a0336d8d3, type: 2}
   m_SchemaSet:

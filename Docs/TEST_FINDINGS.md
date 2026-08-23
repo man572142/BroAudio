@@ -18,6 +18,7 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 | 11 | Music | `OnBGMChanged` fires twice per swap, once with a `null` argument | Open, characterized |
 | 12 | Playback group | Comb-filtering is bypassed for any global+positioned pair, without comparing distance | Open, characterized |
 | 13 | Looping | `HasLoop` populates its `transitionTime` out parameter even when it returns false | Open, characterized |
+| 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
 
 ---
 
@@ -217,6 +218,35 @@ Callers here happen to respect that (`SoundManager.Playback.cs` discards both wi
 is broken today. It is a trap for the next caller that reads the out value without checking the return first.
 
 Characterized by `SelectionStateAndDecoratorTests`.
+
+## 14. The addressable unload setting does not control the unload delay
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `AddressableCleanupRoutine`
+
+```csharp
+_addressableCleanupInterval = new WaitForSecondsRealtime(
+    Mathf.Clamp(Setting.AutomaticallyUnloadUnusedAddressableAudioClipsAfter, 1f, 5f));
+...
+if (currentTime - lastPlayedTime > 60.0)
+{
+    UnloadAddressableEntity(id);
+}
+```
+
+The setting named *"Automatically Unload Unused Addressable Audio Clips After"* is used only as the routine's
+**polling interval**, clamped to 1-5 seconds. The actual staleness threshold — how long a clip must go unused
+before it is released — is the hardcoded literal `60.0`.
+
+So the setting does not do what its name says. Raising it from 60 to 300 does not keep clips loaded longer; it
+does nothing at all beyond 5, because of the clamp. Lowering it to 10 does not unload sooner; it just polls
+more often. The unload delay is always 60 seconds and is not configurable.
+
+Two smaller consequences:
+
+- `_addressableCleanupInterval` is built once on the first routine iteration and cached, so changing the setting
+  at runtime has no effect even on the polling interval.
+- The routine is testable only by back-dating `_loadedEntityLastPlayedTime`, which is what
+  `AddressablesTests` does — waiting out a hardcoded 60 seconds is not viable in a suite.
 
 ---
 
