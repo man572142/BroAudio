@@ -12,6 +12,9 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 | 5 | Clip selection | `SetSequenceId` lacks the wrong-mode guard that `SetVelocity` has | Open |
 | 6 | Clip selection | `SingleClipStrategy` accepts an unset clip; `Sequence`/`Shuffle` check `IsSet` | Open |
 | 7 | Volume | Per-type volume of exactly `1f` is skipped for future plays but pushed to live players | Open |
+| 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
+| 9 | Clip selection | `ShuffleClipStrategy` **can** repeat the previous clip, contradicting its documented contract | Open, characterized |
+| 10 | Clip selection | `out index` disagrees with the returned clip in `Velocity` and `Shuffle` | Open, characterized |
 
 ---
 
@@ -89,3 +92,44 @@ when that pref is `Mathf.Approximately(pref.Volume, DefaultTrackVolume)` — i.e
 `SoundManager.SetVolume(BroAudioType, ...)` has no such guard and pushes the value to every currently active
 matching player regardless. Harmless in effect today (a fresh fader already sits at `1f`), but it means
 "read the type pref and expect it to mirror what a live player has" is not a safe assumption.
+
+## 8. A freshly constructed LowPass/HighPass `Effect` reports as not default
+
+**Where:** `Assets/BroAudio/Runtime/DataStruct/Effect.cs`
+
+The parameterless `Effect(EffectType.LowPass)` / `Effect(EffectType.HighPass)` constructors seed `Value` from
+`BroAdvice.LowPassFrequency` / `BroAdvice.HighPassFrequency` (300 Hz / 2000 Hz — the *recommended* values),
+but `IsDefault()` compares against `AudioConstant.MaxFrequency` / `MinFrequency` (22000 Hz / 10 Hz — the
+*neutral, no-filtering* values). So a just-constructed filter effect is not "default" by its own test.
+`EffectType.Volume` has no such mismatch.
+
+This matters because `SoundManager.SetEffect` uses `effect.IsDefault()` to decide whether the call means
+"remove this effect" (`SetEffectMode.Remove`). Covered by `AudioMathTests`, asserting the current behavior.
+
+## 9. `ShuffleClipStrategy` can repeat the previous clip
+
+**Where:** `Assets/BroAudio/Runtime/Utility/ClipSelection/ShuffleClipStrategy.cs`
+
+`MulticlipsPlayMode.Shuffle` is documented as "Same as random but not repeating with the previous one".
+In practice `_lastUsed` is only refreshed at pool exhaustion and during the fallback scan — never after an
+ordinary in-cycle hit — so two consecutive `SelectClip` calls can return the same clip.
+
+`ClipSelectionTests` proves the gap exists rather than asserting the documented (and false) invariant.
+
+## 10. `out index` disagrees with the returned clip in two strategies
+
+**Where:** `VelocityClipStrategy.cs` and `ShuffleClipStrategy.cs`
+
+- **Velocity:** the "above every threshold" fallthrough does `return clips[clips.Length - 1]` without ever
+  reassigning `index`, which stays at its initial `0`.
+- **Shuffle:** the fallback scan keeps advancing `index` while probing for an unused clip, then returns
+  `result` — the clip found at the *earlier* index. `clips[index]` is then not the returned clip.
+
+Both are the same defect class: the returned clip and its reported index describe different array slots.
+
+**Blast radius is Editor-only.** The `PickNewClip(context, out index)` overload is consumed only by
+`Editor/AudioPreview/EntityReplayRequest.cs` and `Editor/EntityPropertyDrawer/AudioEntityEditor.cs`; runtime
+playback goes through the overloads that discard the index. The visible symptom is the inspector highlighting
+one clip row while previewing another.
+
+Both are characterized by tests that fail loudly if the mismatch is ever fixed.
