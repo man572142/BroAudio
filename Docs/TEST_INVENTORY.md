@@ -121,12 +121,36 @@ Real behaviors, deliberately not covered — cost far exceeds the confidence gai
 
 ---
 
-## Open questions for a live probe
+## Open questions — answered
 
-Cheap to settle in the Editor before the phase they block; none of them gate phase 2.
+All five were settled by close source reading plus the shipped `BroRuntimeSetting.asset`. Tests should still
+*assert* these rather than assume them; that is what characterization means.
 
-1. Does resuming from `Pause` re-trigger the fade-in block in `PlayControl`? (blocks 1.3 / 2.6)
-2. Is `Stop(fadeOut)` mid-fade interruptible by `UnPause()`, or does `IsStopping` block it? (blocks 2.4)
-3. Does `clip.Delay` apply on loop iterations after the first when `ChangeClipPerLoop` picks a new clip? (blocks 2.5)
-4. Does `SetScheduledStartTime`'s "pauses playback until dspTime" quirk surface in `IAudioPlayer` state, or only in raw `AudioSource` timing? (blocks 2.7)
-5. What are the configured `AudioFilterSlope` and dominator-pool sizes in this project's `RuntimeSetting`? (blocks the deferred-pool substitute)
+1. **Does resume re-trigger the fade-in?** Yes, structurally — `PlayControl`'s fade-in block has no `isResuming`
+   guard, and `TryGetFadeIn` returns true for any resolved fade > 0, including the clip's own `FadeIn`
+   (not just an explicit override). Whether it is *audible* depends on where `SetupClipVolume` leaves
+   `_clipVolume` on resume, since `Fade` ramps from current to target. Assert the observed behavior.
+2. **Is `Stop(fadeOut)` mid-fade interruptible by `UnPause()`?** No. `UnPause` requires
+   `_stopMode == StopMode.Pause`; during a `Stop` fade `_stopMode` is `StopMode.Stop`, so it logs
+   *"Cannot UnPause: The player is not paused"* and no-ops. It is `_stopMode` that blocks it, not `IsStopping`.
+   Separately, a second `Stop` during a fade is blocked by `IsStopping` unless the override is exactly
+   `FadeData.Immediate`.
+3. **Does `clip.Delay` apply after the first loop iteration?** It can. `SetClipDelayIfNotScheduled` runs at the
+   top of *every* `PlayControl`, including handover players, and applies whenever
+   `_pref.ScheduledStartTime <= 0`. The `isFirstLoopIteration` gate in `ResolveScheduledTiming` is a separate
+   concern and does not suppress it. So a newly-picked clip's `Delay` on a later iteration depends entirely on
+   whether the handover carried a non-zero `ScheduledStartTime`.
+4. **Does `SetScheduledStartTime`'s pause quirk surface in `IAudioPlayer` state?** No — only in raw `AudioSource`
+   timing. The code never touches `_stopMode` or `_onPaused` on that path, and an in-source comment confirms the
+   behavior is deliberate ("Some might consider this behavior a feature, so it has been left as is").
+5. **Shipped `BroRuntimeSetting.asset` values:** `AudioFilterSlope: 1` (FourPole), `DefaultAudioPlayerPoolSize: 5`,
+   `PitchSetting: 1`, `AlwaysPlayMusicAsBGM: 1`, `UpdateMode: 0`, `GlobalPlaybackGroup` **assigned**.
+
+Two consequences worth carrying forward:
+
+- **`PitchShiftingSetting` is `{ AudioMixer = 0, AudioSource = 1 }`**, so the shipped `PitchSetting: 1` is
+  `AudioSource` — the *working* path. Finding #2 (the `AudioMixer` case being a silent no-op) is therefore not
+  active in the default configuration, but a user who flips that dropdown gets a silently dead `SetPitch`.
+- **`GlobalPlaybackGroup` being assigned does not affect code-built entities.** It is consulted only through
+  `AudioAsset.LinkPlaybackGroup` and `PlaybackGroup`'s parent fallback, and a code-built entity has no
+  `AudioAsset`. The plan's premise holds: voice-limit and comb-filtering tests must wire a group explicitly.
