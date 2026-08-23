@@ -15,6 +15,7 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
 | 9 | Clip selection | `ShuffleClipStrategy` **can** repeat the previous clip, contradicting its documented contract | Open, characterized |
 | 10 | Clip selection | `out index` disagrees with the returned clip in `Velocity` and `Shuffle` | Open, characterized |
+| 11 | Music | `OnBGMChanged` fires twice per swap, once with a `null` argument | Open, characterized |
 
 ---
 
@@ -133,3 +134,28 @@ playback goes through the overloads that discard the index. The visible symptom 
 one clip row while previewing another.
 
 Both are characterized by tests that fail loudly if the mismatch is ever fixed.
+
+## 11. `OnBGMChanged` fires twice per BGM swap, once with `null`
+
+**Where:** `Assets/BroAudio/Runtime/Player/MusicPlayer.cs`
+
+Replacing one BGM with another raises `BroAudio.OnBGMChanged` **twice, both within the same frame**:
+
+1. `null` — the outgoing player's `Recycle()` runs `if (CurrentBGMPlayer == Instance) CurrentBGMPlayer = null;`,
+   and the property setter raises the event for that transition too.
+2. the incoming player — `DoTransition` then assigns `CurrentBGMPlayer = Instance`.
+
+The event's signature is `Action<IAudioPlayer>` with no nullability hint, and the XML doc describes it simply as
+firing when the BGM changes. A subscriber that does the obvious thing — read `.ID`, or store the argument and
+use it — throws on the null pass. Nothing in the API surface signals that a null is coming.
+
+Two consequences for anyone writing against this:
+
+- Always null-check the argument.
+- Do not count invocations to detect a swap. Both raises land in one frame, so a per-frame poll for
+  "exactly N events" can never observe the intermediate value. `SchedulingAndMusicTests` polls for the arrival
+  of a player with the expected `SoundID` instead, and that is the pattern to copy.
+
+`UpdateInstance` deliberately writes the backing field rather than the property when a loop or chain hands over
+to a new player, precisely so this event does *not* fire for handovers — the logical BGM has not changed there.
+That guard is worth preserving; the null raise above is the case it does not cover.

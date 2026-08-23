@@ -27,6 +27,7 @@ namespace Ami.BroAudio.Tests
         };
 
         private readonly List<UnityEngine.Object> _createdObjects = new List<UnityEngine.Object>();
+        private readonly List<Action<IAudioPlayer>> _bgmSubscriptions = new List<Action<IAudioPlayer>>();
         private string _settingSnapshot;
 
         [UnitySetUp]
@@ -59,6 +60,14 @@ namespace Ami.BroAudio.Tests
                 BroAudio.SetVolume(audioType, AudioConstant.FullVolume, 0f);
             }
 
+            // BroAudio.OnBGMChanged forwards to a *static* event on MusicPlayer — an un-removed handler
+            // outlives the test and fires during every later one.
+            foreach (Action<IAudioPlayer> handler in _bgmSubscriptions)
+            {
+                BroAudio.OnBGMChanged -= handler;
+            }
+            _bgmSubscriptions.Clear();
+
             foreach (UnityEngine.Object obj in _createdObjects)
             {
                 if (obj)
@@ -87,6 +96,16 @@ namespace Ami.BroAudio.Tests
 
         protected AudioClip NewClip(float seconds = 1f, string name = "TestClip")
             => Track(TestAudioLibrary.CreateClip(seconds, name));
+
+        /// <summary>
+        /// Subscribes to <see cref="BroAudio.OnBGMChanged"/> and unsubscribes automatically in TearDown.
+        /// Always use this rather than `BroAudio.OnBGMChanged +=` — the underlying event is static.
+        /// </summary>
+        protected void SubscribeBgmChanged(Action<IAudioPlayer> handler)
+        {
+            BroAudio.OnBGMChanged += handler;
+            _bgmSubscriptions.Add(handler);
+        }
 
         /// <summary>Registers an object for destruction in TearDown.</summary>
         protected T Track<T>(T obj) where T : UnityEngine.Object
