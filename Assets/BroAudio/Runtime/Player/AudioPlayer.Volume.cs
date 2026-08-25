@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using Ami.Extension;
 using UnityEngine;
+using UnityEngine.Audio;
 
 namespace Ami.BroAudio.Runtime
 {
@@ -131,6 +132,20 @@ namespace Ami.BroAudio.Runtime
             {
                 module.Complete(vol);
             }
+        }
+
+        /// <summary>
+        /// Tracks are pooled and shared across audio types, so a track returned at this player's level
+        /// gives its next borrower a blip at our volume until that player's own UpdateVolume lands.
+        /// </summary>
+        private void SilenceTrackBeforeReturn(AudioMixer mixer)
+        {
+            mixer.SafeSetFloat(GetCurrentTrackName(), AudioConstant.MinDecibelVolume);
+            if (IsUsingTrackEffect)
+            {
+                mixer.SafeSetFloat(GetSendParaName(), AudioConstant.MinDecibelVolume);
+            }
+            _mixerDecibelVolume = UnSetMixerDecibelVolume; // this player no longer owns the value on that track
         }
 
         private void ResetVolume()

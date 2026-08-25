@@ -48,7 +48,16 @@ namespace Ami.BroAudio.Editor.DevTool
 
             if(EditorUtility.DisplayDialog("Export BroAudio Package", $"Export Version:{BroVersion.CodeBaseVersion} ?", "Yes", "No"))
             {
+#if UNITY_6000_6_OR_NEWER
+                UnityEditor.AssetPackage.Package.Export(new UnityEditor.AssetPackage.ExportPackageParameters
+                {
+                    AssetPathNames = allfilePaths.ToArray(),
+                    FileName = "BroAudio" + DateTime.Now.ToString("yy-MM-dd-HH-mm") + ".unitypackage",
+                    Flags = ExportPackageOptions.Interactive
+                });
+#else
                 AssetDatabase.ExportPackage(allfilePaths.ToArray(), "BroAudio" + DateTime.Now.ToString("yy-MM-dd-HH-mm") + ".unitypackage", ExportPackageOptions.Interactive);
+#endif
             }
         }
 

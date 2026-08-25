@@ -23,6 +23,10 @@ namespace Ami.BroAudio.Editor.Setting
 		public const string InfoWindowMenuPath = BroName.MenuItem_BroAudio + BroName.MenuItem_Info;
 		public const string InfoWindowMenuPath_Window = BroName.MenuItem_BroAudio_Window + BroName.MenuItem_Info;
 
+        public const int IssueReportMenuIndex = 14;
+        public const string IssueReportMenuPath = BroName.MenuItem_BroAudio + BroName.MenuItem_IssueReport;
+        public const string IssueReportMenuPath_Window = BroName.MenuItem_BroAudio_Window + BroName.MenuItem_IssueReport;
+
 		public const int ClipEditorMenuIndex = 24;
 		public const string ClipEditorMenuPath = BroName.MenuItem_BroAudio + BroName.MenuItem_ClipEditor;
 		public const string ClipEditorMenuPath_Window = BroName.MenuItem_BroAudio_Window + BroName.MenuItem_ClipEditor;

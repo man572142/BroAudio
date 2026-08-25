@@ -56,21 +56,13 @@ namespace Ami.BroAudio.Runtime
                 return;
             }
 
-            // Silence the track before returning it so the next borrower doesn't get a one-frame
-            // blip at our stale level (its own UpdateVolume will overwrite this on first play).
-            mixer.SafeSetFloat(GetCurrentTrackName(), AudioConstant.MinDecibelVolume);
-            if (IsUsingTrackEffect)
-            {
-                mixer.SafeSetFloat(GetSendParaName(), AudioConstant.MinDecibelVolume);
-            }
-
+            SilenceTrackBeforeReturn(mixer);
             Mixer?.ReturnTrack(AudioTrackType.Generic, track);
             // Once unrouted (no mixer group), the source plays at AudioSource.volume directly to the
             // listener. We normally keep that at full and drive loudness via the track, so preserve
             // the player's real computed level here to avoid a full-volume blip while released.
             AudioSource.volume = (_clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current).ClampNormalize();
             AudioTrack = null; // clears outputAudioMixerGroup and the cached track/send names
-            _mixerDecibelVolume = UnSetMixerDecibelVolume; // force a re-read/re-push on re-acquire
             _trackReleasedByVirtual = true;
             _virtualElapsed = 0f;
         }
