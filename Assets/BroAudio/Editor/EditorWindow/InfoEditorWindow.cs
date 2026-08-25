@@ -68,6 +68,12 @@ namespace Ami.BroAudio.Editor
                 DrawParagraph(drawPosition, "Refer to the known issues page for updates and solutions.");
                 DrawUrlLink(GetRectAndIterateLine(drawPosition), KnownIssueURL, KnownIssueURL, TextAnchor.MiddleCenter);
                 DrawEmptyLine(1);
+                Rect reportIssueButtonRect = GetRectAndIterateLine(drawPosition).GetHorizontalCenterRect(ButtonWidth, SingleLineSpace * 1.5f);
+                if (GUI.Button(reportIssueButtonRect, MenuItem_IssueReport))
+                {
+                    IssueReportWindow.ShowWindow();
+                }
+                DrawEmptyLine(1);
 
                 DrawEmptyLine(1);
                 EditorGUI.LabelField(GetRectAndIterateLine(drawPosition), "Support & Community".ToWhiteBold().SetSize(20), middleCenterRichText);

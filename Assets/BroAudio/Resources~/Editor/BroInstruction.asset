@@ -179,3 +179,52 @@ MonoBehaviour:
       of BroAudio
   - Key: 7
     Value: Please specify a default output path.
+  - Key: 600
+    Value: The category of issue you're reporting. This determines which environment
+      details are automatically included in the report.
+  - Key: 601
+    Value: A short, descriptive summary of the issue.
+  - Key: 602
+    Value: Describe what happened, including the steps to reproduce it.
+  - Key: 603
+    Value: Describe what you expected to happen instead.
+  - Key: 604
+    Value: The SoundIDs of the audio entities involved in this issue, if any.
+  - Key: 605
+    Value: The GameObject or ScriptableObject where the problem occurs. Used to auto-collect
+      script references and component settings.
+  - Key: 606
+    Value: How you're using BroAudio where the issue occurs, either through a Component
+      or your own Script, determines what additional information is collected.
+  - Key: 607
+    Value: Paste any relevant error, warning, or exception messages from the Console
+      window.
+  - Key: 608
+    Value: Automatically collect the SoundID references found on the Target Object's
+      scripts.
+  - Key: 609
+    Value: "<b>Save Report</b> saves it to a file.<br><b>Create GitHub Issue</b> 
+      copies the report to your clipboard and opens a GitHub issue page \u2014 just
+      paste it in."
+  - Key: 610
+    Value: 'Please fill in the following required fields before saving: {0}'
+  - Key: 611
+    Value: None of the Problem Sounds were found referenced on {0}.
+  - Key: 612
+    Value: No BroAudio components were found on the Target Object.
+  - Key: 613
+    Value: You can edit the collected script content above before saving. Review
+      it to make sure it doesn't contain any sensitive information.
+  - Key: 614
+    Value: Report saved and copied to clipboard!
+  - Key: 615
+    Value: Report copied to clipboard (not saved to a file).
+  - Key: 616
+    Value: Something is wrong in the Unity Editor itself (e.g. Library Manager, inspectors,
+      import) outside of Play Mode.
+  - Key: 617
+    Value: Something is wrong while the game is running in the Editor's Play Mode.
+  - Key: 618
+    Value: Something is wrong only in a built player, not in the Editor.
+  - Key: 31
+    Value: Clips are saved as .wav files with the source's import settings copied over. Unity re-encodes them at build time, so the build size is unchanged, while skipping a lossy re-encode preserves higher quality.

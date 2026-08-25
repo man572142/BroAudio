@@ -258,6 +258,9 @@ namespace Ami.BroAudio.Runtime
 
 #if !UNITY_WEBGL
             AudioTrack = Mixer.GetTrack(TrackType);
+            // Claim the borrowed track at our own level before anything can start the source: SetupClipVolume
+            // is the next write, and it's deferred past a music transition (and past PlayScheduled).
+            UpdateVolume(true);
 #endif
 
             if (!IsDominator)

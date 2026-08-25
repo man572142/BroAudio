@@ -27,6 +27,7 @@
 
         // Clip Editor
         ClipEditorConfirmationDialog = 30,
+        ClipEditorLossySourceFormat,
 
         // EntityIssue
         EntityIssue_HasEmptyName = 100,
@@ -68,7 +69,28 @@
 
         // Playback Group
         PlaybackGroup_Override = 500,
-        
+
+        // Issue Report
+        IssueReport_TypeTooltip = 600,
+        IssueReport_TitleTooltip,
+        IssueReport_DescriptionTooltip,
+        IssueReport_ExpectationTooltip,
+        IssueReport_ProblemSoundsTooltip,
+        IssueReport_TargetObjectTooltip,
+        IssueReport_IntegrationStyleTooltip,
+        IssueReport_ConsoleOutputTooltip,
+        IssueReport_AutoCollectTooltip,
+        IssueReport_CreateIssueHint,
+        IssueReport_MissingRequiredFields,
+        IssueReport_NoSoundsMatchedTarget,
+        IssueReport_NoBroAudioComponentsFound,
+        IssueReport_PrivacyNotice,
+        IssueReport_SavedNotification,
+        IssueReport_CopiedNotSavedNotification,
+        IssueReport_TypeTooltip_Editor,
+        IssueReport_TypeTooltip_PlayMode,
+        IssueReport_TypeTooltip_Build,
+
         // Others
         PlayDemo = 1000,
     }
