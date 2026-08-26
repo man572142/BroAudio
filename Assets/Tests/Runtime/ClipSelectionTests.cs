@@ -93,18 +93,17 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        public void SelectClip_WithUnsetFirstClip_ReturnsUnsetClipWithoutLoggingError()
+        public void SelectClip_WithUnsetFirstClip_LogsErrorAndReturnsNull()
         {
-            // characterizes: unlike Sequence/Shuffle, Single only rejects a reference-null entry
-            // (clips[0] == null). An unset BroAudioClip (non-null, IsSet == false) passes through
-            // unchecked and is returned as-is; the failure is deferred to whatever plays it.
+            // Single rejects an unset BroAudioClip (non-null, IsSet == false) the same way
+            // Sequence and Shuffle do, rather than deferring the failure to whatever plays it.
             var clips = new[] { UnsetClip() };
             var strategy = new SingleClipStrategy();
+            LogAssert.Expect(LogType.Error, new Regex("No valid clip is set"));
 
             IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
 
-            Assert.AreSame(clips[0], result);
-            Assert.IsFalse(result.IsSet);
+            Assert.IsNull(result);
         }
 
         #endregion

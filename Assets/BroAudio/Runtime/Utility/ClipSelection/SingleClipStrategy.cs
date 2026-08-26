@@ -20,6 +20,11 @@ namespace Ami.BroAudio.Runtime
                 Debug.LogError(Utility.LogTitle + $"`{context.EntityName}`'s first clip is null.");
                 return null;
             }
+            if (!clips[0].IsSet)
+            {
+                Debug.LogError(Utility.LogTitle + $"No valid clip is set in [<b>{context.EntityName}</b>]. Please check the clip settings.");
+                return null;
+            }
             return clips[0];
         }
 
