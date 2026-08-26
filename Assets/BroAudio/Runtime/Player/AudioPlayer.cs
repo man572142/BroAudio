@@ -191,7 +191,7 @@ namespace Ami.BroAudio.Runtime
 
         IAudioPlayer IAudioPlayer.SetSequenceId(string sequenceId)
         {
-            _pref.SequenceId = sequenceId;
+            _pref.SetSequenceId(sequenceId);
             return this;
         }
 
