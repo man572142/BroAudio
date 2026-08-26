@@ -20,33 +20,25 @@ namespace Ami.BroAudio.Runtime
         IAudioPlayer IAudioPlayer.SetPitch(float pitch, float fadeTime)
         {
             TargetPitch = pitch;
-            switch (SoundManager.PitchSetting)
+            pitch = Mathf.Clamp(pitch, AudioConstant.MinAudioSourcePitch, AudioConstant.MaxAudioSourcePitch);
+            if (fadeTime > 0f)
             {
-                case PitchShiftingSetting.AudioMixer:
-                    //_audioMixer.SafeSetFloat(_pitchParaName, pitch); // Don't * 100f, the value in percentage is displayed in Editor only.
-                    break;
-                case PitchShiftingSetting.AudioSource:
-                    pitch = Mathf.Clamp(pitch, AudioConstant.MinAudioSourcePitch, AudioConstant.MaxAudioSourcePitch);
-                    if (fadeTime > 0f)
-                    {
-                        // Before SetInitialPitch runs, the source pitch isn't the entity pitch yet, so defer.
-                        if (HasStartedPlaying || AudioSource.isPlaying)
-                        {
-                            _pendingPitchFadeTime = 0f;
-                            this.RestartCoroutine(PitchControl(pitch, fadeTime), ref _pitchCoroutine);
-                        }
-                        else
-                        {
-                            _pendingPitchFadeTime = fadeTime;
-                        }
-                    }
-                    else
-                    {
-                        _pendingPitchFadeTime = 0f;
-                        AudioSource.pitch = pitch;
-                        RecalculateScheduledEndTime();
-                    }
-                    break;
+                // Before SetInitialPitch runs, the source pitch isn't the entity pitch yet, so defer.
+                if (HasStartedPlaying || AudioSource.isPlaying)
+                {
+                    _pendingPitchFadeTime = 0f;
+                    this.RestartCoroutine(PitchControl(pitch, fadeTime), ref _pitchCoroutine);
+                }
+                else
+                {
+                    _pendingPitchFadeTime = fadeTime;
+                }
+            }
+            else
+            {
+                _pendingPitchFadeTime = 0f;
+                AudioSource.pitch = pitch;
+                RecalculateScheduledEndTime();
             }
             return this;
         }

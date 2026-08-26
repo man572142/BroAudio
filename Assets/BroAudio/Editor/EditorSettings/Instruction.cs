@@ -19,8 +19,9 @@
         AddTracksConfirmationDialog,
         AudioVoicesToolTip,
         BroVirtualToolTip,
-        PitchShiftingToolTip,
-        AudioFilterSlope,
+        // 15 was PitchShiftingToolTip; the values below are pinned so the shipped BroInstruction asset
+        // (which serializes these as raw ints) keeps mapping to the same entries.
+        AudioFilterSlope = 16,
         AlwaysPlayMusicAsBGM,
         GlobalPlaybackGroup,
         UpdateMode,
