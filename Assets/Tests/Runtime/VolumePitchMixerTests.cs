@@ -61,7 +61,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
-        public IEnumerator SetAudioTypeVolume_ToExactlyDefault_PushesLiveButIsSkippedForFuturePlays()
+        public IEnumerator SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers()
         {
             SoundID liveId = NewSound("LiveTypeSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer livePlayer = BroAudio.Play(liveId);
@@ -72,21 +72,20 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
             Assert.AreEqual(0.4f, livePlayer.GetVolume(), LinearTolerance);
 
-            // Setting back to exactly 1f (DefaultTrackVolume) is still unconditionally pushed to live players.
+            // Setting back to exactly 1f (DefaultTrackVolume) is pushed to live players.
             BroAudio.SetVolume(BroAudioType.SFX, 1f, 0f);
             yield return WaitFrames(1);
-            Assert.AreEqual(1f, livePlayer.GetVolume(), LinearTolerance, "Live players are pushed even when the new value equals the default (SoundManager.SetVolume has no Approximately guard).");
+            Assert.AreEqual(1f, livePlayer.GetVolume(), LinearTolerance, "Live players are pushed even when the new value equals the default.");
 
-            // characterizes: Docs/TEST_FINDINGS.md finding #7 - PlayControl skips the Complete() call for a
-            // freshly-started player when the persisted pref is exactly 1f (Mathf.Approximately guard), unlike
-            // the unconditional live push above. Harmless today only because a fresh Fader already starts at 1f.
+            // PlayControl applies the stored pref to a freshly-started player unconditionally, so the pref
+            // and live players agree at every value including the default (Docs/TEST_FINDINGS.md finding #7).
             Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref pref));
             Assert.AreEqual(1f, pref.Volume, LinearTolerance);
 
             SoundID futureId = NewSound("FutureTypeSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer futurePlayer = BroAudio.Play(futureId);
             yield return WaitUntilOrTimeout(() => futurePlayer.IsPlaying, "future playback to start", 2f);
-            Assert.AreEqual(1f, futurePlayer.GetVolume(), LinearTolerance, "A fresh player still reads full volume even though PlayControl's guard skipped the explicit apply.");
+            Assert.AreEqual(1f, futurePlayer.GetVolume(), LinearTolerance, "A fresh player should read the stored per-type volume.");
         }
 
         [UnityTest]
