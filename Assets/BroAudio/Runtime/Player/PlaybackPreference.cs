@@ -13,7 +13,7 @@ namespace Ami.BroAudio.Runtime
         private FadeData _fadeInData;
         private FadeData _fadeOutData;
         private int _contextValue;
-        public string SequenceId { get; set; }
+        public string SequenceId { get; private set; }
         public double ScheduledStartTime { get; set; }
         public double ScheduledEndTime { get; set; }
 
@@ -133,6 +133,16 @@ namespace Ami.BroAudio.Runtime
                 return;
             }
             _contextValue = velocity;
+        }
+
+        public void SetSequenceId(string sequenceId)
+        {
+            if (Entity.PlayMode != MulticlipsPlayMode.Sequence)
+            {
+                Debug.LogError($"Cannot set sequence id on [{Entity}] because it's not using SequencePlayMode. (current : {Entity.PlayMode})");
+                return;
+            }
+            SequenceId = sequenceId;
         }
 
         public bool HasFollowTarget(out Transform target)
