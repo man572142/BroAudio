@@ -25,7 +25,7 @@ Two setup facts apply to nearly every behavior below and are not repeated in eve
 - **Observable**: `player.AudioSource.clip` after one frame, or `SingleClipStrategy.SelectClip(clips, ctx, out index)` directly.
 - **Setup**: entity with `MulticlipsPlayMode = MulticlipsPlayMode.Single` (default); `Clips[0]` set.
 - **Timing class**: EditMode-pure for the strategy; frame for the AudioSource proxy.
-- **Edge cases**: `Clips` null/empty → `Utility.ClipListIsNullOrEmpty` logs and returns null; `Clips[0]` non-null but unset (`IsSet == false`, i.e. no `AudioClip`/addressable) → logs `"...first clip is null."` and returns null (`SingleClipStrategy.cs:18-22` checks `clips[0] == null` specifically — a *reference*-null entry, not `IsSet`, so a `BroAudioClip` with an unassigned `AudioClip` field passes this check and is returned anyway, deferring the failure to playback).
+- **Edge cases**: `Clips` null/empty → `Utility.ClipListIsNullOrEmpty` logs and returns null; `Clips[0]` reference-null → logs `"...first clip is null."` and returns null; `Clips[0]` non-null but unset (`IsSet == false`, i.e. no `AudioClip`/addressable) → logs `"No valid clip is set in [...]"` and returns null. Reference-null and unset are separate checks with distinct messages. Single used to accept the unset case and return it, deferring the failure to playback; that was fixed (TEST_FINDINGS #6) so it now matches `Sequence`/`Shuffle`.
 - **Regression risk**: low — the strategy is trivial; the null-vs-unset distinction is the only subtlety.
 
 ### Sequence mode (default) cycles clips 0..N-1 and wraps
@@ -39,7 +39,7 @@ Two setup facts apply to nearly every behavior below and are not repeated in eve
 ### Sequence mode: named SequenceIds run independent cursors
 
 - **Observable**: `ClipSelectionContext.SequenceId` set to different strings on the same entity yields independent index progressions per id, tracked in `SequenceClipStrategy._namedSequenceIndices` (a `Dictionary<string,int>`).
-- **Setup**: same entity; vary `context.SequenceId` (EditMode) or chain `.SetSequenceId("foo")` on the returned `IAudioPlayer` before the frame's `LateUpdate` drains the play queue (`AudioPlayer.cs:193-197` writes `_pref.SequenceId`; the clip is picked lazily in the play coroutine at `AudioPlayer.Playback.cs:76`, so the call must land before that coroutine runs — i.e. chained in the same statement as `BroAudio.Play`).
+- **Setup**: same entity; vary `context.SequenceId` (EditMode) or chain `.SetSequenceId("foo")` on the returned `IAudioPlayer` before the frame's `LateUpdate` drains the play queue (`AudioPlayer.cs` forwards to `_pref.SetSequenceId(...)`, which no-ops outside Sequence mode; the clip is picked lazily in the play coroutine at `AudioPlayer.Playback.cs:76`, so the call must land before that coroutine runs — i.e. chained in the same statement as `BroAudio.Play`).
 - **Edge cases**: `SequenceId == null` explicitly routes to the *default* (non-named) cursor, not a named entry called `"null"` — `SequenceClipStrategy.cs:28` checks `context.SequenceId != null`. `Reset(sequenceId: null)` resets the default cursor; `Reset(sequenceId: "x")` only removes `"x"`'s dictionary entry.
 - **Regression risk**: medium — two independent pieces of mutable state (`_sequenceIndex` and the dictionary) must stay behaviorally identical; a fix to one path alone is a classic regression source.
 
@@ -182,12 +182,12 @@ Two setup facts apply to nearly every behavior below and are not repeated in eve
 - **Timing class**: immediate.
 - **Regression risk**: low — mechanical `?.` forwarding — but a good defensive smoke test given how much of the public API surface funnels through this one file.
 
-### SetVelocity is a guarded no-op outside Velocity mode; SetSequenceId has no such guard
+### SetVelocity and SetSequenceId are both guarded no-ops outside their own mode
 
-- **Observable**: `.SetVelocity(n)` on a non-Velocity entity logs `Debug.LogError` and leaves `_contextValue` unchanged (`PlaybackPreference.cs:128-136`); `.SetSequenceId("x")` has no mode check at all — it unconditionally sets `_pref.SequenceId`, and that value is silently *irrelevant* for every mode except Sequence (other strategies never read `context.SequenceId`).
-- **Setup**: entity in `Random`/`Single`/etc. mode; call `.SetVelocity()` and separately `.SetSequenceId()`; check for the logged error (velocity) vs. silence (sequence id).
+- **Observable**: `.SetVelocity(n)` on a non-Velocity entity logs `Debug.LogError` and leaves `_contextValue` unchanged; `.SetSequenceId("x")` on a non-Sequence entity does the same and leaves `SequenceId` unchanged (both in `PlaybackPreference.cs`). `SequenceId`'s setter is private, so the guard cannot be bypassed.
+- **Setup**: entity in `Random`/`Single`/etc. mode; call `.SetVelocity()` and separately `.SetSequenceId()`; expect a logged error from each.
 - **Timing class**: immediate.
-- **Regression risk**: low — but the asymmetry (one guarded, one not) is worth a note in Conflicts since it looks like an oversight rather than a deliberate design choice.
+- **Regression risk**: low — the guards are symmetric now (TEST_FINDINGS #5); the risk is a refactor that drops one of them.
 
 ## RuntimeSetting toggles that change Play behavior
 
@@ -212,7 +212,6 @@ No `SoundManager`, no `AudioEntity`, no ScriptableObject needed — construct th
 - `Ami.BroAudio.Runtime.ShuffleClipStrategy.SelectClip` / `.Reset()`
 - `Ami.BroAudio.Runtime.VelocityClipStrategy.SelectClip`
 - `Ami.BroAudio.Runtime.ChainedClipStrategy.SelectClip` (feed `ClipSelectionContext((int)PlaybackStage.Start/Loop/End)` directly)
-- `Ami.BroAudio.Runtime.LayeredClipStrategy.SelectClip` (trivial — always index 0; currently has no `MulticlipsPlayMode` entry routing to it in `AudioEntity.PickNewClip`'s switch, see Could-not-determine)
 - `Ami.BroAudio.Runtime.LocalizationClipStrategy.SelectClip`, after `.Inject(localizedAudio, name, tryGetCachedClip)` with a synthetic non-empty `LocalizedAudioClip` and a lambda-supplied `AudioClip` — see the Localization row above for exactly how to avoid needing a real Addressables/Localization table
 - `Ami.BroAudio.Data.AudioEntity.GetRandomValue(float baseValue, float range)` (the static overload) and `AudioEntity.GetRandomValue(baseValue, RandomFlag)` on a `ScriptableObject.CreateInstance<AudioEntity>()` instance with fields set via `TestAudioLibrary.SetPrivateField` — no `SoundManager` needed since this path never touches it
 - `Ami.BroAudio.Data.AudioEntity.HasLoop(out LoopType, out float, LoopType chainedDefaultLoop, float chainedDefaultTransitionTime)` — the 4-arg overload, explicit defaults, no `SoundManager.Instance` dependency (the 2-arg overload *does* need one)
@@ -221,13 +220,12 @@ No `SoundManager`, no `AudioEntity`, no ScriptableObject needed — construct th
 ## Conflicts observed
 
 - `ChainedClipStrategy.cs:16` (`index < 0 || index >= clips.Length` → error) and `PlaybackPreference.CanHandoverToEnd()`'s `Entity.Clips.Length < (int)PlaybackStage.End` check (`PlaybackPreference.cs:173-174`) are two independent guards against the same "not enough clips for Chained mode" condition, computed differently (one via the strategy at selection time, one via the handover pre-check). They happen to agree today; nothing enforces that they always will if either is edited in isolation.
-- `SetVelocity` is guarded against being called outside Velocity mode (logs and no-ops); `SetSequenceId` has the exact same shape of "irrelevant outside my mode" problem but no equivalent guard or log. Looks like an inconsistency rather than an intentional asymmetry — documented as current behavior, not a bug to fix here.
-- `SingleClipStrategy` treats `clips[0] == null` (reference null) as an error case but treats an *unset* clip (non-null `BroAudioClip` with no `AudioClip`/addressable assigned, `IsSet == false`) as valid and returns it — deferring the real failure to whatever tries to actually play it. `SequenceClipStrategy`/`ShuffleClipStrategy`, by contrast, check `.IsSet` directly. Single mode is the odd one out.
-- `AudioEntity.PickNewClip`'s switch over `MulticlipsPlayMode` has no case that ever constructs a `LayeredClipStrategy` — that strategy class exists, compiles, and is trivially correct, but appears unreachable from the enum-driven dispatch (`MulticlipsPlayMode` has no `Layered` member at all). Noted here rather than investigated further per the "characterize, don't fix" rule; flagged again below since it may simply be a work-in-progress feature.
+- ~~`SetVelocity` is guarded against being called outside Velocity mode, but `SetSequenceId` has no equivalent guard or log.~~ **Resolved** (TEST_FINDINGS #5): `PlaybackPreference.SetSequenceId` now mirrors `SetVelocity`, and `SequenceId`'s setter is private so the guard cannot be sidestepped.
+- ~~`SingleClipStrategy` treats an *unset* clip as valid and returns it, unlike `Sequence`/`Shuffle`.~~ **Resolved** (TEST_FINDINGS #6): Single now checks `.IsSet` too, logging and returning null instead of deferring the failure to playback.
+- ~~`AudioEntity.PickNewClip`'s switch never constructs a `LayeredClipStrategy`.~~ **Resolved** (TEST_FINDINGS #3): the class was confirmed unreachable — zero references under `Assets/`, no `Layered` member on `MulticlipsPlayMode` — and has been deleted.
 
 ## Could not determine statically
 
-- Whether `LayeredClipStrategy` is genuinely dead code, mid-development, or wired up through a path this read missed (e.g. reflection, an editor-only bridge, or a newer `MulticlipsPlayMode` value not yet in `Enums/MulticlipsPlayMode.cs`). Worth a quick grep-in-Editor or asking the maintainer before writing a test that would otherwise test unreachable code.
 - Whether `Assets/Localization/` actually has a registered `AssetTable`/`String Table Collection` with an `AudioClip` entry. Reading `Assets/Localization/Localization Settings.asset` directly shows `m_TableCollectionName:` empty in the sampled fields, and no table asset files exist under `Assets/Localization/` (only the three `Locale` assets and the settings asset) — suggesting the *locales* are configured but no actual localized *table* exists yet. This doesn't block testing `LocalizationClipStrategy` itself (the `Inject()` bypass documented above sidesteps it entirely), but it does mean the full `BroAudio.Play()` → `SoundManager` → real resolved `AudioClip` path for `MulticlipsPlayMode.Localization` is untestable as authored today. The orchestrator should confirm this in the live Editor (Window > Asset Management > Localization Tables) rather than trust this file-system read.
 - Exact behavior of `PlaybackGroup.Parent`/`GlobalPlaybackGroup` fallback when a rule's `_isOverride` is false and `GlobalPlaybackGroup` is itself null vs. pointing at another `DefaultPlaybackGroup` with its own rules — the code path exists (`PlaybackGroup.cs:21-37`, `Rule<T>.Initialize`) but is a low-traffic edge case not exercised by anything read here; worth a quick live-Editor sanity check before writing tests, since chained-parent resolution (a group's parent's parent) is not obviously covered by the single `_parent` field's logic.
 - Whether `AudioEntity.Flags`/`ChangeClipPerLoop` combined with `Chained` mode (both drive `needNewClip` in `AudioPlayer.Playback.cs:326-328` via an `||`) produces any surprising interaction — not traced end-to-end here since it crosses into the handover/looping territory owned by a different section.

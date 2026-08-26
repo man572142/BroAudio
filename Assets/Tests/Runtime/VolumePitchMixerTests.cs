@@ -9,7 +9,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory 1.6-1.10 (Docs/inventory/volume-mixer.md): volume composition, per-type volume's
+    /// Inventory 1.6-1.9 (Docs/inventory/volume-mixer.md): volume composition, per-type volume's
     /// live/future behavior, mixer track acquisition/return, and pitch via AudioSource.
     /// </summary>
     public class VolumePitchMixerTests : BroAudioTestFixture
