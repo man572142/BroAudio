@@ -31,22 +31,7 @@ namespace Ami.BroAudio.Tests
         {
             var broClip = new BroAudioClip();
             SetPrivateField(broClip, BroAudioClip.NameOf.AudioClip, clip);
-            FillNullAssetReference(broClip);
             return broClip;
-        }
-
-        /// <summary>
-        /// Unity's serializer always materializes the AssetReference field; `new BroAudioClip()` leaves it null and
-        /// <c>IsAddressablesAvailable()</c> then throws (see Docs/TEST_FINDINGS.md). Reflection keeps the Tests
-        /// assembly free of an Addressables reference and works unchanged when the package is absent.
-        /// </summary>
-        private static void FillNullAssetReference(BroAudioClip broClip)
-        {
-            FieldInfo field = typeof(BroAudioClip).GetField(BroAudioClip.NameOf.AudioClipAssetReference, PrivateInstance);
-            if (field != null && field.GetValue(broClip) == null)
-            {
-                field.SetValue(broClip, System.Activator.CreateInstance(field.FieldType, string.Empty));
-            }
         }
 
         /// <summary>Creates a playable entity. Passing no clips generates one 1-second clip.</summary>
