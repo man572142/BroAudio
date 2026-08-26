@@ -1,0 +1,670 @@
+<title>__PAGE_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* Light is the base set; dark redefines only tokens, twice, so the un-stamped
+     (system) state and an explicit toggle both resolve correctly. */
+  :root {
+    --bg:        #f4f4f8;
+    --surface:   #ffffff;
+    --surface-2: #ececf3;
+    --ink:       #191b24;
+    --ink-2:     #565b70;
+    --ink-3:     #8a8fa4;
+    --rule:      #e2e3ec;
+    --rule-2:    #d3d5e0;
+    --halo:      rgba(25,27,36,.06);
+    --shadow:    0 -8px 40px rgba(25,27,36,.16);
+    --scrim:     rgba(25,27,36,.34);
+
+    --lane-0: #2f7be8;
+    --lane-1: #d9513a;
+    --lane-2: #1e9464;
+    --lane-3: #9b4fd1;
+    --lane-4: #b8791a;
+    --lane-5: #1897a8;
+    --lane-6: #ce4a7e;
+    --lane-7: #5f6abe;
+
+    --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #111218;
+      --surface:   #191b23;
+      --surface-2: #22242e;
+      --ink:       #e8e9f0;
+      --ink-2:     #979db1;
+      --ink-3:     #6b7084;
+      --rule:      #272a35;
+      --rule-2:    #343846;
+      --halo:      rgba(232,233,240,.07);
+      --shadow:    0 -8px 40px rgba(0,0,0,.55);
+      --scrim:     rgba(0,0,0,.55);
+
+      --lane-0: #6ba5ff;
+      --lane-1: #ff8266;
+      --lane-2: #4fcb92;
+      --lane-3: #c68cf0;
+      --lane-4: #efb44c;
+      --lane-5: #4ccbdc;
+      --lane-6: #f582ac;
+      --lane-7: #98a2e8;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:        #111218;
+    --surface:   #191b23;
+    --surface-2: #22242e;
+    --ink:       #e8e9f0;
+    --ink-2:     #979db1;
+    --ink-3:     #6b7084;
+    --rule:      #272a35;
+    --rule-2:    #343846;
+    --halo:      rgba(232,233,240,.07);
+    --shadow:    0 -8px 40px rgba(0,0,0,.55);
+    --scrim:     rgba(0,0,0,.55);
+
+    --lane-0: #6ba5ff;
+    --lane-1: #ff8266;
+    --lane-2: #4fcb92;
+    --lane-3: #c68cf0;
+    --lane-4: #efb44c;
+    --lane-5: #4ccbdc;
+    --lane-6: #f582ac;
+    --lane-7: #98a2e8;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap { max-width: 780px; margin: 0 auto; padding: 0 0 96px; }
+
+  .mast { padding: 30px 18px 20px; border-bottom: 1px solid var(--rule); }
+  .repo {
+    font-family: var(--mono);
+    font-size: 11px; font-weight: 500; letter-spacing: .07em;
+    color: var(--ink-3); margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(27px, 8vw, 36px); font-weight: 700;
+    letter-spacing: -.035em; line-height: 1; margin: 0; text-wrap: balance;
+  }
+  .stats {
+    display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 14px;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .stats span { display: inline-flex; gap: 5px; align-items: baseline; }
+  .stats b { color: var(--ink); font-weight: 700; }
+  .stats .span { color: var(--ink-3); }
+
+  .legend { border-bottom: 1px solid var(--rule); padding: 16px 0 15px; }
+  .lbl {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: .13em;
+    color: var(--ink-3); padding: 0 18px; margin: 0 0 11px;
+  }
+  .chipscroll { position: relative; }
+  .chipscroll::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 34px;
+    pointer-events: none; background: linear-gradient(to right, transparent, var(--bg));
+  }
+  .chips { display: flex; gap: 7px; overflow-x: auto; padding: 2px 18px 4px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 12px 7px 10px; border: 1px solid var(--rule-2); border-radius: 999px;
+    background: var(--surface); color: var(--ink-2);
+    font-family: var(--mono); font-size: 12px; font-weight: 500; line-height: 1;
+    cursor: pointer; white-space: nowrap;
+    transition: border-color .14s, color .14s, background .14s;
+  }
+  .chip:hover { color: var(--ink); border-color: var(--ink-3); }
+  .chip[aria-pressed="true"] { color: var(--ink); border-color: currentColor; background: var(--surface-2); }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .chip.all .dot { background: linear-gradient(135deg, var(--lane-0), var(--lane-2) 45%, var(--lane-1)); }
+
+  .graph { position: relative; }
+  #rail { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+  .rows { position: relative; }
+
+  .row {
+    width: 100%; height: var(--row-h);
+    padding: 6px calc(18px + env(safe-area-inset-right, 0px)) 6px calc(var(--rail-w) + 4px);
+    border: 0; border-bottom: 1px solid var(--rule);
+    background: transparent; text-align: left; font: inherit; color: inherit;
+    cursor: pointer; display: flex; flex-direction: column; justify-content: center; gap: 4px;
+    transition: background .14s, opacity .18s;
+  }
+  .row:hover { background: var(--halo); }
+  .row:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+  .row.dim { opacity: .22; }
+  .row.flash { background: var(--surface-2); }
+
+  .subject {
+    font-size: 14.5px; font-weight: 500; line-height: 1.32; letter-spacing: -.005em;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .row.pre .subject { color: var(--ink-3); font-style: italic; }
+
+  .meta {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+    font-variant-numeric: tabular-nums; min-width: 0;
+  }
+  .meta .sha { color: var(--ink-2); font-weight: 500; }
+  .meta .sep { opacity: .5; }
+  .meta .when { white-space: nowrap; }
+
+  .reftags { display: flex; gap: 5px; min-width: 0; overflow: hidden; }
+  .reftag {
+    display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px 2px 5px;
+    border-radius: 4px; background: var(--surface-2); color: var(--ink-2);
+    font-size: 10.5px; font-weight: 500; white-space: nowrap;
+    max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .reftag .dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+
+  .tail { font-family: var(--mono); font-size: 11px; line-height: 1.6; color: var(--ink-3); padding: 18px 18px 0; }
+
+  .scrim {
+    position: fixed; inset: 0; background: var(--scrim);
+    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20;
+  }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 21;
+    margin: 0 auto; max-width: 780px; max-height: 82vh; overflow-y: auto;
+    background: var(--surface); border-top: 1px solid var(--rule-2);
+    border-radius: 16px 16px 0 0; box-shadow: var(--shadow);
+    transform: translateY(101%); transition: transform .26s cubic-bezier(.32,.72,0,1);
+    padding: 0 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+  .sheet.open { transform: translateY(0); }
+  .grab { width: 34px; height: 4px; border-radius: 2px; background: var(--rule-2); margin: 10px auto 16px; }
+  .sheet h2 {
+    font-size: 16.5px; font-weight: 600; line-height: 1.35;
+    letter-spacing: -.01em; margin: 0 0 16px; text-wrap: balance;
+  }
+  .facts { display: grid; gap: 0; margin: 0; }
+  .fact {
+    display: grid; grid-template-columns: 74px 1fr; gap: 12px;
+    padding: 9px 0; border-top: 1px solid var(--rule); align-items: start;
+  }
+  .fact dt {
+    font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+    letter-spacing: .11em; color: var(--ink-3); padding-top: 3px;
+  }
+  .fact dd {
+    margin: 0; font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+    word-break: break-word; font-variant-numeric: tabular-nums;
+  }
+  .fact dd .stack { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; align-self: stretch; }
+  .note { color: var(--ink-3); font-size: 11px; margin-top: 3px; }
+  .jump {
+    display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+    border: 1px solid var(--rule-2); background: var(--surface-2); color: var(--ink);
+    font-family: var(--mono); font-size: 12px; padding: 6px 9px; border-radius: 5px; cursor: pointer;
+  }
+  .jump:hover { border-color: var(--ink-3); }
+  .jump[disabled] { cursor: default; color: var(--ink-3); opacity: .7; }
+  .jump .jsha { flex: 0 0 auto; font-weight: 500; }
+  .jump .jlabel {
+    font-family: var(--sans); font-size: 12px; color: var(--ink-2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .close {
+    width: 100%; margin-top: 18px; padding: 12px;
+    border: 1px solid var(--rule-2); border-radius: 9px; background: transparent;
+    color: var(--ink-2); font-family: var(--mono); font-size: 12px; letter-spacing: .05em; cursor: pointer;
+  }
+  .close:hover { color: var(--ink); border-color: var(--ink-3); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <p class="repo" id="repo"></p>
+    <h1 id="title"></h1>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <section class="legend">
+    <p class="lbl">Branches active in this window</p>
+    <div class="chipscroll"><div class="chips" id="chips"></div></div>
+  </section>
+
+  <div class="graph" id="graph">
+    <svg id="rail" aria-hidden="true"></svg>
+    <div class="rows" id="rows"></div>
+  </div>
+
+  <p class="tail" id="tail"></p>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="sheet" id="sheet" aria-hidden="true" aria-label="Commit detail">
+  <div class="grab"></div>
+  <h2 id="sheetSubject"></h2>
+  <dl class="facts" id="sheetFacts"></dl>
+  <button class="close" id="sheetClose">Close</button>
+</aside>
+
+<script>
+/* Lanes, edges, statistics and dates are all precomputed by render_graph.py.
+   This file only turns them into pixels, so the page stays identical for every
+   viewer and there is one implementation of the graph algorithm, not two. */
+const DATA = __GRAPH_DATA__;
+const COMMITS = DATA.commits, LANES = DATA.lanes, EDGES = DATA.edges;
+const BY_HASH = new Map(COMMITS.map(c => [c.h, c]));
+const ROW_OF = new Map(COMMITS.map((c, i) => [c.h, i]));
+const ROW_H = 70, STUB = 30, LANE_COLORS = 8;
+const laneVar = (n) => 'var(--lane-' + (n % LANE_COLORS) + ')';
+
+/* Middle-truncate so both the namespace and the distinguishing suffix survive. */
+function shortRef(name, max) {
+  if (name.length <= max) return name;
+  const head = Math.ceil((max - 1) / 2);
+  return name.slice(0, head) + '…' + name.slice(name.length - (max - 1 - head));
+}
+function displayRefs(c) {
+  const seen = new Set(), out = [];
+  for (const r of c.refs) {
+    const n = r.replace(/^origin\//, '');
+    if (!seen.has(n)) { seen.add(n); out.push(n); }
+  }
+  return out;
+}
+
+/* ---- masthead ---- */
+document.getElementById('repo').textContent = DATA.meta.repo;
+document.getElementById('title').textContent = DATA.meta.title;
+const stats = document.getElementById('stats');
+DATA.meta.stats.forEach(([n, word]) => {
+  const s = document.createElement('span');
+  const b = document.createElement('b');
+  b.textContent = n;
+  s.append(b, document.createTextNode(word));
+  stats.appendChild(s);
+});
+const spanEl = document.createElement('span');
+spanEl.className = 'span';
+spanEl.textContent = DATA.meta.span;
+stats.appendChild(spanEl);
+
+document.getElementById('tail').textContent =
+  'Ordered newest first, with every parent below its children, so no line ever ' +
+  'doubles back. Dates are when the work was authored — a rebased commit can ' +
+  'therefore carry an older one, and the detail sheet shows when it actually landed. ' +
+  (DATA.meta.boundaryCount
+    ? 'The dashed rows at the foot are older ancestors, kept so merges in this window have somewhere to join. '
+    : '') +
+  'Tap any commit for its full hash and parents.';
+
+/* ---- rows ---- */
+const rowsEl = document.getElementById('rows');
+const rowEls = [];
+
+COMMITS.forEach((c, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'row' + (c.boundary ? ' pre' : '');
+  btn.dataset.hash = c.h;
+
+  const subject = document.createElement('div');
+  subject.className = 'subject';
+  subject.textContent = c.s;
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const sha = document.createElement('span');
+  sha.className = 'sha';
+  sha.textContent = c.short;
+  const sep = document.createElement('span');
+  sep.className = 'sep';
+  sep.textContent = '·';
+  const when = document.createElement('span');
+  when.className = 'when';
+  when.textContent = c.boundary ? 'before this window' : c.dshort;
+  meta.append(sha, sep, when);
+
+  const refs = displayRefs(c);
+  if (refs.length) {
+    const box = document.createElement('span');
+    box.className = 'reftags';
+    refs.slice(0, 2).forEach((r) => {
+      const tag = document.createElement('span');
+      tag.className = 'reftag';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = laneVar(LANES[i].color);
+      const txt = document.createElement('span');
+      txt.textContent = shortRef(r, 22);
+      tag.append(dot, txt);
+      box.appendChild(tag);
+    });
+    if (refs.length > 2) {
+      const more = document.createElement('span');
+      more.className = 'reftag';
+      more.textContent = '+' + (refs.length - 2);
+      box.appendChild(more);
+    }
+    meta.appendChild(box);
+  }
+
+  btn.append(subject, meta);
+  btn.addEventListener('click', () => openSheet(i));
+  rowsEl.appendChild(btn);
+  rowEls.push(btn);
+});
+
+/* ---- rail ---- */
+const svg = document.getElementById('rail');
+const graph = document.getElementById('graph');
+const NS = 'http://www.w3.org/2000/svg';
+let filter = null;   // Set of hashes to keep lit, or null for everything
+
+function drawRail() {
+  const laneW = window.innerWidth < 460 ? 14 : 19;
+  const padL = window.innerWidth < 460 ? 13 : 17;
+  const railW = padL * 2 + (DATA.laneCount - 1) * laneW;
+  const X = (lane) => padL + lane * laneW;
+  const Y = (row) => row * ROW_H + ROW_H / 2;
+  const height = COMMITS.length * ROW_H + STUB;
+
+  graph.style.setProperty('--rail-w', railW + 'px');
+  graph.style.setProperty('--row-h', ROW_H + 'px');
+  svg.setAttribute('width', railW);
+  svg.setAttribute('height', height);
+  svg.setAttribute('viewBox', '0 0 ' + railW + ' ' + height);
+  svg.textContent = '';
+
+  const lit = (row) => !filter || filter.has(COMMITS[row].h);
+  const defs = document.createElementNS(NS, 'defs');
+  svg.appendChild(defs);
+
+  // Down the child's lane, across into the reserved lane, down again, then across
+  // into the parent's lane. Curve height is capped by the row gap so adjacent
+  // rows can't produce an S that doubles back on itself.
+  EDGES.forEach((e) => {
+    const yA = Y(e.childRow), yB = Y(e.parentRow);
+    const turns = (e.lane !== e.childLane ? 1 : 0) + (e.parentLane !== e.lane ? 1 : 0);
+    const k = turns ? Math.min(ROW_H * 0.55, (yB - yA) / turns) : 0;
+
+    let d = 'M' + X(e.childLane) + ' ' + yA;
+    let y = yA;
+    if (e.lane !== e.childLane) {
+      d += ' C' + X(e.childLane) + ' ' + (y + k / 2) + ',' + X(e.lane) + ' ' + (y + k / 2) +
+           ',' + X(e.lane) + ' ' + (y + k);
+      y += k;
+    }
+    const straightTo = e.parentLane !== e.lane ? yB - k : yB;
+    if (straightTo > y) d += ' L' + X(e.lane) + ' ' + straightTo;
+    if (e.parentLane !== e.lane) {
+      d += ' C' + X(e.lane) + ' ' + (yB - k / 2) + ',' + X(e.parentLane) + ' ' + (yB - k / 2) +
+           ',' + X(e.parentLane) + ' ' + yB;
+    }
+
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.style.stroke = laneVar(e.color);
+    path.style.opacity = (lit(e.childRow) && lit(e.parentRow)) ? '1' : '.13';
+    svg.appendChild(path);
+  });
+
+  // Boundary commits carry history we cut off, so their lane fades out.
+  COMMITS.forEach((c, i) => {
+    if (!c.boundary) return;
+    const id = 'fade' + i;
+    const grad = document.createElementNS(NS, 'linearGradient');
+    grad.setAttribute('id', id);
+    grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+    grad.setAttribute('x1', 0); grad.setAttribute('y1', Y(i));
+    grad.setAttribute('x2', 0); grad.setAttribute('y2', Y(i) + STUB);
+    const s1 = document.createElementNS(NS, 'stop');
+    s1.setAttribute('offset', '0');
+    s1.style.stopColor = laneVar(LANES[i].color);
+    const s2 = document.createElementNS(NS, 'stop');
+    s2.setAttribute('offset', '1');
+    s2.style.stopColor = laneVar(LANES[i].color);
+    s2.setAttribute('stop-opacity', '0');
+    grad.append(s1, s2);
+    defs.appendChild(grad);
+
+    const stub = document.createElementNS(NS, 'path');
+    stub.setAttribute('d', 'M' + X(LANES[i].lane) + ' ' + Y(i) + ' L' + X(LANES[i].lane) + ' ' + (Y(i) + STUB));
+    stub.setAttribute('fill', 'none');
+    stub.setAttribute('stroke', 'url(#' + id + ')');
+    stub.setAttribute('stroke-width', '2');
+    stub.style.opacity = lit(i) ? '1' : '.13';
+    svg.appendChild(stub);
+  });
+
+  // Node shape carries meaning: ring = commit, ring + core = merge,
+  // filled + halo = branch tip, dashed = history from before the window.
+  COMMITS.forEach((c, i) => {
+    const { lane, color } = LANES[i];
+    const cx = X(lane), cy = Y(i);
+    const isMerge = c.p.length > 1;
+    const isTip = c.refs.length > 0;
+    const g = document.createElementNS(NS, 'g');
+    g.style.opacity = lit(i) ? '1' : '.16';
+
+    if (isTip) {
+      const halo = document.createElementNS(NS, 'circle');
+      halo.setAttribute('cx', cx); halo.setAttribute('cy', cy); halo.setAttribute('r', 8.5);
+      halo.setAttribute('fill', 'none');
+      halo.setAttribute('stroke-width', '1.5');
+      halo.style.stroke = laneVar(color);
+      halo.style.opacity = '.32';
+      g.appendChild(halo);
+    }
+
+    const ring = document.createElementNS(NS, 'circle');
+    ring.setAttribute('cx', cx);
+    ring.setAttribute('cy', cy);
+    ring.setAttribute('r', isMerge ? 5.6 : 4.6);
+    ring.setAttribute('stroke-width', '2.4');
+    ring.setAttribute('fill', 'var(--bg)');
+    ring.style.stroke = laneVar(color);
+    if (c.boundary) {
+      ring.setAttribute('stroke-dasharray', '2.6 2.6');
+      ring.style.opacity = '.7';
+    } else if (isTip && !isMerge) {
+      ring.style.fill = laneVar(color);
+    }
+    g.appendChild(ring);
+
+    if (isMerge) {
+      const core = document.createElementNS(NS, 'circle');
+      core.setAttribute('cx', cx); core.setAttribute('cy', cy); core.setAttribute('r', 2.1);
+      core.style.fill = laneVar(color);
+      g.appendChild(core);
+    }
+    svg.appendChild(g);
+  });
+
+  rowEls.forEach((el, i) => el.classList.toggle('dim', !lit(i)));
+}
+
+/* ---- branch filter ---- */
+function ancestry(tip) {
+  const set = new Set(), stack = [tip];
+  while (stack.length) {
+    const h = stack.pop();
+    if (set.has(h) || !BY_HASH.has(h)) continue;
+    set.add(h);
+    BY_HASH.get(h).p.forEach((p) => stack.push(p));
+  }
+  return set;
+}
+
+const chips = document.getElementById('chips');
+const chipEls = [];
+
+function makeChip(label, colorIdx, onPick, extraClass) {
+  const b = document.createElement('button');
+  b.className = 'chip' + (extraClass ? ' ' + extraClass : '');
+  b.setAttribute('aria-pressed', 'false');
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+  if (colorIdx !== null) dot.style.background = laneVar(colorIdx);
+  const txt = document.createElement('span');
+  txt.textContent = label;
+  b.append(dot, txt);
+  if (colorIdx !== null) b.style.color = laneVar(colorIdx);
+  b.addEventListener('click', () => {
+    const already = b.getAttribute('aria-pressed') === 'true';
+    chipEls.forEach((c) => c.setAttribute('aria-pressed', 'false'));
+    if (already) { filter = null; chipEls[0].setAttribute('aria-pressed', 'true'); }
+    else { b.setAttribute('aria-pressed', 'true'); onPick(); }
+    drawRail();
+    if (filter) {
+      const first = COMMITS.findIndex((c) => filter.has(c.h));
+      if (first > -1) rowEls[first].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+  chips.appendChild(b);
+  chipEls.push(b);
+  return b;
+}
+
+makeChip('All branches', null, () => { filter = null; }, 'all').setAttribute('aria-pressed', 'true');
+DATA.branches.forEach((b) => {
+  makeChip(b.name, b.color, () => { filter = ancestry(COMMITS[b.row].h); });
+});
+
+/* ---- detail sheet ---- */
+const sheet = document.getElementById('sheet');
+const scrim = document.getElementById('scrim');
+const sheetSubject = document.getElementById('sheetSubject');
+const sheetFacts = document.getElementById('sheetFacts');
+
+function addFact(term, build) {
+  const wrap = document.createElement('div');
+  wrap.className = 'fact';
+  const dt = document.createElement('dt');
+  dt.textContent = term;
+  const dd = document.createElement('dd');
+  build(dd);
+  wrap.append(dt, dd);
+  sheetFacts.appendChild(wrap);
+}
+
+function openSheet(i) {
+  const c = COMMITS[i];
+  sheetSubject.textContent = c.s;
+  sheetFacts.textContent = '';
+
+  addFact('Commit', (dd) => { dd.textContent = c.h; });
+  addFact('Author', (dd) => { dd.textContent = c.an; });
+  addFact('Authored', (dd) => {
+    dd.textContent = c.dlong + (c.boundary ? '  (before this window)' : '');
+  });
+  if (c.rebased) {
+    addFact('Landed', (dd) => {
+      dd.textContent = c.cdlong;
+      const note = document.createElement('div');
+      note.className = 'note';
+      note.textContent = 'rebased or cherry-picked';
+      dd.appendChild(note);
+    });
+  }
+
+  const refs = displayRefs(c);
+  if (refs.length) {
+    addFact(refs.length > 1 ? 'Branches' : 'Branch', (dd) => {
+      const stack = document.createElement('div');
+      stack.className = 'stack';
+      refs.forEach((r) => {
+        const tag = document.createElement('span');
+        tag.className = 'reftag';
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = laneVar(LANES[i].color);
+        const txt = document.createElement('span');
+        txt.textContent = r;
+        tag.append(dot, txt);
+        stack.appendChild(tag);
+      });
+      dd.appendChild(stack);
+    });
+  }
+
+  addFact(c.p.length > 1 ? 'Parents' : 'Parent', (dd) => {
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    if (!c.p.length) {
+      const none = document.createElement('span');
+      none.textContent = c.boundary ? 'not loaded — outside this window' : 'root commit';
+      none.style.color = 'var(--ink-3)';
+      stack.appendChild(none);
+    }
+    c.p.forEach((p) => {
+      const b = document.createElement('button');
+      b.className = 'jump';
+      const known = ROW_OF.has(p);
+      const sha = document.createElement('span');
+      sha.className = 'jsha';
+      sha.textContent = p.slice(0, 7);
+      const label = document.createElement('span');
+      label.className = 'jlabel';
+      label.textContent = known ? BY_HASH.get(p).s : 'outside this window';
+      b.append(sha, label);
+      b.disabled = !known;
+      if (known) b.addEventListener('click', () => { closeSheet(); focusRow(ROW_OF.get(p)); });
+      stack.appendChild(b);
+    });
+    dd.appendChild(stack);
+  });
+
+  sheet.classList.add('open');
+  scrim.classList.add('open');
+  sheet.setAttribute('aria-hidden', 'false');
+  document.getElementById('sheetClose').focus({ preventScroll: true });
+}
+
+function closeSheet() {
+  sheet.classList.remove('open');
+  scrim.classList.remove('open');
+  sheet.setAttribute('aria-hidden', 'true');
+}
+
+function focusRow(i) {
+  const el = rowEls[i];
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1400);
+}
+
+scrim.addEventListener('click', closeSheet);
+document.getElementById('sheetClose').addEventListener('click', closeSheet);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+
+drawRail();
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawRail, 120);
+});
+</script>
