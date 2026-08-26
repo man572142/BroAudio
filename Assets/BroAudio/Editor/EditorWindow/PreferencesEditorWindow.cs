@@ -37,7 +37,7 @@ namespace Ami.BroAudio.Editor.Setting
 
         private readonly float[] _tabLabelRatios = new float[] { 0.33f,0.33f,0.34f};
 
-        private GUIContent _pitchGUIContent, _audioVoicesGUIContent, _virtualTracksGUIContent, _dominatorTrackGUIContent, _regenerateUserDataGUIContent, _addManualInitGUIContent;
+        private GUIContent _audioVoicesGUIContent, _virtualTracksGUIContent, _dominatorTrackGUIContent, _regenerateUserDataGUIContent, _addManualInitGUIContent;
 
 #if PACKAGE_ADDRESSABLES
         private GUIContent _addressableConversionGUIContent;
@@ -126,7 +126,6 @@ namespace Ami.BroAudio.Editor.Setting
 
         private void InitGUIContents()
         {
-            _pitchGUIContent = new GUIContent("Pitch Shift Using", _instruction.GetText(Instruction.PitchShiftingToolTip));
             _audioVoicesGUIContent = new GUIContent("Max Real Voices", _instruction.GetText(Instruction.AudioVoicesToolTip));
             _virtualTracksGUIContent = new GUIContent("Bro Virtual Tracks", _instruction.GetText(Instruction.BroVirtualToolTip));
             _dominatorTrackGUIContent = new GUIContent("Add Dominator Track", _instruction.GetText(Instruction.AddDominatorTrack));
@@ -235,9 +234,6 @@ namespace Ami.BroAudio.Editor.Setting
             {
                 _preferenceDrawer.DrawChainedPlayMode(drawPos, _getRectFunc);
             }
-
-            // To make room for other functions to use exposed parameters, we only use AudioSource.pitch for now
-            //DrawPitchSetting();
             DrawEmptyLine(1);
             using (NewSection("Default Easing", GetRectAndIterateLine(drawPos)))
             {

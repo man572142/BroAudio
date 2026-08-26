@@ -10,8 +10,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// Inventory 1.6-1.10 (Docs/inventory/volume-mixer.md): volume composition, per-type volume's
-    /// live/future asymmetry, mixer track acquisition/return, pitch via AudioSource, and the
-    /// PitchShiftingSetting.AudioMixer dead branch.
+    /// live/future behavior, mixer track acquisition/return, and pitch via AudioSource.
     /// </summary>
     public class VolumePitchMixerTests : BroAudioTestFixture
     {
@@ -145,25 +144,6 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitUntilOrTimeout(() => Mathf.Abs(player.AudioSource.pitch - 2f) < 0.01f, "the deferred pitch fade to reach its target", 2f);
             Assert.AreEqual(2f, player.AudioSource.pitch, LinearTolerance);
-        }
-
-        [UnityTest]
-        public IEnumerator SetPitch_WithAudioMixerPitchSetting_DoesNotChangeAudioSourcePitch()
-        {
-            // characterizes: Docs/TEST_FINDINGS.md finding #2 - AudioPlayer.Pitch.cs's AudioMixer case has
-            // its mixer write commented out, so selecting this setting silently makes SetPitch a no-op.
-            SoundManager.Instance.Setting.PitchSetting = PitchShiftingSetting.AudioMixer;
-
-            SoundID id = NewSound("MixerPitchSfx", BroAudioType.SFX, NewClip(3f));
-            IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
-
-            float pitchBefore = player.AudioSource.pitch;
-            player.SetPitch(2.5f, 0f);
-            yield return WaitFrames(1);
-
-            Assert.AreEqual(pitchBefore, player.AudioSource.pitch, LinearTolerance);
-            Assert.AreEqual(AudioConstant.DefaultPitch, player.AudioSource.pitch, LinearTolerance);
         }
     }
 }

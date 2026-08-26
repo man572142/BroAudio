@@ -22,7 +22,6 @@ namespace Ami.BroAudio.Data
         public AudioMixerUpdateMode UpdateMode = FactorySettings.UpdateMode;
 
         public int DefaultAudioPlayerPoolSize = FactorySettings.DefaultAudioPlayerPoolSize;
-        public PitchShiftingSetting PitchSetting = FactorySettings.PitchShifting;
 
         public bool AlwaysPlayMusicAsBGM = true;
         public Transition DefaultBGMTransition = FactorySettings.DefaultBGMTransition;
@@ -46,7 +45,6 @@ namespace Ami.BroAudio.Data
             SeamlessFadeOutEase = FactorySettings.SeamlessFadeOutEase;
             AudioFilterSlope = FactorySettings.AudioFilterSlope;
             DefaultAudioPlayerPoolSize = FactorySettings.DefaultAudioPlayerPoolSize;
-            PitchSetting = FactorySettings.PitchShifting;
             AlwaysPlayMusicAsBGM = true;
             DefaultBGMTransition = FactorySettings.DefaultBGMTransition;
             DefaultBGMTransitionTime = FactorySettings.DefaultBGMTransitionTime;
@@ -68,7 +66,6 @@ namespace Ami.BroAudio.Data
             public const AudioMixerUpdateMode UpdateMode = AudioMixerUpdateMode.Normal;
 
             public const int DefaultAudioPlayerPoolSize = 5;
-            public const PitchShiftingSetting PitchShifting = PitchShiftingSetting.AudioSource;
             public const Transition DefaultBGMTransition = Transition.CrossFade;
             public const float DefaultBGMTransitionTime = 2f;
 
