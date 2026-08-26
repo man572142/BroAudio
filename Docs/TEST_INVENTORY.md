@@ -24,9 +24,11 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 
-152 tests, green, ~18s per PlayMode run. Every fixture also passes in isolation, so no test depends on
-another having run. (`run_tests` has no shuffle or seed option, so per-fixture isolation is the closest
-available substitute for the Definition of Done's shuffled-order requirement.)
+151 tests (152 before the 1.10 characterization test was dropped, see below), ~18s per PlayMode run.
+Every fixture also passes in isolation, so no test depends on another having run. (`run_tests` has no shuffle
+or seed option, so per-fixture isolation is the closest available substitute for the Definition of Done's
+shuffled-order requirement.) **The suite has not been re-run since the TEST_FINDINGS #1-#7 fixes landed** —
+re-run it in the Editor before trusting the green claim.
 
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
@@ -47,7 +49,7 @@ Established by probe or grep during ranking; they override anything in the secti
 - **`BroAudio.OnBGMChanged` is public** (`Runtime/BroAudio.cs:22`), forwarding to `MusicPlayer.OnBGMChanged`. No reflection needed — but it is a *static* event, so any test that subscribes must unsubscribe.
 - **`StopMode.Mute` is reachable** via the public `SetTransition(this IMusicPlayer, Transition, StopMode)` extension. It is a BGM transition mode, not a general stop mode — the lifecycle section's "unreachable" note is wrong on this point.
 - **Follow-target tracking is not observable** through `IAudioSourceProxy` — the proxy exposes no `transform`/`gameObject`.
-- **`LayeredClipStrategy` is dead code.** Zero references anywhere under `Assets/`, and `MulticlipsPlayMode` has no `Layered` member. Out of scope.
+- ~~**`LayeredClipStrategy` is dead code.**~~ It had zero references anywhere under `Assets/` and `MulticlipsPlayMode` has no `Layered` member, so it has since been **deleted** (TEST_FINDINGS #3). The class no longer exists.
 - **Localization has locales but no table.** `Assets/Localization/` holds three `Locale` assets and the settings asset — no `AssetTable`. `LocalizationClipStrategy` is testable in EditMode via `Inject()`; the full `Play()` → `SoundManager` → resolved clip path is not testable as authored.
 
 ---
@@ -80,10 +82,10 @@ High risk, low timing complexity. Everything here is frame-clock or immediate.
 | 1.4 | **`IsActive` vs `IsPlaying` windows.** Queued-but-not-drained (active, not playing) and paused (active, not playing) | both properties, one frame apart | High — explicitly load-bearing per the source doc comments |
 | 1.5 | **Rejected `Play` returns an inert `Empty.AudioPlayer`.** Force it with a stub `IPlayableValidator` returning false | returned handle inert; a full fluent chain off it never NREs and never returns null | Medium — silent-failure path |
 | 1.6 | **Volume composition.** master (mixer dB, separate stage) vs per-`BroAudioType` vs per-`SoundID` vs `clip.Volume × entity.MasterVolume` (baked into one fader) | `AudioMixer.GetFloat("Master")` for master; `IAudioPlayer.GetVolume()` for the linear product | High — gates all audible output, and the four inputs compose at two different levels |
-| 1.7 | **Per-type volume's live/future asymmetry.** Setting a type to exactly `1f` is skipped for *future* plays but pushed to *live* ones | live player's volume vs. a subsequently-played one | Medium — subtle and undocumented |
+| 1.7 | **Per-type volume reaches live and future players alike**, including exactly `1f` — the `Mathf.Approximately` skip in `PlayControl` was removed (TEST_FINDINGS #7) | live player's volume vs. a subsequently-played one | Medium — a regression reintroducing a default-value skip would only show on a fresh player |
 | 1.8 | **Mixer track acquisition and return.** Every player gets a pooled `AudioMixerGroup`; recycling returns it silenced | `player.AudioSource.outputAudioMixerGroup` non-null and named `Track*` | High — routing is the backbone of every other mixer behavior |
 | 1.9 | **Pitch via `AudioSource`**, clamped to `[-3, 3]`, plus the deferred-fade path when `SetPitch` precedes playback | `player.AudioSource.pitch` | High — audible and gameplay-relevant |
-| 1.10 | **`PitchShiftingSetting.AudioMixer` is a silent no-op** — characterize as-is (see findings) | `AudioSource.pitch` unchanged after `SetPitch` | High as a *finding*, low as a test — one assertion pinning current behavior |
+| ~~1.10~~ | ~~**`PitchShiftingSetting.AudioMixer` is a silent no-op**~~ — **withdrawn**: the enum was removed (TEST_FINDINGS #2), so there is no dead branch left to characterize. The test was deleted; number retained so 1.11 keeps its identity | n/a | n/a |
 | 1.11 | **Lifecycle callbacks.** `OnStart` once (not re-fired on resume), `OnUpdate` per frame, `OnPause` per transition, `OnEnd` once with a still-valid `SoundID` | counters incremented from the callbacks | Medium-high — primary integration point for game code |
 
 ## Tier 2 — Time-dependent (phase 3)
@@ -153,8 +155,8 @@ instance rather than the connected one.
 
 | Behavior | Why |
 |---|---|
-| `LayeredClipStrategy` | Dead code — no references, no enum member routing to it |
-| `SeamlessLoopHelper.cs` | File is entirely commented out; the real mechanism lives in `AudioPlayer.Playback.cs` / `.Scheduling.cs` |
+| ~~`LayeredClipStrategy`~~ | Was dead code — no references, no enum member routing to it. **Deleted** (TEST_FINDINGS #3) |
+| ~~`SeamlessLoopHelper.cs`~~ | File was entirely commented out; the real mechanism lives in `AudioPlayer.Playback.cs` / `.Scheduling.cs`. **Deleted** (TEST_FINDINGS #4) |
 | Full `Play()` → `SoundManager` → localized clip resolution | No `AssetTable` exists in the project. The strategy itself is covered at 0.6 |
 | ~~Addressables load / preload / cleanup~~ | **Now covered** — two demo clips were marked addressable with the user's approval |
 | Editor windows, inspectors, Library Manager | Explicit anti-goal |
@@ -184,13 +186,17 @@ All five were settled by close source reading plus the shipped `BroRuntimeSettin
    timing. The code never touches `_stopMode` or `_onPaused` on that path, and an in-source comment confirms the
    behavior is deliberate ("Some might consider this behavior a feature, so it has been left as is").
 5. **Shipped `BroRuntimeSetting.asset` values:** `AudioFilterSlope: 1` (FourPole), `DefaultAudioPlayerPoolSize: 5`,
-   `PitchSetting: 1`, `AlwaysPlayMusicAsBGM: 1`, `UpdateMode: 0`, `GlobalPlaybackGroup` **assigned**.
+   `AlwaysPlayMusicAsBGM: 1`, `UpdateMode: 0`, `GlobalPlaybackGroup` **assigned**. (This asset lives under
+   the gitignored `Assets/BroAudio/Resources/`, so it is local to each checkout. It also carried
+   `PitchSetting: 1`; that field no longer exists on `RuntimeSetting`, so the stored value simply stops
+   deserializing into anything and Unity drops it the next time it writes the asset.)
 
 Two consequences worth carrying forward:
 
-- **`PitchShiftingSetting` is `{ AudioMixer = 0, AudioSource = 1 }`**, so the shipped `PitchSetting: 1` is
-  `AudioSource` — the *working* path. Finding #2 (the `AudioMixer` case being a silent no-op) is therefore not
-  active in the default configuration, but a user who flips that dropdown gets a silently dead `SetPitch`.
+- ~~**`PitchShiftingSetting` is `{ AudioMixer = 0, AudioSource = 1 }`**~~ — **resolved.** The shipped
+  `PitchSetting: 1` was `AudioSource`, the working path, so finding #2 was never active in the default
+  configuration; only a user who flipped that dropdown got a silently dead `SetPitch`. The enum has since been
+  removed entirely and `AudioSource.pitch` is the only mechanism, so the dropdown is gone too.
 - **`GlobalPlaybackGroup` being assigned does not affect code-built entities.** It is consulted only through
   `AudioAsset.LinkPlaybackGroup` and `PlaybackGroup`'s parent fallback, and a code-built entity has no
   `AudioAsset`. The plan's premise holds: voice-limit and comb-filtering tests must wire a group explicitly.
