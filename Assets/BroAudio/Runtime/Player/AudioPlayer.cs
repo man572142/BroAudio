@@ -18,7 +18,6 @@ namespace Ami.BroAudio.Runtime
         private List<AudioPlayerDecorator> _decorators = null;
         private string _sendParaName = null;
         private string _currTrackName = null;
-        //private string _pitchParaName = string.Empty;
 
         private IDisposable _proxy = null;
         private AudioFilterReader _audioFilterReader = null;
