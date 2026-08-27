@@ -220,9 +220,6 @@ No `SoundManager`, no `AudioEntity`, no ScriptableObject needed — construct th
 ## Conflicts observed
 
 - `ChainedClipStrategy.cs:16` (`index < 0 || index >= clips.Length` → error) and `PlaybackPreference.CanHandoverToEnd()`'s `Entity.Clips.Length < (int)PlaybackStage.End` check (`PlaybackPreference.cs:173-174`) are two independent guards against the same "not enough clips for Chained mode" condition, computed differently (one via the strategy at selection time, one via the handover pre-check). They happen to agree today; nothing enforces that they always will if either is edited in isolation.
-- ~~`SetVelocity` is guarded against being called outside Velocity mode, but `SetSequenceId` has no equivalent guard or log.~~ **Resolved** (TEST_FINDINGS #5): `PlaybackPreference.SetSequenceId` now mirrors `SetVelocity`, and `SequenceId`'s setter is private so the guard cannot be sidestepped.
-- ~~`SingleClipStrategy` treats an *unset* clip as valid and returns it, unlike `Sequence`/`Shuffle`.~~ **Resolved** (TEST_FINDINGS #6): Single now checks `.IsSet` too, logging and returning null instead of deferring the failure to playback.
-- ~~`AudioEntity.PickNewClip`'s switch never constructs a `LayeredClipStrategy`.~~ **Resolved** (TEST_FINDINGS #3): the class was confirmed unreachable — zero references under `Assets/`, no `Layered` member on `MulticlipsPlayMode` — and has been deleted.
 
 ## Could not determine statically
 
