@@ -2,18 +2,13 @@
 
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
-Findings 1-7 have since been **fixed** (or the dead code removed) — see each section for what
-changed. The rest are still open, and the suite characterizes their current behavior as-is.
+Findings 1-7 have since been fixed (or the dead code removed) and their write-ups removed from
+this file — see git history for the original text, or the other docs under `docs/` that still
+cite them by number (e.g. `TEST_FINDINGS #3`) as historical pointers. The rest are still open,
+and numbering is left as-is so those citations stay valid.
 
 | # | Area | Finding | Status |
 |---|---|---|---|
-| 1 | `BroAudioClip` + Addressables | `IsAddressablesAvailable()` NREs on a code-constructed clip | **Fixed** — field initialized inline + null-guarded |
-| 2 | Pitch | `PitchShiftingSetting.AudioMixer` is a silent no-op — the mixer write is commented out | **Fixed** — enum removed, pitch is always `AudioSource.pitch` |
-| 3 | Clip selection | `LayeredClipStrategy` is unreachable dead code | **Fixed** — file removed |
-| 4 | Seamless loop | `SeamlessLoopHelper.cs` is entirely commented out | **Fixed** — file removed |
-| 5 | Clip selection | `SetSequenceId` lacks the wrong-mode guard that `SetVelocity` has | **Fixed** — guard added |
-| 6 | Clip selection | `SingleClipStrategy` accepts an unset clip; `Sequence`/`Shuffle` check `IsSet` | **Fixed** — `IsSet` check added |
-| 7 | Volume | Per-type volume of exactly `1f` is skipped for future plays but pushed to live players | **Fixed** — the skip is gone |
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
 | 9 | Clip selection | `ShuffleClipStrategy` **can** repeat the previous clip, contradicting its documented contract | Open, characterized |
 | 10 | Clip selection | `out index` disagrees with the returned clip in `Velocity` and `Shuffle` | Open, characterized |
@@ -23,112 +18,6 @@ changed. The rest are still open, and the suite characterizes their current beha
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
 
 ---
-
-## 1. `BroAudioClip.IsAddressablesAvailable()` threw on a code-constructed clip — **fixed**
-
-**Where:** `Assets/BroAudio/Runtime/DataStruct/BroAudioClip.Addressables.cs`
-
-With `com.unity.addressables` installed, `new BroAudioClip()` left the `AudioClipAssetReference`
-field `null` (C# `new` does not run Unity's serializer, which would materialize the
-`[SerializeField]` reference). The first `IsValid()` / `IsSet` / `IsAddressablesAvailable()` call
-then threw `NullReferenceException` — inside `AudioPlayer.PlayControl`, where it surfaced as a
-swallowed coroutine exception rather than a clear error. Every other member of that partial
-(`IsLoaded`, `IsLoading`, `LoadAssetAsync`, `ReleaseAsset`, `GetCurrentOperationHandle`)
-dereferenced the same field unguarded.
-
-Assets authored in the Editor were unaffected, so it never showed up in normal use — which is
-exactly what made it easy to ship.
-
-**Fix:** the field is initialized inline, so a code-constructed clip matches what the serializer
-produces and every member below it is null-safe; `IsAddressablesAvailable()` is null-guarded as well.
-
-```csharp
-[SerializeField] private AssetReferenceT<AudioClip> AudioClipAssetReference = new AssetReferenceT<AudioClip>(string.Empty);
-...
-public bool IsAddressablesAvailable() => AudioClipAssetReference != null && !string.IsNullOrEmpty(AudioClipAssetReference.AssetGUID);
-```
-
-The test workaround (`TestAudioLibrary.FillNullAssetReference`, which filled the field by
-reflection) has been removed along with it.
-
-## 2. `PitchShiftingSetting.AudioMixer` silently did nothing — **fixed by removing the enum**
-
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Pitch.cs`
-
-The `AudioMixer` case of the pitch-shifting switch had its only effective statement commented out,
-so the branch fell through to a bare `break`. Selecting `PitchShiftingSetting.AudioMixer` made
-`SetPitch` a no-op: `TargetPitch` was recorded but never applied anywhere, and `AudioSource.pitch`
-was written only in the `AudioSource` case. The Preferences toggle that exposed the choice was
-already commented out too.
-
-**Fix:** pitch is now always applied through `AudioSource.pitch`. `PitchShiftingSetting`,
-`RuntimeSetting.PitchSetting`, `FactorySettings.PitchShifting` and `SoundManager.PitchSetting` are
-gone; the switches in `AudioPlayer.SetPitch` and the entity inspector's pitch drawer are flattened
-to the AudioSource path.
-
-`AudioConstant.MaxMixerPitch` (10f) is left in place — it is public API and harmless as a constant,
-but nothing references it any more.
-
-## 3. `LayeredClipStrategy` was unreachable — **fixed by removing the file**
-
-The class compiled and implemented `IClipSelectionStrategy`, but had zero references anywhere under
-`Assets/` and `MulticlipsPlayMode` has no `Layered` member, so `AudioEntity.PickNewClip`'s switch
-could never construct it. Never tested — testing unreachable code buys nothing.
-
-## 4. `SeamlessLoopHelper.cs` was entirely commented out — **fixed by removing the file**
-
-Dead file. The real seamless-loop mechanism lives in `AudioPlayer.Playback.cs` /
-`AudioPlayer.Scheduling.cs`.
-
-## 5. `SetSequenceId` lacked the wrong-mode guard that `SetVelocity` has — **fixed**
-
-**Where:** `Assets/BroAudio/Runtime/Player/PlaybackPreference.cs`
-
-`SetVelocity` logs and no-ops when called on an entity whose play mode is not `Velocity`.
-`SetSequenceId` had the identical "irrelevant outside my mode" shape but no guard and no log.
-
-**Fix:** `PlaybackPreference.SetSequenceId` now mirrors `SetVelocity`, and `SequenceId`'s setter is
-private so the guard cannot be bypassed:
-
-```csharp
-public void SetSequenceId(string sequenceId)
-{
-    if (Entity.PlayMode != MulticlipsPlayMode.Sequence)
-    {
-        Debug.LogError($"Cannot set sequence id on [{Entity}] because it's not using SequencePlayMode. (current : {Entity.PlayMode})");
-        return;
-    }
-    SequenceId = sequenceId;
-}
-```
-
-## 6. `SingleClipStrategy` accepted an unset clip — **fixed**
-
-`SingleClipStrategy` treated a reference-null `clips[0]` as an error but returned a
-non-null-but-unset `BroAudioClip` (`IsSet == false`) as if it were valid, deferring the failure to
-whatever tried to play it. `SequenceClipStrategy` and `ShuffleClipStrategy` check `.IsSet` directly;
-Single was the odd one out.
-
-**Fix:** Single now rejects an unset clip too, logging in the same shape as `Sequence`.
-
-## 7. Per-type volume: live players and future plays disagreed at exactly `1f` — **fixed**
-
-`AudioPlayer.PlayControl` skipped applying the stored `_audioTypePref[type].Volume` to a
-freshly-started player when that pref was `Mathf.Approximately(pref.Volume, DefaultTrackVolume)` —
-i.e. exactly `1f`. `SoundManager.SetVolume(BroAudioType, ...)` had no such guard and pushed the value
-to every currently active matching player regardless. Harmless in effect (a fresh fader already sits
-at `1f`), but it meant "read the type pref and expect it to mirror what a live player has" was not a
-safe assumption.
-
-**Fix:** the `Mathf.Approximately` guard is gone; only the `IsFading` guard remains, so the pref and
-live players agree at every value.
-
-```csharp
-if (!_audioTypeVolume.IsFading)
-{
-    _audioTypeVolume.Complete(audioTypePref.Volume, false);
-}
-```
 
 ## 8. A freshly constructed LowPass/HighPass `Effect` reports as not default
 
