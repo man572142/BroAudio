@@ -32,6 +32,7 @@ still open, and numbering is left as-is.
 | 28 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
 | 29 | Editor / Sample data | An oversized trim range silently wraps instead of failing | Open, latent, uncovered |
 | 30 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
+| 31 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
 
 ---
 
@@ -539,6 +540,22 @@ whatever was at the path. Every production caller passes a Resources path, so it
 
 Status: Open, characterized. Covered by
 `AssetWritingTests.CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime`.
+
+
+## 31. A positive `Delay` alone makes `HasDifferentPosition` true
+
+**Where:** `Assets/BroAudio/Editor/Transport/Transport.cs`
+
+`HasDifferentPosition` ORs in a `Delay > StartPosition` term alongside the start/end comparisons, so an
+entity whose playback positions are untouched still reports a "different position" as soon as it carries
+any delay at all — `0 > 0` is false, but any positive `Delay` clears that bar.
+
+Whether that is intended is the open question: a delay shifts *when* playback begins, not *where* in the
+clip it starts, so counting it as a position difference is at least surprising. Nothing downstream appears
+to misbehave because of it today, which is why it is characterized rather than fixed.
+
+Status: Open, characterized. Pinned by
+`TransportAndRectMathTests.HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero`.
 
 ---
 
