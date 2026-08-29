@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Collections.Generic;
+using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
+using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -232,6 +234,28 @@ namespace Ami.BroAudio.Tests
 
             Assert.AreEqual(1, onEndCount, "OnEnd should fire exactly once.");
             Assert.AreEqual(id, receivedID, "OnEnd's SoundID argument should equal the original ID despite the immediate recycle.");
+        }
+
+        // TryGetEntityInfo: a valid id resolves to the entity's real read-only data; an unassigned
+        // SoundID (default) fails and leaves the out-param null.
+        [UnityTest]
+        public IEnumerator TryGetEntityInfo_ForValidAndInvalidIds_ReturnsMatchingResult()
+        {
+            SoundID id = NewSound("EntityInfoSfx", BroAudioType.SFX, NewClip(1f));
+
+            bool found = BroAudio.TryGetEntityInfo(id, out IReadOnlyAudioEntity entityInfo);
+
+            Assert.IsTrue(found, "TryGetEntityInfo should succeed for a valid entity.");
+            Assert.IsNotNull(entityInfo, "A successful lookup must hand back a non-null entity info.");
+            Assert.AreEqual(1, entityInfo.Clips.Count, "The returned info should expose the entity's real clip data.");
+            Assert.AreEqual(AudioConstant.FullVolume, entityInfo.MasterVolume, "The returned info should expose the entity's real MasterVolume.");
+
+            bool foundInvalid = BroAudio.TryGetEntityInfo(default(SoundID), out IReadOnlyAudioEntity invalidInfo);
+
+            Assert.IsFalse(foundInvalid, "TryGetEntityInfo should fail for an unassigned SoundID.");
+            Assert.IsNull(invalidInfo, "The out-param must be null when the id doesn't resolve to an entity.");
+
+            yield break;
         }
     }
 }

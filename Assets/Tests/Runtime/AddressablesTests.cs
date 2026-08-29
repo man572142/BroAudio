@@ -153,6 +153,38 @@ namespace Ami.BroAudio.Tests
                 "the cleanup routine to release the idle entity", 12f);
         }
 
+        [UnityTest]
+        public IEnumerator ReleaseAsset_AfterLoading_MarksTheEntityUnloaded()
+        {
+            AudioEntity entity = NewAddressableEntity("AddrReleaseAsset", TestAudioLibrary.AddressableClipGuids[0]);
+            SoundID id = IdOf(entity);
+
+            AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
+            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
+            Assert.IsTrue(SoundManager.Instance.IsLoaded(id));
+
+            BroAudio.ReleaseAsset(id);
+            yield return null;
+
+            Assert.IsFalse(SoundManager.Instance.IsLoaded(id), "ReleaseAsset clears the loaded state.");
+        }
+
+        [UnityTest]
+        public IEnumerator ReleaseAsset_OnAnEntityThatWasNeverLoaded_IsASilentNoOp()
+        {
+            AudioEntity entity = NewAddressableEntity("AddrReleaseUnloaded", TestAudioLibrary.AddressableClipGuids[0]);
+            SoundID id = IdOf(entity);
+            Assert.IsFalse(SoundManager.Instance.IsLoaded(id), "Nothing should be loaded before ReleaseAsset is called.");
+
+            // ReleaseAsset is a teardown-safe release verb (routed through the null-safe Manager) - it must
+            // not throw, and Unity Test Framework auto-fails on any unexpected error/exception log, so a
+            // clean pass here also proves no error was logged.
+            Assert.DoesNotThrow(() => BroAudio.ReleaseAsset(id), "Releasing an unloaded asset must be a no-op, not throw.");
+            yield return null;
+
+            Assert.IsFalse(SoundManager.Instance.IsLoaded(id));
+        }
+
         /// <summary>
         /// Rewinds the cleanup routine's record of when this entity last played, so it reads as stale now.
         /// </summary>
