@@ -60,12 +60,14 @@ A separate EditMode assembly covering `BroAudioEditor` (`Ami.BroAudio.Editor.Tes
 runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in `BroAudio
 Editor Testing Plan.md`.
 
-**63 EditMode tests, 61 pass / 2 fail deliberately, ~3.8s wall (reported Duration 3.82).** The two
-failures are the shipped-data findings TEST_FINDINGS #17 and #18 — green is not the target state for
-those two; they go green when `BroInstruction.asset` is fixed, not when the test is changed.
+**98 EditMode tests, 96 pass / 2 fail deliberately, ~5.7s wall.** The two failures are the shipped-data
+findings TEST_FINDINGS #17 and #18 — the user has decided to leave both red rather than fix or
+suppress them; they go green only when `BroInstruction.asset` is fixed, not when the test is changed.
 
-Per-file counts: `IsolationContractTests` 5, `EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28,
-`ShippedDataTests` 6, `IssueReportMarkdownTests` 5.
+Per-file counts, each also verified passing in isolation: `IsolationContractTests` 5,
+`EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28, `ShippedDataTests` 6 (4 pass / 2 red),
+`IssueReportMarkdownTests` 5, `SerializedPropertyResetTests` 5, `SerializedTransportTests` 8,
+`ClipEditingTests` 14, `AssetWritingTests` 8.
 
 The isolation contract lives in `BroEditorTestFixture`
 (`Assets/Tests/Editor/BroEditorTestFixture.cs`): JSON snapshot/restore of the on-disk `EditorSetting` and
@@ -74,15 +76,20 @@ The isolation contract lives in `BroEditorTestFixture`
 TearDown. `IsolationContractTests` guards the fixture itself. `git status` is clean after a run; nothing
 under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/` is touched.
 
+`AssetWritingTests` needs its own containment mechanism on top of that, because new entities are not
+written beside the asset they belong to: `AudioAssetEditor` writes them to `EditorSetting.AssetOutputPath`.
+The fixture redirects that setting into the temp folder before creating anything and restores the
+developer's real path in TearDown.
+
 ### Coverage ledger (Editor tiers)
 
 | Tier | Status | Test files |
 |---|---|---|
 | E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportAndRectMathTests.cs`, `IssueReportMarkdownTests.cs` |
 | E1 — shipped-data integrity | **covered** | `ShippedDataTests.cs` |
-| E2 — SerializedProperty operations | planned | — |
-| E3 — clip editing | planned | — |
-| E4 — asset-writing paths | planned (needs the user's go-ahead; real disk footprint) | — |
+| E2 — SerializedProperty operations | **covered** | `SerializedPropertyResetTests.cs`, `SerializedTransportTests.cs` |
+| E3 — clip editing | **covered** | `ClipEditingTests.cs` |
+| E4 — asset-writing paths | **covered** | `AssetWritingTests.cs` |
 
 ### Out of scope (Editor suite)
 
@@ -102,6 +109,7 @@ under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/` is touched.
 | `BroVersion.SetVersion` | Writes a `.txt` into the shipped package's `Editor/Resources` and re-imports it |
 | `LibraryManagerWindow` and every other `EditorWindow` | Opens-without-throwing is near-zero signal and leaks window state |
 | `FieldUsageFinder` | Scans every asset in the project — slow, and its result depends on project contents |
+| `BroUserDataGenerator.CheckAndGenerateUserData` | Writes into the shipped package's own Resources folders and completes on an async `ResourceRequest` callback, so it cannot be exercised without breaking the isolation contract. Dropped from E4. |
 
 ### Assembly constraint
 
