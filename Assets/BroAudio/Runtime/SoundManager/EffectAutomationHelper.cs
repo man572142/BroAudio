@@ -14,6 +14,9 @@ namespace Ami.BroAudio.Runtime
         {
             public bool IsTweaking;
             public Coroutine Coroutine;
+            // Latest effect of this type and its callback, kept to restart the tween.
+            public Effect Effect;
+            public Action<EffectType> OnReset;
             // The list is very small, there's no need to use other collection type.
             public List<ITweakingWaitable> WaitableList;
         }
@@ -126,6 +129,18 @@ namespace Ami.BroAudio.Runtime
             }
             else if (_tweakerDict.TryGetValue(_latestEffect, out var tweaker))
             {
+                tweaker.WaitableList ??= new List<ITweakingWaitable>();
+                if (tweaker.WaitableList.Count == 0)
+                {
+                    // Nothing left to decorate: a zero fadeTime makes Tweak yield nothing, so StartCoroutine
+                    // already drained this list before SetEffect returned. Re-queue, decorated up front so the
+                    // restart can't drain it too - doing nothing would drop the auto-reset this waitable is for.
+                    decoration.AttachTo(new TweakingWaitableBase(tweaker.Effect));
+                    tweaker.WaitableList.Add(decoration);
+                    RestartCoroutine(TweakTrackParameter(tweaker, tweaker.Effect.Type, tweaker.Effect.IsDominator, tweaker.OnReset), ref tweaker.Coroutine);
+                    return;
+                }
+
                 int lastIndex = tweaker.WaitableList.Count - 1;
                 var current = tweaker.WaitableList[lastIndex];
                 if(current is TweakingWaitableBase)
@@ -154,6 +169,8 @@ namespace Ami.BroAudio.Runtime
                 tweaker = new Tweaker();
                 _tweakerDict.Add(effect.Type, tweaker);
             }
+            tweaker.Effect = effect;
+            tweaker.OnReset = onReset;
 
             bool isNullOrEmpty = tweaker.WaitableList == null || tweaker.WaitableList.Count == 0;
             bool isMoreIntense = !isNullOrEmpty && effect.IsMoreIntenseThan(tweaker.WaitableList[tweaker.WaitableList.Count - 1].Effect);
