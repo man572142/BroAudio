@@ -273,11 +273,9 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(highPassBefore, highPassAfter, FrequencyTolerance, "The unrelated HighPass parameter must be untouched.");
         }
 
-        // regression: Effect.LowPass's fadeTime defaults to 0, so Tweak's `while (currentTime < fadeTime)` body
-        // never runs and the tween contributes no yield. TweakTrackParameter therefore used to drain its
-        // WaitableList synchronously inside StartCoroutine, before SetEffect even returned, and the chained
-        // ForSeconds/Until/While then indexed WaitableList[-1]. It now yields one frame after the tween and
-        // before consuming the list, so the decoration window the design assumes always exists.
+        // regression: Effect.LowPass's fadeTime defaults to 0, so Tweak yields nothing and TweakTrackParameter
+        // drained its WaitableList synchronously inside StartCoroutine - before SetEffect returned - leaving the
+        // chained ForSeconds/Until/While to index WaitableList[-1] and throw.
         [UnityTest]
         public IEnumerator SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing()
         {

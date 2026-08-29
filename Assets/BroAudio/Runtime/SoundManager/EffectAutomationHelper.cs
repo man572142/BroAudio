@@ -14,6 +14,10 @@ namespace Ami.BroAudio.Runtime
         {
             public bool IsTweaking;
             public Coroutine Coroutine;
+            // The latest Effect and its callback: the dict key is only the EffectType, and both
+            // GetEffectParameterName and a restart from DecorateTweakingWaitable need the rest.
+            public Effect Effect;
+            public Action<EffectType> OnReset;
             // The list is very small, there's no need to use other collection type.
             public List<ITweakingWaitable> WaitableList;
         }
@@ -126,6 +130,18 @@ namespace Ami.BroAudio.Runtime
             }
             else if (_tweakerDict.TryGetValue(_latestEffect, out var tweaker))
             {
+                tweaker.WaitableList ??= new List<ITweakingWaitable>();
+                if (tweaker.WaitableList.Count == 0)
+                {
+                    // Nothing left to decorate: a zero fadeTime makes Tweak yield nothing, so StartCoroutine
+                    // already drained this list before SetEffect returned. Re-queue, decorated up front so the
+                    // restart can't drain it too - doing nothing would drop the auto-reset this waitable is for.
+                    decoration.AttachTo(new TweakingWaitableBase(tweaker.Effect));
+                    tweaker.WaitableList.Add(decoration);
+                    RestartCoroutine(TweakTrackParameter(tweaker, tweaker.Effect.Type, tweaker.Effect.IsDominator, tweaker.OnReset), ref tweaker.Coroutine);
+                    return;
+                }
+
                 int lastIndex = tweaker.WaitableList.Count - 1;
                 var current = tweaker.WaitableList[lastIndex];
                 if(current is TweakingWaitableBase)
@@ -154,6 +170,8 @@ namespace Ami.BroAudio.Runtime
                 tweaker = new Tweaker();
                 _tweakerDict.Add(effect.Type, tweaker);
             }
+            tweaker.Effect = effect;
+            tweaker.OnReset = onReset;
 
             bool isNullOrEmpty = tweaker.WaitableList == null || tweaker.WaitableList.Count == 0;
             bool isMoreIntense = !isNullOrEmpty && effect.IsMoreIntenseThan(tweaker.WaitableList[tweaker.WaitableList.Count - 1].Effect);
@@ -269,9 +287,11 @@ namespace Ami.BroAudio.Runtime
             {
                 Tweaker tweaker = pair.Value;
                 EffectType effectType = pair.Key;
-                if (TryGetCurrentValue(effect, out float current))
+                // The incoming effect is always EffectType.None and only carries the Fading to reset with;
+                // the mixer parameter has to be resolved from the tracked entry.
+                if (TryGetCurrentValue(tweaker.Effect, out float current))
                 {
-                    string paraName = GetEffectParameterName(effect, out bool hasSecondaryParameter);
+                    string paraName = GetEffectParameterName(tweaker.Effect, out bool hasSecondaryParameter);
                     SafeStopCoroutine(tweaker.Coroutine);
                     tweaker.Coroutine = StartCoroutine(Tweak(current, GetEffectDefaultValue(effectType), effect.Fading.FadeOut, effect.Fading.FadeOutEase, paraName, hasSecondaryParameter, onTweakFinished));
                     tweaker.WaitableList.Clear();
