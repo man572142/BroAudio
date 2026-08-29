@@ -60,7 +60,7 @@ namespace Ami.BroAudio.Runtime
             {
                 if (!id.IsValid())
                 {
-                    Debug.LogError($"The SoundID hasn't been assigned yet! {GetDebugObjectName()}", GetDebugObject());
+                    Debug.LogError(Utility.LogTitle + $"The SoundID hasn't been assigned yet! {GetDebugObjectName()}", GetDebugObject());
                     return false;
                 }
                 return true;

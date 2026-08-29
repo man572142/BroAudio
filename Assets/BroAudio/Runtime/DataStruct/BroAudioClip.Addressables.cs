@@ -72,7 +72,7 @@ namespace Ami.BroAudio.Data
 
                 if (AudioClipAssetReference.OperationHandle.IsValid() && !AudioClipAssetReference.OperationHandle.IsDone)
                 {
-                    Debug.LogWarning($"AudioClip [<b>{assetIdentity}</b>] is still loading!");
+                    Debug.LogWarning(Utility.LogTitle + $"AudioClip [<b>{assetIdentity}</b>] is still loading!");
                     return null;
                 }
 

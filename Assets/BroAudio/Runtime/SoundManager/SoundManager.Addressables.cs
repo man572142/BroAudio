@@ -124,7 +124,7 @@ namespace Ami.BroAudio.Runtime
                 entity = e as AudioEntity;
                 if(!entity.UseAddressables)
                 {
-                    Debug.LogError($"The entity {id.ToString().ToBold()} isn’t marked as addressable. Please check its settings.");
+                    Debug.LogError(Utility.LogTitle + $"The entity {id.ToString().ToBold()} isn’t marked as addressable. Please check its settings.");
                 }
                 return entity.UseAddressables;
             }
