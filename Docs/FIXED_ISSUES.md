@@ -14,6 +14,7 @@ Unreleased (after 3.2.3).
 | 5 | Clip selection | `SetSequenceId` silently did the wrong thing in the wrong play mode | `42fd0644` |
 | 6 | Clip selection | Single play mode accepted an empty clip and failed later | `bac5ed45` |
 | 7 | Volume | Setting a type volume to exactly 1 didn't reach newly started players | `42e1a940` |
+| 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `4eced071` |
 
 ---
 
@@ -81,3 +82,27 @@ live players inconsistent, so reading it back couldn't be trusted.
 
 **How it's fixed:** The special case for 1 was removed; the stored volume is always applied to a
 starting player.
+
+## 17. `SetEffect(...).ForSeconds(...)` threw on the default fade time
+
+**What was wrong:** The documented way to apply a temporary effect is to chain a wait onto
+`SetEffect`:
+
+```csharp
+BroAudio.SetEffect(Effect.LowPass(800f)).ForSeconds(2f);
+```
+
+`Effect.LowPass` and its siblings take a fade time that defaults to 0, and with no fade there was
+nothing for the internal tween to do — it finished the instant it was started, before `SetEffect`
+had even returned. The `.ForSeconds(2f)` that followed then went looking for the tween it was meant
+to attach to, found it already gone, and threw. `.Until(...)` and `.While(...)` failed the same way,
+which also put dominator effects at risk, since ducking everything but the dominator waits with
+`.While(...)` internally. The only way to use the chaining API at all was to pass an explicit
+non-zero fade time. In the PlayMode test suite the exception aborted the whole run rather than
+failing one test.
+
+**How it's fixed:** When the tween has already finished, the wait now re-arms it instead of failing —
+the effect is queued again with the wait already attached, so it holds for the requested duration and
+then resets itself, exactly as it does with a non-zero fade. Silently doing nothing was the other
+option, but that would have left the effect applied forever with no error to explain why.
+
