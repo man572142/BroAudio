@@ -3,9 +3,9 @@
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
 Findings 1-7 have since been fixed (or the dead code removed) and their write-ups removed from
-this file — see git history for the original text, or the other docs under `docs/` that still
-cite them by number (e.g. `TEST_FINDINGS #3`) as historical pointers. The rest are still open,
-and numbering is left as-is so those citations stay valid.
+this file — they are recorded in plain language in [FIXED_ISSUES.md](FIXED_ISSUES.md), which keeps
+the same numbering, so citations elsewhere (e.g. `TEST_FINDINGS #3`) still resolve. The rest are
+still open, and numbering is left as-is.
 
 | # | Area | Finding | Status |
 |---|---|---|---|
@@ -16,6 +16,8 @@ and numbering is left as-is so those citations stay valid.
 | 12 | Playback group | Comb-filtering is bypassed for any global+positioned pair, without comparing distance | Open, characterized |
 | 13 | Looping | `HasLoop` populates its `transitionTime` out parameter even when it returns false | Open, characterized |
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
+| 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carry no `Utility.LogTitle` prefix | Open, characterized |
+| 16 | Effects | `ResetAllEffect` can report completion once per tracked effect instead of once | Open, latent |
 
 ---
 
@@ -237,6 +239,90 @@ Two smaller consequences:
   at runtime has no effect even on the polling interval.
 - The routine is testable only by back-dating `_loadedEntityLastPlayedTime`, which is what
   `AddressablesTests` does — waiting out a hardcoded 60 seconds is not viable in a suite.
+
+## 15. Runtime logs in `Ami.Extension` carry no `[BroAudio]` prefix
+
+**Where:** `Assets/BroAudio/Runtime/Extension/` — `AudioExtension.cs:72`, `AudioExtension.cs:122`,
+`FlagsExtension.cs:40`, `LoopExtension.cs:35`, `LoopExtension.cs:43`
+
+The project rule is that every runtime log is prefixed with `Utility.LogTitle` (the `[BroAudio]`
+rich-text tag) so console output is attributable to the package. Commit `78ffd841` did a pass over
+the runtime for exactly this. What it left untouched is not scattered — it is precisely the five
+`Debug.LogError` calls that live in the generic `Ami.Extension` namespace:
+
+```csharp
+// AudioExtension.cs:122
+public static bool IsValidFrequency(float freq)
+{
+    if (freq < MinFrequency || freq > MaxFrequency)
+    {
+        Debug.LogError($"The given frequency should be in {MinFrequency}Hz ~ {MaxFrequency}Hz.");
+        return false;
+    }
+    return true;
+}
+```
+
+The grouping is almost certainly deliberate: `Ami.Extension` is the package's general-purpose
+extension namespace, and prefixing from there would make it depend on `Ami.BroAudio.Utility`. Every
+log in the `Ami.BroAudio.*` namespaces is prefixed, including ones that build their message in a
+helper (`SequenceClipStrategy.GetNoValidClipMessage`) or a `const` (`SoundManager`'s `nullRefLog`).
+`Debug.LogException` calls are excluded throughout, since an exception carries no message string to
+prefix.
+
+**Why it matters:** the boundary is undocumented, and at least one of these logs is reachable from
+public API, so it surfaces to package consumers as an unattributed console error:
+
+```csharp
+player.AsDominator().LowPassOthers(0f);   // logs a bare "The given frequency should be in 10Hz ~ 22000Hz."
+```
+
+`IsValidFrequency` is the guard behind `LowPassOthers` / `HighPassOthers`, and it logs *before*
+returning false, so the caller's own range check never gets a chance to report it. A user sees an
+error with no indication of which package raised it.
+
+This also makes the two guards on the same decorator inconsistent in both level and format:
+
+| call | level | prefixed |
+|---|---|---|
+| `LowPassOthers(freq)` — invalid frequency | `Error` | no |
+| `QuietOthers(vol)` — out-of-range volume | `Warning` | yes |
+
+Either outcome is defensible — prefix them and accept the namespace dependency, or route the message
+back through the caller — but the current state means a package consumer cannot tell where half of
+these errors come from.
+
+Characterized by `SelectionStateAndDecoratorTests`, which asserts the current `Error`-without-prefix
+behavior for the frequency guard and the `Warning`-with-prefix behavior for the volume guard.
+
+## 16. `ResetAllEffect` can report completion once per tracked effect instead of once
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs` — `ResetAllEffect`
+
+The reset loop counts its outstanding tweens, but increments the counter *after* starting each one:
+
+```csharp
+tweaker.Coroutine = StartCoroutine(Tweak(current, GetEffectDefaultValue(effectType), effect.Fading.FadeOut, ...,  onTweakFinished));
+tweaker.WaitableList.Clear();
+tweakingCount++;
+```
+
+`StartCoroutine` runs the body up to its first `yield`, and `Tweak` has two paths that reach the end
+without yielding at all: `from == to` hits an early `yield break`, and a zero `fadeTime` — the default
+for `new Effect(EffectType.None)` — makes `while (currentTime < fadeTime)` skip its body. On either
+path `onTweakFinished` fires *before* the matching `tweakingCount++`, so the counter goes to `-1`,
+satisfies `if (tweakingCount <= 0)`, and fires `onResetFinished`. The `++` then brings it back to `0`
+and the next tracked effect repeats the whole thing — N tracked effects means N completion callbacks
+instead of one.
+
+**Why it is latent, not a live bug:** `onResetFinished` is currently always `null` on this path.
+`ResetAllEffect` runs only when `effect.Type == EffectType.None`, and `SoundManager.SetEffect` maps
+that to `SetEffectMode.Override`, which leaves `onResetEffect` unassigned — it only builds a callback
+for `SetEffectMode.Remove`. So the extra invocations hit a `?.` and vanish. Anything that later gives
+the `None` path a callback inherits the bug.
+
+Same root cause as #17's crash: this class assumes `StartCoroutine` defers the body, and Unity does
+not. Moving `tweakingCount++` above the `StartCoroutine` call fixes it.
 
 ---
 
