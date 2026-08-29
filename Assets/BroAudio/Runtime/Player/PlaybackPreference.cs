@@ -129,7 +129,7 @@ namespace Ami.BroAudio.Runtime
         {
             if (Entity.PlayMode != MulticlipsPlayMode.Velocity)
             {
-                Debug.LogError($"Cannot set velocity on [{Entity}] because it's not using VelocityPlayMode. (current : {Entity.PlayMode})");
+                Debug.LogError(Utility.LogTitle + $"Cannot set velocity on [{Entity}] because it's not using VelocityPlayMode. (current : {Entity.PlayMode})");
                 return;
             }
             _contextValue = velocity;
@@ -139,7 +139,7 @@ namespace Ami.BroAudio.Runtime
         {
             if (Entity.PlayMode != MulticlipsPlayMode.Sequence)
             {
-                Debug.LogError($"Cannot set sequence id on [{Entity}] because it's not using SequencePlayMode. (current : {Entity.PlayMode})");
+                Debug.LogError(Utility.LogTitle + $"Cannot set sequence id on [{Entity}] because it's not using SequencePlayMode. (current : {Entity.PlayMode})");
                 return;
             }
             SequenceId = sequenceId;
