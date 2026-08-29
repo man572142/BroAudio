@@ -18,6 +18,13 @@ still open, and numbering is left as-is.
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
 | 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carry no `Utility.LogTitle` prefix | Open, characterized |
 | 16 | Effects | `ResetAllEffect` can report completion once per tracked effect instead of once | Open, latent |
+| 17 | Editor / Instructions | `Instruction.SoundSource_PositionMode` (450) has no shipped text | Open, characterized |
+| 18 | Editor / Instructions | `BroInstruction.asset` key `15` is stale, belongs to no enum value | Open, characterized |
+| 19 | Editor / Audio type | `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All` | Open, latent |
+| 20 | Editor / Rect math | The `params float[] ratios` rect splits do not land on the far edge | Open, characterized |
+| 21 | Editor / Rect math | `SplitRectVertical` silently no-ops on a null array | Open, characterized |
+| 22 | Editor / Rect math | `GetFieldName` lowercases every occurrence of the leading letter | Open, characterized |
+| 23 | Editor / Path utility | `BroEditorUtility.Combine` is naked concatenation | Open, characterized |
 
 ---
 
@@ -323,6 +330,132 @@ the `None` path a callback inherits the bug.
 
 Same root cause as #17's crash: this class assumes `StartCoroutine` defers the body, and Unity does
 not. Moving `tweakingCount++` above the `StartCoroutine` call fixes it.
+
+## 17. Instruction 450 has no shipped text
+
+**Where:** `Assets/BroAudio/Editor/Resources/BroInstruction.asset`, keyed against
+`Ami.BroAudio.Editor.Instruction`
+
+`Instruction.SoundSource_PositionMode` (value 450) has no entry in the shipped asset, so
+`BroInstructionHelper.GetText` returns its `MissingText` sentinel — the literal `??????????` — and the
+Sound Source position-mode tooltip ships broken. The enum has 68 members and the asset has 68 entries,
+so the counts cancel and hide the gap.
+
+**This is a user-visible defect**, not a quirk. Covered by
+`ShippedDataTests.EveryInstructionEnumValue_ResolvesToNonMissingText`, which is deliberately red.
+
+## 18. Asset key 15 is stale
+
+**Where:** `Assets/BroAudio/Editor/Resources/BroInstruction.asset`, key `15`
+
+A pitch-shifting tooltip whose `Instruction` member was deleted; `Instruction.cs` pins the surrounding
+values in a comment because of the hole. It deserializes to an undefined `(Instruction)15` and is never
+read — harmless, but it is dead shipped data.
+
+Covered by `ShippedDataTests.BroInstructionAsset_EveryKeyIsADefinedEnumValue`, deliberately red.
+
+## 19. `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All`
+
+**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.SerializedProperty.cs`
+
+```csharp
+public static int GetSerializedEnumIndex(this BroAudioType audioType)
+{
+    int index = 0;
+    int intAudioType = (int)audioType;
+    while (intAudioType > 0)
+    {
+        index++;
+        intAudioType = intAudioType >> 1;
+    }
+    return index;
+}
+
+public static BroAudioType GetAudioTypeByIndex(int enumIndex)
+{
+    BroAudioType audioType = BroAudioType.None;
+    while (enumIndex > 0)
+    {
+        audioType = audioType.ToNext();
+        enumIndex--;
+    }
+    return audioType;
+}
+```
+
+`GetSerializedEnumIndex` counts the bit-length of the underlying int, so `All` (31) yields index 5 — the
+same index `VoiceOver` (16) yields — while reaching `All` from the other direction takes 6 `ToNext()`
+steps. The round-trip therefore collapses `All` into `VoiceOver`. Concrete types are unaffected, and
+**the pair has no caller left anywhere in the package** (verified by grep), so it is latent rather than
+user-visible.
+
+Characterized green by `EditorUtilityPureTests.EnumIndexRoundTrip_All_CollapsesIntoVoiceOver`.
+
+## 20. The `params float[] ratios` rect splits do not land on the far edge
+
+**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`,
+`SplitRectHorizontal`/`SplitRectVertical` (the `params float[] ratios` overloads, backed by the shared
+`SplitHorizontal` helper)
+
+```csharp
+float offsetWidth = i == 0 || i == resultRects.Length - 1 ? gap : gap * 0.5f;
+```
+
+Each segment loses a full `gap` at the array's first and last index and only half a `gap` in between,
+which only balances exactly at 4 segments — 2 segments fall a full gap short of `xMax`/`yMax`, 3 fall
+half a gap short, and 5 or more overshoot. The dedicated two-way `out Rect, out Rect` overload above it
+in the same file applies a clean `halfGap` to both sides and lands on the edge exactly, for any gap — so
+the two forms contradict each other for the same inputs.
+
+Characterized in `TransportAndRectMathTests` (`SplitRectHorizontal_RatiosArrayForm_ThreeWay_...`,
+`SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload`,
+`SplitRectVertical_RatiosArrayForm_ThreeWay_...`).
+
+## 21. `SplitRectVertical` silently no-ops on a null array
+
+**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `SplitRectVertical(Rect,
+float, Rect[], params float[])`
+
+```csharp
+resultRects ??= new Rect[ratios.Length];
+```
+
+It reassigns `resultRects` into a throwaway local array the caller never sees — no exception, no log.
+`SplitRectHorizontal`'s equivalent overload guards the same case in its shared `SplitHorizontal` helper
+by logging `"Rects array is null!"` and returning. Characterized in
+`TransportAndRectMathTests.SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal`.
+
+## 22. `GetFieldName` lowercases every occurrence of the leading letter
+
+**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `GetFieldName`
+
+```csharp
+if (char.IsUpper(propertyName[0]))
+{
+    propertyName = propertyName.Replace(propertyName[0], propertyName[0].ToLower());
+}
+return $"_{propertyName}";
+```
+
+It calls `propertyName.Replace(firstChar, lowerFirstChar)` — the global `string.Replace(char, char)`
+overload, not a single-position substitution — so `"FooF"` becomes `"_foof"` rather than `"_fooF"`.
+Characterized in `TransportAndRectMathTests.GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst`.
+
+## 23. `BroEditorUtility.Combine` is naked concatenation
+
+**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.Path.cs`
+
+```csharp
+public static string Combine(string path1, string path2, string path3)
+{
+    return path1 + "/" + path2 + "/" + path3;
+}
+```
+
+It joins with `+ "/" +` and never normalizes, so a segment that already ends in a slash produces a
+doubled `//`. The `params string[]` overload builds the same way and has the identical quirk.
+Characterized in `EditorUtilityPureTests.Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash`
+and `Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash`.
 
 ---
 
