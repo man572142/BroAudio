@@ -25,6 +25,13 @@ still open, and numbering is left as-is.
 | 21 | Editor / Rect math | `SplitRectVertical` silently no-ops on a null array | Open, characterized |
 | 22 | Editor / Rect math | `GetFieldName` lowercases every occurrence of the leading letter | Open, characterized |
 | 23 | Editor / Path utility | `BroEditorUtility.Combine` is naked concatenation | Open, characterized |
+| 24 | Editor / Clip editing | `ConvertToMono` Downmixing drops the final group | Open, characterized |
+| 25 | Editor / Clip editing | `Reverse` transposes stereo channels | Open, characterized |
+| 26 | Editor / Clip editing | `AddSlient` prepends, and its sample count truncates | Open, characterized |
+| 27 | Editor / Clip editing | `FadeIn(0f)` divides by zero | Open, latent |
+| 28 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
+| 29 | Editor / Sample data | An oversized trim range silently wraps instead of failing | Open, latent, uncovered |
+| 30 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
 
 ---
 
@@ -456,6 +463,82 @@ It joins with `+ "/" +` and never normalizes, so a segment that already ends in 
 doubled `//`. The `params string[]` overload builds the same way and has the identical quirk.
 Characterized in `EditorUtilityPureTests.Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash`
 and `Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash`.
+
+---
+
+## 24. `ConvertToMono` Downmixing drops the final group
+
+**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+
+The running sum is flushed when the loop *enters* a new group, so the last group is accumulated and
+never added — output length is `totalSamples / channels - 1`, not `totalSamples / channels`. A user
+downmixing a stereo clip in the Clip Editor loses the final sample frame.
+
+Status: Open, characterized. Covered by
+`ClipEditingTests.ConvertToMono_Downmixing_OffsetsGroupingAndDropsFinalGroup`. The `SelectOneChannel`
+path does **not** have this bug — it keeps the full frame count.
+
+## 25. `Reverse` transposes stereo channels
+
+**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+
+It calls `Array.Reverse` on the raw interleaved sample array, so L and R swap as well as the clip
+playing backwards.
+
+Status: Open, characterized.
+
+## 26. `AddSlient` prepends, and its sample count truncates
+
+**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+
+The name says nothing about which end — silence goes at the *start*. It also sizes the pad with a
+plain `(int)` cast of `time * frequency * channels` rather than the `Math.Round(..., AwayFromZero)`
+that `FadeIn`/`FadeOut` and `GetDataSample` use, so a time value that lands just under an integer
+silently loses one sample.
+
+Status: Open, characterized.
+
+## 27. `FadeIn(0f)` divides by zero
+
+**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+
+`volIncrement` becomes `1f / 0` = ∞, but `fadeSample` is 0 so the loop body never runs and no sample
+is touched. Harmless today, and pinned by a test so it stays harmless.
+
+Status: Open, latent.
+
+## 28. `GetResultClip` returns the original instance when nothing was edited
+
+**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+
+Not a copy — reference equality. A caller that mutates the "result" is mutating the user's source
+clip.
+
+Status: Open, characterized.
+
+## 29. An oversized trim range silently wraps instead of failing
+
+**Where:** `Assets/BroAudio/Runtime/Extension/AudioExtension.cs`, `TryGetSampleData`
+
+Unity's `AudioClip.GetData` wraps around and re-reads from the start of the clip when the requested
+range runs past the end of the data, rather than returning false. So a stale or too-large `endPos`
+produces a clip spliced with audio from its own beginning, `HasEdited` flips true, and nothing is
+logged. **This is NOT covered by a test** — it was found by reading during phase E3 and is recorded
+here only. The one reliable way to make `GetData` return false is a streaming clip, which is what
+`ClipEditingTests.Trim_OnStreamingClip_FailsAndLeavesOriginalClip` uses instead.
+
+Status: Open, latent, uncovered.
+
+## 30. `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase
+
+**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.DataHandler.cs` (via
+`TryLoadResources`)
+
+Outside a Resources folder the guard never fires, so the call creates a fresh instance and overwrites
+whatever was at the path. Every production caller passes a Resources path, so it is latent.
+
+Status: Open, characterized. Covered by
+`AssetWritingTests.CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime`.
 
 ---
 
