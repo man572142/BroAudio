@@ -26,14 +26,14 @@ namespace Ami.BroAudio.Editor.Tests
         {
             // A swapped pair (e.g. FadeIn <-> FadeOut) would pass any single-field test but fail this one:
             // every field gets a distinct value, so a swap shows up as a mismatch on two fields at once.
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("Mapping", BroAudioType.SFX, TestAudioLibrary.CreateClip(10f)));
+            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("Mapping", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(10f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
             var transport = new SerializedTransport(clipProp, 10f);
 
             transport.SetValue(1f, TransportType.Start);
             transport.SetValue(2f, TransportType.End);
-            transport.SetValue(1f, TransportType.FadeIn);
+            transport.SetValue(0.5f, TransportType.FadeIn);
             transport.SetValue(1.5f, TransportType.FadeOut);
             transport.SetValue(3f, TransportType.Delay);
 
@@ -42,7 +42,7 @@ namespace Ami.BroAudio.Editor.Tests
             BroAudioClip clip = entity.Clips[0];
             Assert.AreEqual(1f, clip.StartPosition, 0.0001f, "Start");
             Assert.AreEqual(2f, clip.EndPosition, 0.0001f, "End");
-            Assert.AreEqual(1f, clip.FadeIn, 0.0001f, "FadeIn");
+            Assert.AreEqual(0.5f, clip.FadeIn, 0.0001f, "FadeIn");
             Assert.AreEqual(1.5f, clip.FadeOut, 0.0001f, "FadeOut");
             Assert.AreEqual(3f, clip.Delay, 0.0001f, "Delay");
         }
@@ -50,7 +50,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void SetValue_Start_CommitsTheClampedValue_NotTheRawInput()
         {
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("ClampStart", BroAudioType.SFX, TestAudioLibrary.CreateClip(5f)));
+            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("ClampStart", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(5f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
             var transport = new SerializedTransport(clipProp, 5f);
@@ -64,7 +64,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void SetValue_Delay_ClampsOnlyToZero_ViaTheClipField()
         {
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("ClampDelay", BroAudioType.SFX, TestAudioLibrary.CreateClip(5f)));
+            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("ClampDelay", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(5f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
             var transport = new SerializedTransport(clipProp, 5f);
@@ -79,7 +79,7 @@ namespace Ami.BroAudio.Editor.Tests
         {
             // Contract check: SerializedTransport.SetValue calls ApplyModifiedProperties itself
             // (SerializedTransport.cs line 50) — a caller that also calls it is redundant, not required.
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("SelfApplies", BroAudioType.SFX, TestAudioLibrary.CreateClip(10f)));
+            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("SelfApplies", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(10f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
             var transport = new SerializedTransport(clipProp, 10f);
@@ -139,7 +139,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void TryFindPropertyRelative_KnownRelativeName_ReturnsTrueWithTheProperty()
         {
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("TryTrue", BroAudioType.SFX, TestAudioLibrary.CreateClip(1f)));
+            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("TryTrue", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(1f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
 
@@ -152,7 +152,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void TryFindPropertyRelative_UnknownRelativeName_ReturnsFalseWithNullResult()
         {
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("TryFalse", BroAudioType.SFX, TestAudioLibrary.CreateClip(1f)));
+            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("TryFalse", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(1f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
 

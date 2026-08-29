@@ -127,13 +127,27 @@ namespace Ami.BroAudio.Editor.Tests
             EditorSetting setting = BroEditorUtility.EditorSetting;
             setting.ResetToFactorySettings();
 
+            // Compared against the factory colour constants rather than against TryGetAudioTypeSetting's
+            // own output - GetAudioTypeColor is defined in terms of TryGetAudioTypeSetting, so checking
+            // one against the other cannot detect a wrong colour or a wrong type-to-colour pairing.
+            var factoryColors = new Dictionary<BroAudioType, string>
+            {
+                { BroAudioType.Music, EditorSetting.FactorySettings.MusicColor },
+                { BroAudioType.UI, EditorSetting.FactorySettings.UIColor },
+                { BroAudioType.Ambience, EditorSetting.FactorySettings.AmbienceColor },
+                { BroAudioType.SFX, EditorSetting.FactorySettings.SFXColor },
+                { BroAudioType.VoiceOver, EditorSetting.FactorySettings.VoiceOverColor },
+            };
+
             foreach (BroAudioType audioType in ConcreteAudioTypes)
             {
                 Assert.IsTrue(setting.TryGetAudioTypeSetting(audioType, out var typeSetting),
                     $"ResetToFactorySettings did not create an AudioTypeSetting for {audioType}.");
                 Assert.AreEqual(audioType, typeSetting.AudioType);
-                Assert.AreEqual(typeSetting.Color, setting.GetAudioTypeColor(audioType),
-                    $"GetAudioTypeColor disagrees with TryGetAudioTypeSetting for {audioType}.");
+
+                ColorUtility.TryParseHtmlString(factoryColors[audioType], out Color expected);
+                Assert.AreEqual(expected, setting.GetAudioTypeColor(audioType),
+                    $"{audioType} did not get its factory colour.");
             }
         }
 

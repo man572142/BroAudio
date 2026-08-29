@@ -136,6 +136,21 @@ namespace Ami.BroAudio.Editor.Tests
                 Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
             }
         }
+        [Test]
+        public void AddSlient_PadLengthTruncatesInsteadOfRounding()
+        {
+            // Characterized (TEST_FINDINGS #26, second half): AddSlient sizes the pad with a plain (int)
+            // cast, while FadeIn/FadeOut/GetDataSample all use Math.Round(..., AwayFromZero). This time
+            // computes to 3.9999 samples, so the cast yields 3 where every other path would yield 4.
+            AudioClip clip = CreateRampClip("Ramp4Trunc", 4, 1);
+            using var helper = new AudioClipEditingHelper(clip);
+
+            helper.AddSlient(0.0039999f);
+
+            float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
+            Assert.AreEqual(4 + 3, actual.Length,
+                "AddSlient no longer truncates its pad length - it now rounds, like the rest of the sample math.");
+        }
         #endregion
 
         #region AdjustVolume

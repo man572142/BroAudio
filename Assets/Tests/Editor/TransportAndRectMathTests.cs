@@ -142,9 +142,10 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero()
         {
-            // The odd extra term: Start and End are both untouched (0), yet a positive Delay alone
-            // flips HasDifferentPosition to true via "Delay > StartPosition" (0 > 0 is false, but any
-            // positive Delay clears that bar).
+            // Characterized, and logged as TEST_FINDINGS #31: Start and End are both untouched (0), yet a
+            // positive Delay alone flips HasDifferentPosition to true via the "Delay > StartPosition" term
+            // (0 > 0 is false, but any positive Delay clears that bar). Whether a delay alone should count
+            // as a different *position* is the open question; this test pins today's answer.
             var transport = new Transport(10f);
             transport.SetValue(1f, TransportType.Delay);
 
@@ -274,9 +275,10 @@ namespace Ami.BroAudio.Editor.Tests
             // throwaway array and is, from the caller's side, an expensive no-op. No exception, no log.
             Rect[] rects = null;
 
+            // Only the no-throw is load-bearing: no implementation without a `ref` parameter could make
+            // the caller's local non-null, so asserting that would test C#, not this method.
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectVertical(new Rect(0f, 0f, 100f, 50f), 4f, rects, 0.5f, 0.5f));
-            Assert.IsNull(rects, "The caller's null array reference should be unchanged after the call.");
         }
         #endregion
 

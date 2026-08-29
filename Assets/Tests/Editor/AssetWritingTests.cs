@@ -34,7 +34,6 @@ namespace Ami.BroAudio.Editor.Tests
             if (!AssetDatabase.IsValidFolder(TempResourcesFolder))
             {
                 AssetDatabase.CreateFolder(TempFolder, "Resources");
-                AssetDatabase.Refresh();
             }
             return TempResourcesFolder;
         }
@@ -64,10 +63,13 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.IsTrue(created, "No asset was created.");
             Assert.IsTrue(AssetDatabase.LoadAssetAtPath<EditorSetting>(path), "The asset is not on disk at the requested path.");
-            Assert.AreEqual(EditorSetting.FactorySettings.ShowVUColorOnVolumeSlider, created.ShowVUColorOnVolumeSlider,
-                "The new asset did not get factory settings.");
+            // Every bool on EditorSetting is field-initialised from FactorySettings, so asserting one
+            // against its own initialiser would pass with the reset removed. AudioTypeSettings and
+            // SpectrumBandColors are null on a bare CreateInstance - only the reset populates them.
+            Assert.IsNotNull(created.AudioTypeSettings, "ResetToFactorySettings was not applied to the new EditorSetting.");
             Assert.AreEqual(ConcreteAudioTypes.Length, created.AudioTypeSettings.Count,
-                "ResetToFactorySettings was not applied to the new EditorSetting.");
+                "The new asset did not get one AudioTypeSetting per concrete audio type.");
+            Assert.IsNotEmpty(created.SpectrumBandColors, "The new asset did not get the default spectrum colours.");
         }
 
         [Test]
@@ -76,6 +78,8 @@ namespace Ami.BroAudio.Editor.Tests
             string path = EnsureTempResourcesFolder() + "/BroTestRuntimeSetting.asset";
 
             var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
+            // Needed so the Resources.Load existence check can see the new asset. Safe: no test writes a
+            // .cs file, so a refresh here cannot recompile and take the run down with a domain reload.
             AssetDatabase.Refresh();
             var second = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
 
@@ -144,13 +148,19 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        public void Verify_ValidName_ClearsTheInstruction()
+        public void Verify_ValidName_ClearsAPreviouslyReportedInstruction()
         {
+            // CurrInstruction starts at default, so verifying a valid name from a clean editor proves
+            // nothing. Dirty it with a bad name first, then check the good name actually clears it.
             NewAssetOnDisk("BroTestValidName", out AudioAssetEditor editor);
+            editor.SetData(string.Empty, "1StartsWithANumber");
+            editor.Verify();
+            Assert.AreNotEqual(default(Instruction), editor.CurrInstruction, "Setup failed: the bad name did not set an instruction.");
 
+            editor.SetData(string.Empty, "BroTestValidName");
             editor.Verify();
 
-            Assert.AreEqual(default(Instruction), editor.CurrInstruction);
+            Assert.AreEqual(default(Instruction), editor.CurrInstruction, "A valid name did not clear the reported instruction.");
         }
 
         [Test]

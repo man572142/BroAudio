@@ -43,7 +43,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        public void IsInvalidName_OnlyWhitespace_ReportsContainsWhiteSpace()
+        public void IsInvalidName_EmbeddedWhitespace_ReportsContainsWhiteSpace()
         {
             // Quirk: IsValidWord(' ') returns true, so a bare space never trips ContainsInvalidWord -
             // it falls through to the separate whitespace check instead.
@@ -157,16 +157,17 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        public void ForeachConcreteDrawedProperty_NeverVisitsAllOrBeyond()
+        public void DrawedPropertyAll_IsExactlyTheConcreteFlagsCombined()
         {
-            var visited = new List<DrawedProperty>();
-            BroEditorUtility.ForeachConcreteDrawedProperty(flag => visited.Add(flag));
-
-            Assert.IsFalse(visited.Contains(DrawedProperty.All), "The composite All flag itself should never be visited.");
-            foreach (DrawedProperty flag in visited)
+            // The stop condition of ForeachConcreteDrawedProperty is All itself. If a new flag is added
+            // without folding it into All, iteration stops short of it and nothing else in the suite notices.
+            int combined = 0;
+            foreach (DrawedProperty flag in ConcreteDrawedProperties)
             {
-                Assert.LessOrEqual((int)flag, (int)DrawedProperty.All, $"{flag} exceeds DrawedProperty.All - iteration ran past the stop condition.");
+                combined |= (int)flag;
             }
+            Assert.AreEqual((int)DrawedProperty.All, combined,
+                "DrawedProperty.All no longer equals the concrete flags combined - a flag was added without updating All.");
         }
 
         [Test]
