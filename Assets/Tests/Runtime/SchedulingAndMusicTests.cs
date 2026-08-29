@@ -57,6 +57,23 @@ namespace Ami.BroAudio.Tests
                 "the 0.3s explicit schedule to win over the 5s clip.Delay", 1.5f);
         }
 
+        // 2.5 - SetDelay (ISchedulable.SetDelay) is sugar for SetScheduledStartTime(dspTime + delay), so
+        // it must inherit the same override-not-additive relationship with clip.Delay: a much shorter
+        // explicit SetDelay has to win outright rather than stacking on top of the clip's own delay.
+        [UnityTest]
+        public IEnumerator SetDelay_CalledBeforeQueueDrains_OverridesClipDelayRatherThanAddingToIt()
+        {
+            AudioEntity entity = NewEntity("DelayOverrideSfx", BroAudioType.SFX, NewClip(2f));
+            entity.Clips[0].Delay = 5f;
+            SoundID id = IdOf(entity);
+
+            IAudioPlayer player = BroAudio.Play(id); // only enqueued - SoundManager.LateUpdate hasn't drained it yet
+            player.SetDelay(0.3f); // SetClipDelayIfNotScheduled will see ScheduledStartTime > 0 and skip the 5s clip.Delay
+
+            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0,
+                "the 0.3s explicit SetDelay to win over the 5s clip.Delay", 1.5f);
+        }
+
         // 2.7 - the documented quirk: SetScheduledStartTime on an already-playing source pauses it
         // until the new dspTime, and this is invisible in IAudioPlayer state (Scheduling.cs:172-173).
         [UnityTest]
