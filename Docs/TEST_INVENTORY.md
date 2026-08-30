@@ -24,6 +24,13 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 
+Tier status is the summary; the **per-behavior** ledger required by the plan's Definition of Done lives at
+the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverage-ledger),
+[selection-policy](inventory/selection-policy.md#coverage-ledger),
+[time-dependent](inventory/time-dependent.md#coverage-ledger) and
+[volume-mixer](inventory/volume-mixer.md#coverage-ledger) — where every inventoried behavior is marked
+covered / partial / deferred / out of scope with the test that pins it.
+
 179 tests, ~24s per PlayMode run. `AudioEffectTests.cs` (added 2026-08-29, 22 tests, `157 -> 179`)
 covers the two largest remaining gaps outside the tiers above: the per-player Unity filter surface
 (`AddChorusEffect`/`AddLowPassEffect`/etc. — attach, duplicate, remove, recycle cleanup, the
@@ -32,7 +39,8 @@ automation, plus remaining untested public statics.
 Every fixture also passes in isolation, so no test depends on another having run. (`run_tests` has no shuffle
 or seed option, so per-fixture isolation is the closest available substitute for the Definition of Done's
 shuffled-order requirement.) Re-run and confirmed all-green 2026-08-30 via `unity cmd run_tests --mode
-PlayMode --async_tests` (179/179).
+PlayMode --async_tests` (179/179). That run predates commit `48516f57` and the follow-up tidy-up,
+both of which touched production code the suite exercises — **re-run before trusting the green.**
 
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
@@ -60,19 +68,20 @@ Established by probe or grep during ranking; they override anything in the secti
 ## Editor suite
 
 A separate EditMode assembly covering `BroAudioEditor` (`Ami.BroAudio.Editor.Tests`), distinct from the
-runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in `BroAudio
-Editor Testing Plan.md`.
+runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in
+[TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md).
 
-**99 EditMode tests, all pass, ~5s wall.** The two shipped-data gaps once deliberately left red —
+**97 EditMode tests, all pass, ~5s wall.** The two shipped-data gaps once deliberately left red —
 TEST_FINDINGS #18 (`SoundSource_PositionMode` had no shipped text) and #19 (stale asset key `15`) —
 have both since been fixed; see [FIXED_ISSUES.md](FIXED_ISSUES.md). Confirmed all-green 2026-08-30
-via `unity cmd run_tests --mode EditMode` (100/100, the +1 being an unrelated Addressables package
-stub test).
+via `unity cmd run_tests --mode EditMode` (98/98, the +1 being an unrelated Addressables package
+stub test). That run predates commit `48516f57` and the follow-up tidy-up, both of which touched
+production code the suite exercises — **re-run before trusting the green.**
 
 Per-file counts, each also verified passing in isolation: `IsolationContractTests` 5,
-`EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28, `ShippedDataTests` 6,
+`EditorUtilityPureTests` 16, `TransportAndRectMathTests` 28, `ShippedDataTests` 6,
 `IssueReportMarkdownTests` 5, `SerializedPropertyResetTests` 5, `SerializedTransportTests` 8,
-`ClipEditingTests` 15, `AssetWritingTests` 8.
+`ClipEditingTests` 16, `AssetWritingTests` 8.
 
 The isolation contract lives in `BroEditorTestFixture`
 (`Assets/Tests/Editor/BroEditorTestFixture.cs`): JSON snapshot/restore of the on-disk `EditorSetting` and
@@ -90,7 +99,7 @@ developer's real path in TearDown.
 
 | Tier | Status | Test files |
 |---|---|---|
-| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportAndRectMathTests.cs`, `IssueReportMarkdownTests.cs` |
+| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportAndRectMathTests.cs`, `IssueReportMarkdownTests.cs`. One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted in `48516f57` (FIXED_ISSUES #20), so there is nothing left to test. |
 | E1 — shipped-data integrity | **covered** | `ShippedDataTests.cs` |
 | E2 — SerializedProperty operations | **covered** | `SerializedPropertyResetTests.cs`, `SerializedTransportTests.cs` |
 | E3 — clip editing | **covered** | `ClipEditingTests.cs` |

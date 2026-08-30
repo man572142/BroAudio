@@ -8,8 +8,9 @@ namespace Ami.BroAudio.Editor.Tests
     /// Guards the fixture itself. Every other file in this suite trusts BroEditorTestFixture to hand back
     /// an unmodified project; if these go red, every later green is meaningless.
     /// <para>
-    /// The pairs run in NUnit's alphabetical order within the fixture — the A_ test dirties, the B_ test
-    /// observes the restore.
+    /// NUnit runs these in alphabetical order within the fixture, which is the whole point of the A_-E_
+    /// prefixes: A_ dirties and B_ observes the restore, C_ creates the temp folder and D_ observes its
+    /// removal, E_ checks nothing was left dirty. Renaming one, or reordering them, breaks the contract.
     /// </para>
     /// </summary>
     public class IsolationContractTests : BroEditorTestFixture
@@ -50,13 +51,6 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        public void E_SettingAssets_AreNotDirtyAfterAMutatingTest()
-        {
-            Assert.IsFalse(EditorUtility.IsDirty(BroEditorUtility.EditorSetting), "EditorSetting was left dirty by an earlier test.");
-            Assert.IsFalse(EditorUtility.IsDirty(BroEditorUtility.RuntimeSetting), "RuntimeSetting was left dirty by an earlier test.");
-        }
-
-        [Test]
         public void C_TempFolder_IsCreatedOnDemand()
         {
             string path = EnsureTempFolder();
@@ -67,6 +61,13 @@ namespace Ami.BroAudio.Editor.Tests
         public void D_TempFolder_DoesNotSurviveAPreviousTest()
         {
             Assert.IsFalse(AssetDatabase.IsValidFolder(TempFolder), "A temp asset folder survived TearDown.");
+        }
+
+        [Test]
+        public void E_SettingAssets_AreNotDirtyAfterAMutatingTest()
+        {
+            Assert.IsFalse(EditorUtility.IsDirty(BroEditorUtility.EditorSetting), "EditorSetting was left dirty by an earlier test.");
+            Assert.IsFalse(EditorUtility.IsDirty(BroEditorUtility.RuntimeSetting), "RuntimeSetting was left dirty by an earlier test.");
         }
     }
 }

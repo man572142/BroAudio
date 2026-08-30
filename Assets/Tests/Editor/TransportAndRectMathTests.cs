@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -223,7 +224,7 @@ namespace Ami.BroAudio.Editor.Tests
         {
             var rects = new Rect[2];
 
-            LogAssert.Expect(LogType.Error, "[Editor] Split ratio's sum should be 1");
+            LogAssert.Expect(LogType.Error, new Regex("Split ratio's sum should be 1"));
             EditorScriptingExtension.SplitRectHorizontal(new Rect(0f, 0f, 100f, 50f), 4f, rects, 0.5f, 0.4f);
 
             Assert.AreEqual(default(Rect), rects[0]);
@@ -235,7 +236,7 @@ namespace Ami.BroAudio.Editor.Tests
         {
             // Ratios sum to 1 here, so the guard that actually fires is the inner SplitHorizontal
             // helper's own null check, not the ratio-sum check.
-            LogAssert.Expect(LogType.Error, "Rects array is null!");
+            LogAssert.Expect(LogType.Error, new Regex("Rects array is null!"));
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectHorizontal(new Rect(0f, 0f, 100f, 50f), 4f, null, 0.5f, 0.5f));
         }
@@ -258,7 +259,7 @@ namespace Ami.BroAudio.Editor.Tests
         {
             var rects = new Rect[2];
 
-            LogAssert.Expect(LogType.Error, "[Editor] Split ratio's sum should be 1");
+            LogAssert.Expect(LogType.Error, new Regex("Split ratio's sum should be 1"));
             EditorScriptingExtension.SplitRectVertical(new Rect(0f, 0f, 100f, 50f), 4f, rects, 0.5f, 0.4f);
 
             Assert.AreEqual(default(Rect), rects[0]);

@@ -226,3 +226,38 @@ No `SoundManager`, no `AudioEntity`, no ScriptableObject needed — construct th
 - Whether `Assets/Localization/` actually has a registered `AssetTable`/`String Table Collection` with an `AudioClip` entry. Reading `Assets/Localization/Localization Settings.asset` directly shows `m_TableCollectionName:` empty in the sampled fields, and no table asset files exist under `Assets/Localization/` (only the three `Locale` assets and the settings asset) — suggesting the *locales* are configured but no actual localized *table* exists yet. This doesn't block testing `LocalizationClipStrategy` itself (the `Inject()` bypass documented above sidesteps it entirely), but it does mean the full `BroAudio.Play()` → `SoundManager` → real resolved `AudioClip` path for `MulticlipsPlayMode.Localization` is untestable as authored today. The orchestrator should confirm this in the live Editor (Window > Asset Management > Localization Tables) rather than trust this file-system read.
 - Exact behavior of `PlaybackGroup.Parent`/`GlobalPlaybackGroup` fallback when a rule's `_isOverride` is false and `GlobalPlaybackGroup` is itself null vs. pointing at another `DefaultPlaybackGroup` with its own rules — the code path exists (`PlaybackGroup.cs:21-37`, `Rule<T>.Initialize`) but is a low-traffic edge case not exercised by anything read here; worth a quick live-Editor sanity check before writing tests, since chained-parent resolution (a group's parent's parent) is not obviously covered by the single `_parent` field's logic.
 - Whether `AudioEntity.Flags`/`ChangeClipPerLoop` combined with `Chained` mode (both drive `needNewClip` in `AudioPlayer.Playback.cs:326-328` via an `||`) produces any surprising interaction — not traced end-to-end here since it crosses into the handover/looping territory owned by a different section.
+---
+
+## Coverage ledger
+
+Status per behavior above, per the runtime plan's Definition of Done. **covered** = the core contract is
+pinned by a test; **partial** = pinned for some inputs, with the gap named; **deferred** = no test yet, and
+testable; **out of scope** = deliberately not tested, with the reason.
+
+| Behavior | Status | Pinned by |
+|---|---|---|
+| Single mode always plays clips[0] | covered | `ClipSelectionTests.SelectClip_WithSetClips_AlwaysReturnsFirstClip` plus the null-array, null-reference and unset-clip cases |
+| Sequence mode cycles 0..N-1 and wraps | covered | `ClipSelectionTests.SelectClip_Repeatedly_CyclesThroughClipsAndWrapsToStart`, `_WithSingleClip_AlwaysReturnsIndexZero`, `_WithUnsetClipMidSequence_LogsErrorThenRestartsFromZero`, `Reset_RestartsDefaultSequenceFromZero` |
+| Sequence mode: named SequenceIds run independent cursors | covered | `ClipSelectionTests.SelectClip_WithTwoSequenceIds_AdvancesIndependently`, `_WithNullSequenceId_SharesDefaultCursor`, `Reset_WithSequenceId_OnlyResetsThatNamedCursor` |
+| Random mode: uniform when all Weights are 0, weighted otherwise | covered | `ClipSelectionTests.SelectClip_WithAllWeightsZero_ReturnsIndexWithinRange`, `_WithAnyNonzeroWeight_NeverSelectsZeroWeightClips` |
+| Shuffle never repeats the previous clip, and cycles the pool | covered (as a finding) | `ClipSelectionTests.SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent` — the test pins the actual behavior, which contradicts the documented intent; see TEST_FINDINGS #9 |
+| Shuffle vs Random: the guarantee Random does not make | covered | Same pair, plus `SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip` |
+| Velocity mode selects by highest Weight threshold not exceeded | covered | `ClipSelectionTests.SelectClip_WithValueBelowEveryThreshold_*`, `_WithValueBetweenThresholds_*`, `_WithValueAboveEveryThreshold_*`, `_WithNonMonotonicWeights_*` |
+| Chained mode maps PlaybackStage to a fixed clip index | covered | `ClipSelectionTests.SelectClip_AtStartStage/AtLoopStage/AtEndStage/AtNoneStage_*`, `_WithTooFewClipsForStage_*` |
+| Localization mode selects the row matching the active locale | covered | `LocalizationClipStrategyTests` (4 tests, behind `PACKAGE_LOCALIZATION`) |
+| ChangeClipPerLoop re-picks a clip on every loop iteration | deferred | No test sets `ChangeClipPerLoop`. `LoopHandoverTests` covers the seam itself but always with one clip. |
+| RandomFlag.Volume / RandomFlag.Pitch apply ± half-range jitter | covered | `ClipSelectionTests.GetRandomValueStatic_*` and `GetRandomValue_*` (5 tests) |
+| MaxPlayableCountRule rejects Play at the limit | covered | `PlaybackGroupTests.Play_BeyondMaxPlayableCount_RejectsThenAcceptsAfterASlotFrees` |
+| The voice-limit count increments at enqueue, not at audible start | covered | `PlaybackGroupTests.Play_TwoPlaysInSameFrame_BothCountAgainstLimitBeforeEitherStartsPlaying` |
+| CombFilteringRule rejects a same-ID replay in the window | covered | `PlaybackGroupTests.Play_SameID_WithinCombFilteringWindow_RejectsSecond` and the three flag/position variants |
+| A custom IPlayableValidator overrides the entity's PlaybackGroup | covered | `PlaybackGroupTests.Play_WithCustomValidator_OverridesGroupEntirely` |
+| AsBGM() attaches a MusicPlayer decorator — composition, not a subtype swap | covered | `SelectionStateAndDecoratorTests.AsBGM_CalledTwice_ReturnsTheSameMusicPlayerDecoratorInstance` (asserts via the private `_decorators` list) |
+| Calling AsBGM() twice returns the same decorator instance | covered | Same test |
+| AsDominator() attaches independently of AsBGM() | covered | `SelectionStateAndDecoratorTests.AsBGM_AndAsDominator_CoexistOnTheSamePlayer` |
+| AlwaysPlayMusicAsBGM auto-attaches the BGM decorator | covered | `SchedulingAndMusicTests.AlwaysPlayMusicAsBGM_Enabled_*` and `_Disabled_*` |
+| Every chaining method is null-safe on a recycled/invalid player | partial | `SelectionStateAndDecoratorTests.AudioSource_AccessedAfterRecycle_*` and `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` cover the stale-handle path; the full fluent surface is not swept method by method. |
+| SetVelocity and SetSequenceId are guarded no-ops outside their own mode | covered | `SelectionStateAndDecoratorTests.SetVelocity_CalledBeforeQueueDrains_*`, `SetSequenceId_WithDifferentIds_*`; the wrong-mode guard itself was the subject of commit `42fd0644` |
+| RuntimeSetting toggles that change Play behavior | partial | `AlwaysPlayMusicAsBGM` is covered above. `DefaultAudioPlayerPoolSize` is **out of scope** — it is read once at `SoundManager` bootstrap, which the persistent singleton passes before any test runs. |
+
+"EditMode unit-test candidates", "Conflicts observed" and "Could not determine statically" elsewhere in this file
+are research notes, not behaviors, and carry no status.

@@ -230,3 +230,36 @@ Covered above under "Fade out — explicit `Stop(fadeOut)` override" for the ram
 - Exact interaction of `clip.Delay` with `ChangeClipPerLoop` across loop iterations beyond the first (see "Conflicts observed").
 - Whether any public (non-internal) surface re-exposes `MusicPlayer.OnBGMChanged` — grepped the runtime source and found none, but the search was not exhaustive of generated/partial files outside the ones listed in scope.
 - Whether `AudioSource.SetScheduledStartTime`'s "pause current playback until dspTime" side effect (the documented `Scheduling.cs:172-173` quirk) actually fires the `_onPaused` callback or any pause-related state — the comment describes engine behavior but the surrounding BroAudio code doesn't visibly hook `_stopMode`/`_onPaused` for this path, meaning a test asserting "player looks paused" via `IAudioPlayer` state (as opposed to raw `AudioSource.isPlaying` timing) might not have anything to observe. Needs a live check.
+---
+
+## Coverage ledger
+
+Status per behavior above, per the runtime plan's Definition of Done. **covered** = the core contract is
+pinned by a test; **partial** = pinned for some inputs, with the gap named; **deferred** = no test yet, and
+testable; **out of scope** = deliberately not tested, with the reason.
+
+| Behavior | Status | Pinned by |
+|---|---|---|
+| Fade in — from clip's own FadeIn setting | covered | `FadeAndTrimTests.Play_WithClipFadeIn_RampsVolumeUpFromSilence` |
+| Fade in — explicit override argument | covered | `FadeAndTrimTests.Play_WithExplicitFadeInOverride_IsConsumedOnceThenFallsBackToClipSetting` — pins the one-shot consume |
+| Fade in — easing curve (`SetFadeInEase`) | partial | `FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_StillReachTargetAndComplete` asserts the fade completes; the curve *shape* at 25/50/75% is not sampled. |
+| Fade out — from clip's own FadeOut setting, natural end | covered | `FadeAndTrimTests.Play_WithClipFadeOut_RampsVolumeDownBeforeNaturalEnd` |
+| Fade out — explicit `Stop(fadeOut)` override | covered | `FadeAndTrimTests.Stop_SecondNonImmediateCall_WhileFadeOutInFlight_IsIgnored`, `Stop_WithImmediateFade_PassesGuardAndEndsPromptly` |
+| Fade out easing (`SetFadeOutEase`) | partial | Same test as fade-in easing; completion only, not shape. |
+| Clip StartPosition (trim from the front) | covered | `FadeAndTrimTests.Play_WithClipStartPosition_BeginsPlaybackPartwayIntoClip` |
+| Clip EndPosition (trim from the back) | covered | `FadeAndTrimTests.Play_WithClipEndPosition_EndsPlaybackBeforeClipLength` |
+| Clip Delay (per-clip, not per-call) | covered | `SchedulingAndMusicTests.Play_WithClipDelayOnly_PostponesAudibleStartButNotIsPlaying` |
+| Scheduled start time — `SetScheduledStartTime` / `SetDelay` | covered | `SchedulingAndMusicTests.SetScheduledStartTime_CalledBeforeQueueDrains_OverridesClipDelay`, `SetDelay_CalledBeforeQueueDrains_*`, `SetScheduledStartTime_OnAlreadyPlayingSource_StallsPlayheadWithoutChangingIsPlaying` |
+| Scheduled end time — `SetScheduledEndTime` | covered | `SchedulingAndMusicTests.SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength` |
+| Mid-play pitch change rescaling the derived end time | covered | `SchedulingAndMusicTests.SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration`, `SetPitch_AfterExplicitScheduledEndTime_DoesNotRescaleEndTime` |
+| Plain looping (`LoopType.Loop`) | covered | `LoopHandoverTests.Play_WithPlainLoop_NeverSetsAudioSourceLoopAndSurvivesMultipleSeams` |
+| Seamless looping with a transition time | covered | `LoopHandoverTests.Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam` |
+| Chained playback (intro → loop → outro) | covered | `LoopHandoverTests.ChainedPlayMode_HandsOverIntroToLoopToOutro_OutroHandoverFiresSynchronouslyOnStop` |
+| BGM transitions (`SetTransition`) | partial | `SchedulingAndMusicTests.SetTransition_Default_*` and `SetTransition_CrossFade_*` cover the overlap/no-overlap contract for two modes; the remaining `Transition` enum members are untested. |
+| `AlwaysPlayMusicAsBGM` (RuntimeSetting) | covered | `SchedulingAndMusicTests.AlwaysPlayMusicAsBGM_Enabled_*`, `_Disabled_*` |
+| `OnBGMChanged` event | covered | `SchedulingAndMusicTests.OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer`; the double-fire quirk is TEST_FINDINGS #11 |
+| Stop with fade — general | covered | The two `FadeAndTrimTests.Stop_*` tests |
+| Pause across a handover seam | covered | `LoopHandoverTests.Pause_DuringSeamlessLoopHandoverSeam_DoesNotThrowAndResumes` |
+
+"Inherently flaky candidates", "Conflicts observed" and "Could not determine statically" elsewhere in this file
+are research notes, not behaviors, and carry no status.

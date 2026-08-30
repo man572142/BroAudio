@@ -13,6 +13,12 @@ namespace Ami.BroAudio.Tests
         private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
         public const int SampleRate = 44100;
 
+        /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
+        public static readonly BroAudioType[] ConcreteAudioTypes =
+        {
+            BroAudioType.Music, BroAudioType.UI, BroAudioType.Ambience, BroAudioType.SFX, BroAudioType.VoiceOver,
+        };
+
         /// <summary>A procedurally generated sine clip of an exactly known length.</summary>
         public static AudioClip CreateClip(float seconds = 1f, string name = "TestClip")
         {
