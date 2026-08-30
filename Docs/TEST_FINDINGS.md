@@ -24,6 +24,7 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 31 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
 | 32 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
 | 34 | Editor / Logging | Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still carry no `[BroAudio]` prefix | Open, characterized |
+| 35 | MonoComponent / SoundSource | `Stop On Disable` silently does nothing when the object is disabled in the frame it was enabled | Open, characterized |
 
 ---
 
@@ -419,3 +420,43 @@ pinning any of them, which is a different-shaped change from the three logs #33 
 move, because tests asserted their exact text).
 
 Status: Open, characterized. Not pinned by a test.
+
+---
+
+## 35. `SoundSource`'s Stop On Disable is skipped for a sound that is still queued
+
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundSource.cs:55-61`
+
+```csharp
+protected virtual void OnDisable()
+{
+    if(_stopOnDisable && CurrentPlayer != null && CurrentPlayer.IsPlaying)
+    {
+        CurrentPlayer.Stop(_overrideFadeOut);
+    }
+}
+```
+
+The guard is `IsPlaying`, which bottoms out at `AudioSource.isPlaying`. But `BroAudio.Play` does not start a
+voice - it enqueues into `SoundManager._playbackQueue`, and `SoundManager.LateUpdate` drains it. So in the
+window between `OnEnable`'s `Play()` and that frame's `LateUpdate`, a `SoundSource` holds a player that is
+`IsActive` but not yet `IsPlaying`, and the `OnDisable` guard rejects it.
+
+Disable the GameObject inside that window - `SetActive(true)` then `SetActive(false)` in the same frame, the
+normal shape of a pooled object that is spawned and immediately despawned - and Stop On Disable does nothing
+at all. The queued play still starts on the next `LateUpdate` and runs to completion, now with no
+`SoundSource` in a position to stop it: the component's `OnDisable` has already been and gone.
+
+The asymmetry gets sharper with `Delay` set. A non-zero Delay makes `OnEnable` call
+`CurrentPlayer.SetDelay(...)`, which routes into `SetScheduledStartTime` -> `PlayInternal()` -> the
+`PlayControl` coroutine, whose body runs synchronously as far as `AudioSource.PlayScheduled`. `isPlaying`
+reads `true` from the moment of a `PlayScheduled` call, so *the delayed configuration stops correctly in the
+same frame and the undelayed one does not* - the opposite of what a user would predict.
+
+`IsActive` (true from the moment `Play` enqueues) is the state that actually means "this SoundSource owns a
+player", and `AudioPlayer.Stop` already handles a not-yet-playing player: it falls into
+`if (!ID.IsValid() || !isPlaying) { onFinished?.Invoke(); EndPlaying(); return; }`. Not changed here, per
+the plan's characterize-don't-fix rule.
+
+Status: Open, characterized. Pinned by
+`SoundSourceTests.OnDisable_InTheSameFrameAsOnEnable_LeavesTheQueuedVoicePlaying`.

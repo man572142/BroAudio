@@ -23,6 +23,7 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
+| 6 — MonoComponents | **partial** — `SoundSource` only | `SoundSourceTests.cs` |
 
 Tier status is the summary; the **per-behavior** ledger required by the plan's Definition of Done lives at
 the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverage-ledger),
@@ -41,6 +42,19 @@ or seed option, so per-fixture isolation is the closest available substitute for
 shuffled-order requirement.) Re-run and confirmed all-green 2026-08-30 via `unity cmd run_tests --mode
 PlayMode --async_tests` (179/179). That run predates commit `48516f57` and the follow-up tidy-up,
 both of which touched production code the suite exercises — **re-run before trusting the green.**
+
+`SoundSourceTests.cs` (added 2026-08-30, 15 tests, `179 -> 194`) opens tier 6 by covering the
+`SoundSource` no-code component: the three `PositionMode`s (global stays 2D; StayHere snapshots the
+transform; FollowGameObject tracks it — which is also this suite's only coverage of
+`BroAudio.Play(SoundID, Transform)`), the Play On Enable / Only Play Once / Stop On Disable / Override
+Fade Out / Delay / Override Playback Group inspector toggles, Play's replace-don't-layer semantics, and
+the guard clauses that keep Stop/Pause/UnPause/SetVolume/SetPitch inert without a live player. It found
+TEST_FINDINGS #35. **These 15 tests have not been executed** — they were written in an environment with
+no Unity Editor, so the `194` above is arithmetic, not a run. Compile and run them before trusting
+either number.
+
+The other two components under `Runtime/MonoComponent/` — `SoundVolume` and `SpectrumAnalyzer` — remain
+uncovered, which is why tier 6 is *partial*.
 
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
