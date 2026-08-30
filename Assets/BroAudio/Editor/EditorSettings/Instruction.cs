@@ -67,6 +67,12 @@
 
         // Sound Source
         SoundSource_PositionMode = 450,
+        SoundSource_PlayOnEnable,
+        SoundSource_OnlyPlayOnce,
+        SoundSource_StopOnDisable,
+        SoundSource_OverrideFadeOut,
+        SoundSource_OverridePlaybackGroup,
+        SoundSource_Delay,
 
         // Playback Group
         PlaybackGroup_Override = 500,
