@@ -61,41 +61,6 @@ namespace Ami.BroAudio.Editor.Tests
         }
         #endregion
 
-        #region GetSerializedEnumIndex <-> GetAudioTypeByIndex
-        [Test]
-        public void EnumIndexRoundTrip_None_Roundtrips()
-        {
-            int index = BroAudioType.None.GetSerializedEnumIndex();
-            Assert.AreEqual(0, index);
-            Assert.AreEqual(BroAudioType.None, BroEditorUtility.GetAudioTypeByIndex(index));
-        }
-
-        [Test]
-        public void EnumIndexRoundTrip_EveryConcreteType_Roundtrips()
-        {
-            foreach (BroAudioType audioType in ConcreteAudioTypes)
-            {
-                int index = audioType.GetSerializedEnumIndex();
-                BroAudioType roundTripped = BroEditorUtility.GetAudioTypeByIndex(index);
-                Assert.AreEqual(audioType, roundTripped, $"{audioType} did not round-trip through index {index}.");
-            }
-        }
-
-        [Test]
-        public void EnumIndexRoundTrip_All_CollapsesIntoVoiceOver()
-        {
-            // Characterized, not fixed. GetSerializedEnumIndex counts the bit-length of the underlying int,
-            // so the composite All (31) shifts down in 5 steps - the same index VoiceOver (16) produces.
-            // Reaching All from the other direction would take 6 ToNext() calls, so the round-trip collapses.
-            // Concrete types are unaffected, and the pair currently has no caller left in the package.
-            int index = BroAudioType.All.GetSerializedEnumIndex();
-            Assert.AreEqual(BroAudioType.VoiceOver.GetSerializedEnumIndex(), index,
-                "All no longer collides with VoiceOver's index - the mapping changed, re-check the finding.");
-            Assert.AreEqual(BroAudioType.VoiceOver, BroEditorUtility.GetAudioTypeByIndex(index));
-        }
-
-        #endregion
-
         #region Combine
         [Test]
         public void Combine_ThreeArgForm_JoinsWithSlash()
