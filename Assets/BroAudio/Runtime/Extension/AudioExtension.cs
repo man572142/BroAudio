@@ -63,9 +63,20 @@ namespace Ami.Extension
 		public static bool TryGetSampleData(this AudioClip originClip, out float[] sampleArray, float startPosInSecond, float endPosInSecond)
 		{
 			int dataSampleLength = originClip.GetDataSample(originClip.length - endPosInSecond - startPosInSecond);
+			int offsetSample = Mathf.Clamp(originClip.GetTimeSample(startPosInSecond), 0, originClip.samples);
+
+			// GetData wraps back to the start of the clip instead of failing when the range runs past the end
+			dataSampleLength = Mathf.Min(dataSampleLength, (originClip.samples - offsetSample) * originClip.channels);
+
+			if (dataSampleLength <= 0)
+			{
+				sampleArray = null;
+				Debug.LogError(BroAudio.Utility.LogTitle + $"Invalid sample range on audio clip : {originClip.name}!");
+				return false;
+			}
 
 			sampleArray = new float[dataSampleLength];
-			bool sucess = originClip.GetData(sampleArray, originClip.GetTimeSample(startPosInSecond));
+			bool sucess = originClip.GetData(sampleArray, offsetSample);
 
 			if (!sucess)
 			{
