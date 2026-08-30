@@ -237,7 +237,7 @@ namespace Ami.BroAudio.Tests
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
 
             // characterizes: this is NOT silent. AudioExtension.IsValidFrequency itself calls Debug.LogError
-            // (and, unlike the rest of the codebase, without the Utility.LogTitle prefix) before
+            // (with the standard Utility.LogTitle prefix, per TEST_FINDINGS #15) before
             // DominatorPlayer.LowPassOthers even reaches SetAllEffectExceptDominator.
             LogAssert.Expect(LogType.Error, new Regex("frequency should be in"));
             dominator.LowPassOthers(0f, 0f);
@@ -246,9 +246,8 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.AudioMixer.GetFloat(BroName.Dominator_LowPassParaName, out float after);
             Assert.AreEqual(before, after, "An invalid frequency must leave the mixer parameter untouched.");
 
-            // Contrast: QuietOthers' own range guard logs a Warning with the standard Utility.LogTitle
-            // prefix instead — the two "invalid input" guards are asymmetric in both log level and format,
-            // not just in whether they log at all.
+            // Contrast: QuietOthers' own range guard also logs with the Utility.LogTitle prefix, but at
+            // Warning instead of Error — the two "invalid input" guards still differ in log level.
             LogAssert.Expect(LogType.Warning, new Regex("othersVol should be less than 1 and greater than 0"));
             dominator.QuietOthers(0f, 0f);
             yield return WaitFrames(2);

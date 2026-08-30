@@ -2,15 +2,8 @@
 
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
-Findings 1-7 have since been fixed (or the dead code removed) and their write-ups removed from
-this file — they are recorded in plain language in [FIXED_ISSUES.md](FIXED_ISSUES.md), which keeps
-the same numbering, so citations elsewhere (e.g. `TEST_FINDINGS #3`) still resolve. The rest are
-still open, and numbering is left as-is.
-
-Finding 18 (Editor / Instructions, `SoundSource_PositionMode`) has also since been fixed and moved to
-[FIXED_ISSUES.md](FIXED_ISSUES.md#18-editor--instructions-soundsource_positionmode-had-no-shipped-text).
-The Editor findings that used to be numbered 18-31 are renumbered 19-32 to make room.
-
+Findings 1-7 and 15,18 have since been fixed and moved to
+[FIXED_ISSUES.md](FIXED_ISSUES.md).
 | # | Area | Finding | Status |
 |---|---|---|---|
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
@@ -20,7 +13,6 @@ The Editor findings that used to be numbered 18-31 are renumbered 19-32 to make 
 | 12 | Playback group | Comb-filtering is bypassed for any global+positioned pair, without comparing distance | Open, characterized |
 | 13 | Looping | `HasLoop` populates its `transitionTime` out parameter even when it returns false | Open, characterized |
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
-| 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carry no `Utility.LogTitle` prefix | Open, characterized |
 | 16 | Effects | `ResetAllEffect` can report completion once per tracked effect instead of once | Open, latent |
 | 19 | Editor / Instructions | `BroInstruction.asset` key `15` is stale, belongs to no enum value | Open, characterized |
 | 20 | Editor / Audio type | `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All` | Open, latent |
@@ -257,61 +249,6 @@ Two smaller consequences:
   at runtime has no effect even on the polling interval.
 - The routine is testable only by back-dating `_loadedEntityLastPlayedTime`, which is what
   `AddressablesTests` does — waiting out a hardcoded 60 seconds is not viable in a suite.
-
-## 15. Runtime logs in `Ami.Extension` carry no `[BroAudio]` prefix
-
-**Where:** `Assets/BroAudio/Runtime/Extension/` — `AudioExtension.cs:72`, `AudioExtension.cs:122`,
-`FlagsExtension.cs:40`, `LoopExtension.cs:35`, `LoopExtension.cs:43`
-
-The project rule is that every runtime log is prefixed with `Utility.LogTitle` (the `[BroAudio]`
-rich-text tag) so console output is attributable to the package. Commit `78ffd841` did a pass over
-the runtime for exactly this. What it left untouched is not scattered — it is precisely the five
-`Debug.LogError` calls that live in the generic `Ami.Extension` namespace:
-
-```csharp
-// AudioExtension.cs:122
-public static bool IsValidFrequency(float freq)
-{
-    if (freq < MinFrequency || freq > MaxFrequency)
-    {
-        Debug.LogError($"The given frequency should be in {MinFrequency}Hz ~ {MaxFrequency}Hz.");
-        return false;
-    }
-    return true;
-}
-```
-
-The grouping is almost certainly deliberate: `Ami.Extension` is the package's general-purpose
-extension namespace, and prefixing from there would make it depend on `Ami.BroAudio.Utility`. Every
-log in the `Ami.BroAudio.*` namespaces is prefixed, including ones that build their message in a
-helper (`SequenceClipStrategy.GetNoValidClipMessage`) or a `const` (`SoundManager`'s `nullRefLog`).
-`Debug.LogException` calls are excluded throughout, since an exception carries no message string to
-prefix.
-
-**Why it matters:** the boundary is undocumented, and at least one of these logs is reachable from
-public API, so it surfaces to package consumers as an unattributed console error:
-
-```csharp
-player.AsDominator().LowPassOthers(0f);   // logs a bare "The given frequency should be in 10Hz ~ 22000Hz."
-```
-
-`IsValidFrequency` is the guard behind `LowPassOthers` / `HighPassOthers`, and it logs *before*
-returning false, so the caller's own range check never gets a chance to report it. A user sees an
-error with no indication of which package raised it.
-
-This also makes the two guards on the same decorator inconsistent in both level and format:
-
-| call | level | prefixed |
-|---|---|---|
-| `LowPassOthers(freq)` — invalid frequency | `Error` | no |
-| `QuietOthers(vol)` — out-of-range volume | `Warning` | yes |
-
-Either outcome is defensible — prefix them and accept the namespace dependency, or route the message
-back through the caller — but the current state means a package consumer cannot tell where half of
-these errors come from.
-
-Characterized by `SelectionStateAndDecoratorTests`, which asserts the current `Error`-without-prefix
-behavior for the frequency guard and the `Warning`-with-prefix behavior for the volume guard.
 
 ## 16. `ResetAllEffect` can report completion once per tracked effect instead of once
 

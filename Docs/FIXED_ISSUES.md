@@ -16,6 +16,7 @@ Unreleased (after 3.2.3).
 | 7 | Volume | Setting a type volume to exactly 1 didn't reach newly started players | `42e1a940` |
 | 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `4eced071` |
 | 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | (uncommitted) |
+| 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | (uncommitted) |
 
 ---
 
@@ -119,4 +120,19 @@ shipped asset, so anything that *did* resolve it through the normal path got bac
 **How it's fixed:** Added the tooltip text as key `450` in `BroInstruction.asset` (both the shipped
 copy and the `Resources~` source copy), and `SoundSourceEditor` now builds `_positionModeContent`
 via `_instruction.GetText(Instruction.SoundSource_PositionMode)` like the rest of the editor code.
+
+## 15. Five runtime logs in `Ami.Extension` carried no `[BroAudio]` prefix
+
+**What was wrong:** Every runtime log is supposed to be prefixed with `Utility.LogTitle` (the
+`[BroAudio]` tag) so console output is attributable to the package. Five `Debug.LogError` calls in
+the generic `Ami.Extension` namespace — `AudioExtension.TryGetSampleData`,
+`AudioExtension.IsValidFrequency`, `FlagsExtension.GetFlagsOnCount`, and two in
+`LoopExtension.MainLoopLogic` — were missed by an earlier pass over the rest of the codebase.
+`IsValidFrequency` is reachable from public API (`LowPassOthers`/`HighPassOthers` on a dominator
+player), so package consumers could see an unattributed console error.
+
+**How it's fixed:** All five now prefix with `Ami.BroAudio.Utility.LogTitle`, matching the existing
+pattern already used elsewhere in `Ami.Extension` (e.g. `InstanceWrapper<T>.LogInstanceIsNull`).
+`Ami.Extension` picks up the type via the namespace's `Ami` parent rather than a new `using`, so no
+assembly dependency changes.
 
