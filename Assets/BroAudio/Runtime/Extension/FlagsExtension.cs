@@ -37,7 +37,7 @@ namespace Ami.Extension
                 count++;
                 if(count > 32) // integer has only 32-bit max
                 {
-                    UnityEngine.Debug.LogError("count flags is failed");
+                    UnityEngine.Debug.LogError(Ami.BroAudio.Utility.LogTitle + "count flags is failed");
                     break;
 				}
             }
