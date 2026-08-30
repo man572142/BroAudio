@@ -16,22 +16,27 @@ namespace Ami.BroAudio.Editor
         private RectOffset _inspectorPadding;
         private bool _isInit;
         private float _currentDrawnPosY;
+        private BroInstructionHelper _instruction = new BroInstructionHelper();
 
-        private GUIContent _playOnEnableContent = new GUIContent("Play On Enable", "Plays the sound whenever the GameObject is enabled");
-        private GUIContent _onlyOnceContent = new GUIContent("Only Play Once", "Plays the sound only the first time the GameObject is enabled");
-        private GUIContent _stopOnDisableContent = new GUIContent("Stop On Disable", "Stops the sound whenever the GameObject is disabled");
-        private GUIContent _fadeOutContent = new GUIContent("Override Fade Out", "Overrides the fade-out time setting when stopping the sound on disable");
-        private GUIContent _positionModeContent = new GUIContent("Position Mode", "Determines the sound's location when triggered.\n\n" +
-            "[Global] Plays globally (2D), meaning the sound can be heard everywhere.\n\n" +
-            "[Stay Here] Plays as a 3D sound and stays where the GameObject is located\n\n" +
-            "[Follow Target] Plays as a 3D sound and follows the GameObject as it moves");
-        private GUIContent _overrideGroupContent = new GUIContent("Override Playback Group", "Overrides the PlaybackGroup of the sound");
-        private GUIContent _delayContent = new GUIContent("Delay", "Delays playback triggered on enable");
+        private GUIContent _playOnEnableContent;
+        private GUIContent _onlyOnceContent;
+        private GUIContent _stopOnDisableContent;
+        private GUIContent _fadeOutContent;
+        private GUIContent _positionModeContent;
+        private GUIContent _overrideGroupContent;
+        private GUIContent _delayContent;
         private Dictionary<string, SerializedProperty> _mainPropertyDict = new Dictionary<string, SerializedProperty>();
 
         private void OnEnable()
         {
             _inspectorPadding = InspectorPadding;
+            _playOnEnableContent = new GUIContent("Play On Enable", _instruction.GetText(Instruction.SoundSource_PlayOnEnable));
+            _onlyOnceContent = new GUIContent("Only Play Once", _instruction.GetText(Instruction.SoundSource_OnlyPlayOnce));
+            _stopOnDisableContent = new GUIContent("Stop On Disable", _instruction.GetText(Instruction.SoundSource_StopOnDisable));
+            _fadeOutContent = new GUIContent("Override Fade Out", _instruction.GetText(Instruction.SoundSource_OverrideFadeOut));
+            _positionModeContent = new GUIContent("Position Mode", _instruction.GetText(Instruction.SoundSource_PositionMode));
+            _overrideGroupContent = new GUIContent("Override Playback Group", _instruction.GetText(Instruction.SoundSource_OverridePlaybackGroup));
+            _delayContent = new GUIContent("Delay", _instruction.GetText(Instruction.SoundSource_Delay));
             _isInit = true;
         }
 

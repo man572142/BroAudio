@@ -7,6 +7,10 @@ this file — they are recorded in plain language in [FIXED_ISSUES.md](FIXED_ISS
 the same numbering, so citations elsewhere (e.g. `TEST_FINDINGS #3`) still resolve. The rest are
 still open, and numbering is left as-is.
 
+Finding 18 (Editor / Instructions, `SoundSource_PositionMode`) has also since been fixed and moved to
+[FIXED_ISSUES.md](FIXED_ISSUES.md#18-editor--instructions-soundsource_positionmode-had-no-shipped-text).
+The Editor findings that used to be numbered 18-31 are renumbered 19-32 to make room.
+
 | # | Area | Finding | Status |
 |---|---|---|---|
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
@@ -18,21 +22,20 @@ still open, and numbering is left as-is.
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
 | 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carry no `Utility.LogTitle` prefix | Open, characterized |
 | 16 | Effects | `ResetAllEffect` can report completion once per tracked effect instead of once | Open, latent |
-| 17 | Editor / Instructions | `Instruction.SoundSource_PositionMode` (450) has no shipped text | Open, characterized |
-| 18 | Editor / Instructions | `BroInstruction.asset` key `15` is stale, belongs to no enum value | Open, characterized |
-| 19 | Editor / Audio type | `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All` | Open, latent |
-| 20 | Editor / Rect math | The `params float[] ratios` rect splits do not land on the far edge | Open, characterized |
-| 21 | Editor / Rect math | `SplitRectVertical` silently no-ops on a null array | Open, characterized |
-| 22 | Editor / Rect math | `GetFieldName` lowercases every occurrence of the leading letter | Open, characterized |
-| 23 | Editor / Path utility | `BroEditorUtility.Combine` is naked concatenation | Open, characterized |
-| 24 | Editor / Clip editing | `ConvertToMono` Downmixing drops the final group | Open, characterized |
-| 25 | Editor / Clip editing | `Reverse` transposes stereo channels | Open, characterized |
-| 26 | Editor / Clip editing | `AddSlient` prepends, and its sample count truncates | Open, characterized |
-| 27 | Editor / Clip editing | `FadeIn(0f)` divides by zero | Open, latent |
-| 28 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
-| 29 | Editor / Sample data | An oversized trim range silently wraps instead of failing | Open, latent, uncovered |
-| 30 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
-| 31 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
+| 19 | Editor / Instructions | `BroInstruction.asset` key `15` is stale, belongs to no enum value | Open, characterized |
+| 20 | Editor / Audio type | `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All` | Open, latent |
+| 21 | Editor / Rect math | The `params float[] ratios` rect splits do not land on the far edge | Open, characterized |
+| 22 | Editor / Rect math | `SplitRectVertical` silently no-ops on a null array | Open, characterized |
+| 23 | Editor / Rect math | `GetFieldName` lowercases every occurrence of the leading letter | Open, characterized |
+| 24 | Editor / Path utility | `BroEditorUtility.Combine` is naked concatenation | Open, characterized |
+| 25 | Editor / Clip editing | `ConvertToMono` Downmixing drops the final group | Open, characterized |
+| 26 | Editor / Clip editing | `Reverse` transposes stereo channels | Open, characterized |
+| 27 | Editor / Clip editing | `AddSlient` prepends, and its sample count truncates | Open, characterized |
+| 28 | Editor / Clip editing | `FadeIn(0f)` divides by zero | Open, latent |
+| 29 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
+| 30 | Editor / Sample data | An oversized trim range silently wraps instead of failing | Open, latent, uncovered |
+| 31 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
+| 32 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
 
 ---
 
@@ -339,20 +342,7 @@ the `None` path a callback inherits the bug.
 Same root cause as #17's crash: this class assumes `StartCoroutine` defers the body, and Unity does
 not. Moving `tweakingCount++` above the `StartCoroutine` call fixes it.
 
-## 17. Instruction 450 has no shipped text
-
-**Where:** `Assets/BroAudio/Editor/Resources/BroInstruction.asset`, keyed against
-`Ami.BroAudio.Editor.Instruction`
-
-`Instruction.SoundSource_PositionMode` (value 450) has no entry in the shipped asset, so
-`BroInstructionHelper.GetText` returns its `MissingText` sentinel — the literal `??????????` — and the
-Sound Source position-mode tooltip ships broken. The enum has 68 members and the asset has 68 entries,
-so the counts cancel and hide the gap.
-
-**This is a user-visible defect**, not a quirk. Covered by
-`ShippedDataTests.EveryInstructionEnumValue_ResolvesToNonMissingText`, which is deliberately red.
-
-## 18. Asset key 15 is stale
+## 19. Asset key 15 is stale
 
 **Where:** `Assets/BroAudio/Editor/Resources/BroInstruction.asset`, key `15`
 
@@ -362,7 +352,7 @@ read — harmless, but it is dead shipped data.
 
 Covered by `ShippedDataTests.BroInstructionAsset_EveryKeyIsADefinedEnumValue`, deliberately red.
 
-## 19. `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All`
+## 20. `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All`
 
 **Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.SerializedProperty.cs`
 
@@ -399,7 +389,7 @@ user-visible.
 
 Characterized green by `EditorUtilityPureTests.EnumIndexRoundTrip_All_CollapsesIntoVoiceOver`.
 
-## 20. The `params float[] ratios` rect splits do not land on the far edge
+## 21. The `params float[] ratios` rect splits do not land on the far edge
 
 **Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`,
 `SplitRectHorizontal`/`SplitRectVertical` (the `params float[] ratios` overloads, backed by the shared
@@ -419,7 +409,7 @@ Characterized in `TransportAndRectMathTests` (`SplitRectHorizontal_RatiosArrayFo
 `SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload`,
 `SplitRectVertical_RatiosArrayForm_ThreeWay_...`).
 
-## 21. `SplitRectVertical` silently no-ops on a null array
+## 22. `SplitRectVertical` silently no-ops on a null array
 
 **Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `SplitRectVertical(Rect,
 float, Rect[], params float[])`
@@ -433,7 +423,7 @@ It reassigns `resultRects` into a throwaway local array the caller never sees �
 by logging `"Rects array is null!"` and returning. Characterized in
 `TransportAndRectMathTests.SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal`.
 
-## 22. `GetFieldName` lowercases every occurrence of the leading letter
+## 23. `GetFieldName` lowercases every occurrence of the leading letter
 
 **Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `GetFieldName`
 
@@ -449,7 +439,7 @@ It calls `propertyName.Replace(firstChar, lowerFirstChar)` — the global `strin
 overload, not a single-position substitution — so `"FooF"` becomes `"_foof"` rather than `"_fooF"`.
 Characterized in `TransportAndRectMathTests.GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst`.
 
-## 23. `BroEditorUtility.Combine` is naked concatenation
+## 24. `BroEditorUtility.Combine` is naked concatenation
 
 **Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.Path.cs`
 
@@ -467,7 +457,7 @@ and `Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash`.
 
 ---
 
-## 24. `ConvertToMono` Downmixing drops the final group
+## 25. `ConvertToMono` Downmixing drops the final group
 
 **Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
 
@@ -479,7 +469,7 @@ Status: Open, characterized. Covered by
 `ClipEditingTests.ConvertToMono_Downmixing_OffsetsGroupingAndDropsFinalGroup`. The `SelectOneChannel`
 path does **not** have this bug — it keeps the full frame count.
 
-## 25. `Reverse` transposes stereo channels
+## 26. `Reverse` transposes stereo channels
 
 **Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
 
@@ -488,7 +478,7 @@ playing backwards.
 
 Status: Open, characterized.
 
-## 26. `AddSlient` prepends, and its sample count truncates
+## 27. `AddSlient` prepends, and its sample count truncates
 
 **Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
 
@@ -499,7 +489,7 @@ silently loses one sample.
 
 Status: Open, characterized.
 
-## 27. `FadeIn(0f)` divides by zero
+## 28. `FadeIn(0f)` divides by zero
 
 **Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
 
@@ -508,7 +498,7 @@ is touched. Harmless today, and pinned by a test so it stays harmless.
 
 Status: Open, latent.
 
-## 28. `GetResultClip` returns the original instance when nothing was edited
+## 29. `GetResultClip` returns the original instance when nothing was edited
 
 **Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
 
@@ -517,7 +507,7 @@ clip.
 
 Status: Open, characterized.
 
-## 29. An oversized trim range silently wraps instead of failing
+## 30. An oversized trim range silently wraps instead of failing
 
 **Where:** `Assets/BroAudio/Runtime/Extension/AudioExtension.cs`, `TryGetSampleData`
 
@@ -530,7 +520,7 @@ here only. The one reliable way to make `GetData` return false is a streaming cl
 
 Status: Open, latent, uncovered.
 
-## 30. `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase
+## 31. `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase
 
 **Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.DataHandler.cs` (via
 `TryLoadResources`)
@@ -542,7 +532,7 @@ Status: Open, characterized. Covered by
 `AssetWritingTests.CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime`.
 
 
-## 31. A positive `Delay` alone makes `HasDifferentPosition` true
+## 32. A positive `Delay` alone makes `HasDifferentPosition` true
 
 **Where:** `Assets/BroAudio/Editor/Transport/Transport.cs`
 

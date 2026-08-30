@@ -15,6 +15,7 @@ Unreleased (after 3.2.3).
 | 6 | Clip selection | Single play mode accepted an empty clip and failed later | `bac5ed45` |
 | 7 | Volume | Setting a type volume to exactly 1 didn't reach newly started players | `42e1a940` |
 | 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `4eced071` |
+| 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | (uncommitted) |
 
 ---
 
@@ -105,4 +106,17 @@ failing one test.
 the effect is queued again with the wait already attached, so it holds for the requested duration and
 then resets itself, exactly as it does with a non-zero fade. Silently doing nothing was the other
 option, but that would have left the effect applied forever with no error to explain why.
+
+## 18. Editor / Instructions: `SoundSource_PositionMode` had no shipped text
+
+**What was wrong:** The Sound Source inspector's Position Mode tooltip was a hardcoded string
+literal on the `GUIContent` in `SoundSourceEditor.cs`, instead of going through the
+`BroInstructionHelper`/`BroInstruction.asset` instruction system every other editor tooltip uses.
+Because of that, `Instruction.SoundSource_PositionMode` (450) had no corresponding entry in the
+shipped asset, so anything that *did* resolve it through the normal path got back the
+`??????????` missing-text sentinel.
+
+**How it's fixed:** Added the tooltip text as key `450` in `BroInstruction.asset` (both the shipped
+copy and the `Resources~` source copy), and `SoundSourceEditor` now builds `_positionModeContent`
+via `_instruction.GetText(Instruction.SoundSource_PositionMode)` like the rest of the editor code.
 

@@ -153,6 +153,23 @@ MonoBehaviour:
     Value: How long it will take to reach the target volume
   - Key: 404
     Value: Dynamically set both the volume and the slider in Play Mode
+  - Key: 450
+    Value: "Determines the sound's location when triggered.\n\n[Global] Plays globally
+      (2D), meaning the sound can be heard everywhere.\n\n[Stay Here] Plays as a 3D
+      sound and stays where the GameObject is located\n\n[Follow Target] Plays as
+      a 3D sound and follows the GameObject as it moves"
+  - Key: 451
+    Value: Plays the sound whenever the GameObject is enabled
+  - Key: 452
+    Value: Plays the sound only the first time the GameObject is enabled
+  - Key: 453
+    Value: Stops the sound whenever the GameObject is disabled
+  - Key: 454
+    Value: Overrides the fade-out time setting when stopping the sound on disable
+  - Key: 455
+    Value: Overrides the PlaybackGroup of the sound
+  - Key: 456
+    Value: Delays playback triggered on enable
   - Key: 18
     Value: If no PlaybackGroup is specified in the AudioEntity, this group will be
       used
