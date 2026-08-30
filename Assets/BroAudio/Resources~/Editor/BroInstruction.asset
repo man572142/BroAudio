@@ -46,10 +46,6 @@ MonoBehaviour:
     Value: Sounds exceeding Max Real Voices will turn into Virtual Voices and become
       inaudible until a Real Voice becomes available. BroVirtual tracks ensure that
       the voices returning from Virtual Voices can be controlled again.
-  - Key: 15
-    Value: "There are 2 places to set audio pitch, each with different ranges and
-      sound characteristics. \n[AudioMixer] is recommended for all platforms except
-      WebGL."
   - Key: 16
     Value: The attenuation per octave that the HighPass/LowPass Filter applies to.
       The higher value it set, the more frequencies are attenuated by the filter.

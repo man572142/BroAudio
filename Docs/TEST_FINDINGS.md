@@ -2,7 +2,7 @@
 
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
-Findings 1-7 and 15,18 have since been fixed and moved to
+Findings 1-7, 15, 18-19 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
 | # | Area | Finding | Status |
 |---|---|---|---|
@@ -14,7 +14,6 @@ Findings 1-7 and 15,18 have since been fixed and moved to
 | 13 | Looping | `HasLoop` populates its `transitionTime` out parameter even when it returns false | Open, characterized |
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
 | 16 | Effects | `ResetAllEffect` can report completion once per tracked effect instead of once | Open, latent |
-| 19 | Editor / Instructions | `BroInstruction.asset` key `15` is stale, belongs to no enum value | Open, characterized |
 | 20 | Editor / Audio type | `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All` | Open, latent |
 | 21 | Editor / Rect math | The `params float[] ratios` rect splits do not land on the far edge | Open, characterized |
 | 22 | Editor / Rect math | `SplitRectVertical` silently no-ops on a null array | Open, characterized |
@@ -278,16 +277,6 @@ the `None` path a callback inherits the bug.
 
 Same root cause as #17's crash: this class assumes `StartCoroutine` defers the body, and Unity does
 not. Moving `tweakingCount++` above the `StartCoroutine` call fixes it.
-
-## 19. Asset key 15 is stale
-
-**Where:** `Assets/BroAudio/Editor/Resources/BroInstruction.asset`, key `15`
-
-A pitch-shifting tooltip whose `Instruction` member was deleted; `Instruction.cs` pins the surrounding
-values in a comment because of the hole. It deserializes to an undefined `(Instruction)15` and is never
-read — harmless, but it is dead shipped data.
-
-Covered by `ShippedDataTests.BroInstructionAsset_EveryKeyIsADefinedEnumValue`, deliberately red.
 
 ## 20. `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All`
 
