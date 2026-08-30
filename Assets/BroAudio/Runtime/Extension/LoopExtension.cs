@@ -17,7 +17,6 @@ namespace Ami.Extension
 
 		public static void Loop(Func<Statement> method, bool showErrorWhenInfiniteLoopOccurs = true)
 		{
-			// ¨€∑Ì©ÛWhile(true);
 			Predicate<object> predicate = (obj) => true;
 
 			MainLoopLogic(predicate,method,showErrorWhenInfiniteLoopOccurs);
@@ -32,7 +31,7 @@ namespace Ami.Extension
 		{
 			if (method == null)
 			{
-				Debug.LogError("Method is null!");
+				Debug.LogError(Ami.BroAudio.Utility.LogTitle + "Method is null!");
 				return;
 			}
 			Statement statement;
@@ -40,7 +39,7 @@ namespace Ami.Extension
 			{
 				if (showErrorWhenInfiniteLoopOccurs && i == MaxIterationTimes - 1)
 				{
-					Debug.LogError("There is an infinite loop!");
+					Debug.LogError(Ami.BroAudio.Utility.LogTitle + "There is an infinite loop!");
 				}
 
 				if (!predicate.Invoke(null))

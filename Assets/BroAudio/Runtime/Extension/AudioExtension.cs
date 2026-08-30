@@ -69,7 +69,7 @@ namespace Ami.Extension
 
 			if (!sucess)
 			{
-				Debug.LogError($"Can't get audio clip : {originClip.name} 's sample data!");
+				Debug.LogError(BroAudio.Utility.LogTitle + $"Can't get audio clip : {originClip.name} 's sample data!");
 			}
 			return sucess;
 		}
@@ -119,7 +119,7 @@ namespace Ami.Extension
 		{
 			if (freq < MinFrequency || freq > MaxFrequency)
 			{
-				Debug.LogError($"The given frequency should be in {MinFrequency}Hz ~ {MaxFrequency}Hz.");
+				Debug.LogError(BroAudio.Utility.LogTitle + $"The given frequency should be in {MinFrequency}Hz ~ {MaxFrequency}Hz.");
 				return false;
 			}
 			return true;
