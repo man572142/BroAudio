@@ -13,17 +13,9 @@ namespace Ami.BroAudio.Editor.Tests
     /// Data-integrity checks on the assets that actually ship in Editor/Resources — BroInstruction and
     /// EditorSetting — rather than on in-memory fixtures. BroInstruction's <c>_dictionary</c> field is private
     /// serialized data; it is read here via <see cref="SerializedObject"/>, never mutated.
-    /// <para>
-    /// One of these tests is EXPECTED TO FAIL as of 2026-08-30 — see the remarks on it. It stays in the
-    /// suite deliberately: the failure message names the exact known-bad value, so if the set ever changes
-    /// (a fix, or a new regression riding alongside the known one) the diff is immediately legible instead of
-    /// silently swallowed by an exclusion list.
-    /// </para>
     /// </summary>
     public class ShippedDataTests : BroEditorTestFixture
     {
-        private const int KnownStaleAssetKey = 15; // deleted PitchShiftingToolTip; see the comment in Instruction.cs
-
         private static BroInstruction LoadShippedInstructionAsset()
         {
             var asset = Resources.Load<BroInstruction>(BroName.InstructionFileName);
@@ -93,9 +85,6 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void BroInstructionAsset_EveryKeyIsADefinedEnumValue()
         {
-            // EXPECTED RED as of 2026-08-29: asset key 15 is stale - a pitch-shifting tooltip whose enum
-            // member was deleted (Instruction.cs pins the surrounding values in a comment specifically because
-            // of this hole). It deserializes to the undefined (Instruction)15 and is never read by anything.
             var asset = LoadShippedInstructionAsset();
             var entries = ReadDictionaryEntries(asset);
 
@@ -107,9 +96,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.IsEmpty(undefinedKeys,
                 $"Asset key(s) belonging to no defined Instruction member: [{string.Join(", ", undefinedKeys)}]. " +
-                $"Known bad as of 2026-08-29: key {KnownStaleAssetKey}, a stale pitch-shifting tooltip whose enum " +
-                "member was deleted. Any other key in that list is a NEW regression. Remove the stale entry to " +
-                "make this green; do not add an exclusion list.");
+                "Remove the stale entry to make this green; do not add an exclusion list.");
         }
 
         [Test]

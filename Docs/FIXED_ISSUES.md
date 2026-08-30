@@ -17,6 +17,7 @@ Unreleased (after 3.2.3).
 | 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `4eced071` |
 | 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | (uncommitted) |
 | 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | (uncommitted) |
+| 19 | Editor / Instructions | `BroInstruction.asset` key `15` was stale, belonging to no enum value | (uncommitted) |
 
 ---
 
@@ -135,4 +136,13 @@ player), so package consumers could see an unattributed console error.
 pattern already used elsewhere in `Ami.Extension` (e.g. `InstanceWrapper<T>.LogInstanceIsNull`).
 `Ami.Extension` picks up the type via the namespace's `Ami` parent rather than a new `using`, so no
 assembly dependency changes.
+
+## 19. `BroInstruction.asset` key `15` was stale
+
+**What was wrong:** Key `15` in the shipped instruction asset was a pitch-shifting tooltip whose
+`Instruction` enum member had been deleted. It deserialized to the undefined `(Instruction)15` and was
+never read by anything — harmless, but dead shipped data.
+
+**How it's fixed:** Removed the `Key: 15` entry from `BroInstruction.asset` (both the shipped copy and
+the `Resources~` source copy).
 
