@@ -139,7 +139,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void AddSlient_PadLengthTruncatesInsteadOfRounding()
         {
-            // Characterized (TEST_FINDINGS #26, second half): AddSlient sizes the pad with a plain (int)
+            // Characterized (TEST_FINDINGS #27, second half): AddSlient sizes the pad with a plain (int)
             // cast, while FadeIn/FadeOut/GetDataSample all use Math.Round(..., AwayFromZero). This time
             // computes to 3.9999 samples, so the cast yields 3 where every other path would yield 4.
             AudioClip clip = CreateRampClip("Ramp4Trunc", 4, 1);

@@ -142,7 +142,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero()
         {
-            // Characterized, and logged as TEST_FINDINGS #31: Start and End are both untouched (0), yet a
+            // Characterized, and logged as TEST_FINDINGS #32: Start and End are both untouched (0), yet a
             // positive Delay alone flips HasDifferentPosition to true via the "Delay > StartPosition" term
             // (0 > 0 is false, but any positive Delay clears that bar). Whether a delay alone should count
             // as a different *position* is the open question; this test pins today's answer.

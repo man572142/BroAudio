@@ -60,12 +60,14 @@ A separate EditMode assembly covering `BroAudioEditor` (`Ami.BroAudio.Editor.Tes
 runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in `BroAudio
 Editor Testing Plan.md`.
 
-**99 EditMode tests, 97 pass / 2 fail deliberately, ~5s wall.** The two failures are the shipped-data
-findings TEST_FINDINGS #17 and #18 — the user has decided to leave both red rather than fix or
-suppress them; they go green only when `BroInstruction.asset` is fixed, not when the test is changed.
+**99 EditMode tests, 98 pass / 1 fails deliberately, ~5s wall.** The failure is the shipped-data
+finding TEST_FINDINGS #19 (stale asset key `15`) — the user has decided to leave it red rather than fix
+or suppress it; it goes green only when `BroInstruction.asset` is fixed, not when the test is changed.
+The other shipped-data gap, TEST_FINDINGS #18 (`SoundSource_PositionMode` had no shipped text), has
+since been fixed — see [FIXED_ISSUES.md](FIXED_ISSUES.md).
 
 Per-file counts, each also verified passing in isolation: `IsolationContractTests` 5,
-`EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28, `ShippedDataTests` 6 (4 pass / 2 red),
+`EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28, `ShippedDataTests` 6 (5 pass / 1 red),
 `IssueReportMarkdownTests` 5, `SerializedPropertyResetTests` 5, `SerializedTransportTests` 8,
 `ClipEditingTests` 15, `AssetWritingTests` 8.
 

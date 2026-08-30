@@ -14,18 +14,14 @@ namespace Ami.BroAudio.Editor.Tests
     /// EditorSetting — rather than on in-memory fixtures. BroInstruction's <c>_dictionary</c> field is private
     /// serialized data; it is read here via <see cref="SerializedObject"/>, never mutated.
     /// <para>
-    /// Two of these tests are EXPECTED TO FAIL as of 2026-08-29 — see the remarks on each. They stay in the
-    /// suite deliberately: the failure message names the exact known-bad value(s), so if the set ever changes
+    /// One of these tests is EXPECTED TO FAIL as of 2026-08-30 — see the remarks on it. It stays in the
+    /// suite deliberately: the failure message names the exact known-bad value, so if the set ever changes
     /// (a fix, or a new regression riding alongside the known one) the diff is immediately legible instead of
     /// silently swallowed by an exclusion list.
     /// </para>
     /// </summary>
     public class ShippedDataTests : BroEditorTestFixture
     {
-        // Verified 2026-08-29 by reading Editor/Resources/BroInstruction.asset against the Instruction enum
-        // by hand. The enum has 68 members and the asset has 68 entries, so the counts cancel out and hide
-        // this pair - one enum value has no asset entry, one asset key belongs to no enum value.
-        private const Instruction KnownMissingEnumValue = Instruction.SoundSource_PositionMode; // = 450
         private const int KnownStaleAssetKey = 15; // deleted PitchShiftingToolTip; see the comment in Instruction.cs
 
         private static BroInstruction LoadShippedInstructionAsset()
@@ -56,9 +52,6 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void EveryInstructionEnumValue_ResolvesToNonMissingText()
         {
-            // EXPECTED RED as of 2026-08-29: Instruction.SoundSource_PositionMode (450) has no entry in the
-            // shipped asset, so BroInstructionHelper.GetText returns "??????????" for it - the Sound Source
-            // position-mode tooltip ships broken. This is a finding, not something for this test to work around.
             var missing = new List<Instruction>();
             foreach (Instruction instruction in Enum.GetValues(typeof(Instruction)))
             {
@@ -71,9 +64,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.IsEmpty(missing,
                 $"Instruction value(s) with no shipped text: [{string.Join(", ", missing)}]. " +
-                $"Known bad as of 2026-08-29: {KnownMissingEnumValue} (value {(int)KnownMissingEnumValue}) - " +
-                "its tooltip renders as \"??????????\" in the Sound Source inspector. Any other value in that " +
-                "list is a NEW regression. Fix the asset to make this green; do not add an exclusion list.");
+                "Fix the asset to make this green; do not add an exclusion list.");
         }
 
         [Test]
