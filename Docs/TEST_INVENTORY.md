@@ -24,12 +24,15 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 
-151 tests (down from 152: the 1.10 slot, `PitchShiftingSetting.AudioMixer`, was withdrawn when the enum
-was deleted), ~18s per PlayMode run.
+179 tests, ~24s per PlayMode run. `AudioEffectTests.cs` (added 2026-08-29, 22 tests, `157 -> 179`)
+covers the two largest remaining gaps outside the tiers above: the per-player Unity filter surface
+(`AddChorusEffect`/`AddLowPassEffect`/etc. — attach, duplicate, remove, recycle cleanup, the
+`OnAudioFilterRead` callback, exposed parameter writes) and the mixer-routed `BroAudio.SetEffect`
+automation, plus remaining untested public statics.
 Every fixture also passes in isolation, so no test depends on another having run. (`run_tests` has no shuffle
 or seed option, so per-fixture isolation is the closest available substitute for the Definition of Done's
-shuffled-order requirement.) **The suite has not been re-run since the TEST_FINDINGS #1-#7 fixes landed** —
-re-run it in the Editor before trusting the green claim.
+shuffled-order requirement.) Re-run and confirmed all-green 2026-08-30 via `unity cmd run_tests --mode
+PlayMode --async_tests` (179/179).
 
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
@@ -60,14 +63,14 @@ A separate EditMode assembly covering `BroAudioEditor` (`Ami.BroAudio.Editor.Tes
 runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in `BroAudio
 Editor Testing Plan.md`.
 
-**99 EditMode tests, 98 pass / 1 fails deliberately, ~5s wall.** The failure is the shipped-data
-finding TEST_FINDINGS #19 (stale asset key `15`) — the user has decided to leave it red rather than fix
-or suppress it; it goes green only when `BroInstruction.asset` is fixed, not when the test is changed.
-The other shipped-data gap, TEST_FINDINGS #18 (`SoundSource_PositionMode` had no shipped text), has
-since been fixed — see [FIXED_ISSUES.md](FIXED_ISSUES.md).
+**99 EditMode tests, all pass, ~5s wall.** The two shipped-data gaps once deliberately left red —
+TEST_FINDINGS #18 (`SoundSource_PositionMode` had no shipped text) and #19 (stale asset key `15`) —
+have both since been fixed; see [FIXED_ISSUES.md](FIXED_ISSUES.md). Confirmed all-green 2026-08-30
+via `unity cmd run_tests --mode EditMode` (100/100, the +1 being an unrelated Addressables package
+stub test).
 
 Per-file counts, each also verified passing in isolation: `IsolationContractTests` 5,
-`EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28, `ShippedDataTests` 6 (5 pass / 1 red),
+`EditorUtilityPureTests` 19, `TransportAndRectMathTests` 28, `ShippedDataTests` 6,
 `IssueReportMarkdownTests` 5, `SerializedPropertyResetTests` 5, `SerializedTransportTests` 8,
 `ClipEditingTests` 15, `AssetWritingTests` 8.
 

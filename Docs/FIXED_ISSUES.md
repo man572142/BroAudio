@@ -15,9 +15,9 @@ Unreleased (after 3.2.3).
 | 6 | Clip selection | Single play mode accepted an empty clip and failed later | `bac5ed45` |
 | 7 | Volume | Setting a type volume to exactly 1 didn't reach newly started players | `42e1a940` |
 | 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `4eced071` |
-| 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | (uncommitted) |
-| 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | (uncommitted) |
-| 19 | Editor / Instructions | `BroInstruction.asset` key `15` was stale, belonging to no enum value | (uncommitted) |
+| 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | `a9165aa5` |
+| 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | `2b0552f1` |
+| 19 | Editor / Instructions | `BroInstruction.asset` key `15` was stale, belonging to no enum value | `a474a8a7` |
 
 ---
 
