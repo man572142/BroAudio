@@ -2,7 +2,7 @@
 
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
-Findings 1-7, 15-20, 28 and 30 have since been fixed and moved to
+Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
 | # | Area | Finding | Status |
 |---|---|---|---|
@@ -23,6 +23,7 @@ Findings 1-7, 15-20, 28 and 30 have since been fixed and moved to
 | 29 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
 | 31 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
 | 32 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
+| 34 | Editor / Logging | Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still carry no `[BroAudio]` prefix | Open, characterized |
 
 ---
 
@@ -388,3 +389,33 @@ Status: Open, characterized. Pinned by
 The PlayMode test scene contains no `AudioListener`, so Unity logs *"There are no audio listeners in the
 scene"* during runs. It is harmless, but it means `LogAssert.NoUnexpectedReceived()` cannot be used in this
 suite — it catches that message and fails the test. Assert specific expected logs instead, or assert behavior.
+
+---
+
+## 34. The Editor assembly was never swept for the `[BroAudio]` log prefix
+
+Findings #15 and #33 each fixed a handful of unprefixed logs, but neither was a sweep of the Editor
+assembly as a whole. Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still emit without
+`Utility.LogTitle`, so a package consumer who trips one sees a bare console message with nothing
+identifying BroAudio as the source:
+
+| File | Count |
+|---|---|
+| `Utility/FieldUsageFinder.cs` | 5 |
+| `Utility/SoundIDUpgrader.cs` | 2 (a third already carries a plain-text `[BroAudio]`) |
+| `Utility/BroUserDataGenerator.cs` | 2 |
+| `AudioPreview/AudioSourcePreviewStrategy.cs` | 1 |
+| `AudioPreview/EditorVolumeTransporter.cs` | 1 |
+| `EditorWindow/SpatialSettingsEditorWindow.cs` | 1 |
+| `EntityPropertyDrawer/AudioEntityEditor.cs` | 1 |
+| `EntityPropertyDrawer/ReorderableClips.cs` | 1 |
+| `Extension/AttributeDrawer/ReadOnlyTextAreaAttributeDrawer.cs` | 1 |
+| `Extension/EditorScriptingExtension.cs` | 1 (the multi-float-field guard, not covered by #33) |
+
+`Editor/DevTools/` is excluded — it is gated behind `BroAudio_DevOnly` and never ships.
+
+This is recorded rather than fixed because it is a mechanical sweep across ten files with no test
+pinning any of them, which is a different-shaped change from the three logs #33 fixed (those had to
+move, because tests asserted their exact text).
+
+Status: Open, characterized. Not pinned by a test.

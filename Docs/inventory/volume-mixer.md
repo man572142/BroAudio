@@ -81,3 +81,31 @@ EditMode coverage rather than PlayMode round-trips:
 - Actual configured track counts (`Preferences` window settings for Generic/Dominator track pool sizes) in this project's mixer asset — needed to know how many concurrent sounds must be played to deterministically force the pool-exhaustion edge case without an unreasonably large test.
 - Whether `SoundManager.Instance.Setting.AudioFilterSlope` (`FilterSlope.FourPole` vs. two-pole) is configured in this project's `RuntimeSetting` asset — affects whether the LowPass/HighPass secondary parameter (`paraName + "2"`) is actually exercised, relevant to the mixer-routing tests above.
 - Whether any authored `AudioMixer` asset in this project actually exposes `MainTrackName`/`MainDominatedTrackName`/`MasterTrackName` parameters with the exact names `BroName` expects — a live-Editor check (`SoundManager.Instance.AudioMixer.GetFloat(...)`) is needed to confirm before writing dominator/master-volume tests, since a misconfigured mixer asset would make `SafeGetFloat`/`SafeSetFloat` silently return `false`/no-op rather than fail loudly.
+---
+
+## Coverage ledger
+
+Status per behavior above, per the runtime plan's Definition of Done. **covered** = the core contract is
+pinned by a test; **partial** = pinned for some inputs, with the gap named; **deferred** = no test yet, and
+testable; **out of scope** = deliberately not tested, with the reason.
+
+| Behavior | Status | Pinned by |
+|---|---|---|
+| Master volume writes to the mixer's Master exposed parameter | covered | `VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct` |
+| Per-BroAudioType volume affects live and future players | covered | `VolumePitchMixerTests.SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers` — the exactly-1f case that was TEST_FINDINGS #7 |
+| Per-SoundID volume affects only active players with that ID | covered | `VolumePitchMixerTests.SetVolume_PerSoundIdAndPerType_ComposeMultiplicativelyInLinearProduct` |
+| Clip volume and Entity MasterVolume bake into one Fader | partial | The linear product is pinned by the test above; the clip-vs-entity split is unobservable through the public API, so the two factors are not separated. |
+| Volume fades run in linear space, re-converted to dB each frame | deferred | No test samples the mixer parameter across a fade to distinguish a linear-space from a dB-space ramp. |
+| Fade direction picks ease from FadeInEase/FadeOutEase; re-anchors mid-fade | deferred | No test reverses a volume fade mid-flight. |
+| Unrouted playback when the mixer track pool is exhausted | deferred | Forcing pool exhaustion needs more concurrent voices than the fixture starts; `Play_AcquiresPooledMixerTrackAndReusesOneAfterRecycle` covers only the healthy acquire/recycle path. |
+| WebGL volume path (`UpdateWebGLVolume`) | out of scope | Behind `#if UNITY_WEBGL`; unreachable from an Editor Play Mode run. |
+| Virtualized-and-released player restores un-mixed loudness | out of scope | Requires real voice virtualization (concurrent voices beyond Max Real Voices) plus a 0.5s grace period — not deterministically forceable in this suite. |
+| `AudioSource.volume` is linear; only mixer params are dB | covered | `VolumePitchMixerTests.SetVolume_Master_*` asserts the dB conversion happens only on the mixer side; `AudioMathTests.ToDecibel_*` pins the conversion math itself |
+| `SetPitch` drives `AudioSource.pitch`, clamped to the AudioSource range | covered | `VolumePitchMixerTests.SetPitch_WithOutOfRangeValue_ClampsToAudioSourceRange` |
+| `SetPitch` before playback defers the fade rather than snapping | covered | `VolumePitchMixerTests.SetPitch_BeforePlaybackStarts_DefersFadeRatherThanSnapping` |
+| `SetPitch` recalculates the scheduled end time on every change | covered | `SchedulingAndMusicTests.SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration` |
+| Master / per-type pitch use the same persistence + live-push pattern as volume | deferred | No test calls `BroAudio.SetPitch(BroAudioType, ...)` or the obsolete two-arg overload. |
+| Mixer track acquisition, routing and the dominator path | covered | `VolumePitchMixerTests.Play_AcquiresPooledMixerTrackAndReusesOneAfterRecycle`; dominator routing via `SelectionStateAndDecoratorTests.LowPassOthers_*` / `HighPassOthers_*` and `AudioEffectTests.SetEffect_*` |
+
+"EditMode unit-test candidates", "Conflicts observed" and "Could not determine statically" elsewhere in this file
+are research notes, not behaviors, and carry no status.

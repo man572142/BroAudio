@@ -153,3 +153,28 @@ while everything else runs on frames.
 - The exact `AudioSource` field observable for follow-target tracking (`AudioPlayer.Update()` writes `transform.position`, but `transform` isn't exposed through `IAudioSourceProxy`/`IAudioPlayer` — a test would need `player.AudioSource` plus reading the source's `GameObject.transform`, or reflection into the underlying `AudioPlayer`) — confirm `IAudioSourceProxy`'s actual member set before relying on it.
 - Whether pool growth under sustained pressure (many concurrent `Play` calls beyond `DefaultAudioPlayerPoolSize`) has any perceptible cost/behavior difference worth a regression test, or whether it's purely a memory/GC concern out of scope for behavioral characterization.
 - Precise interaction between `Pause` called on a player that is itself mid-handover (seamless loop about to hand off to `_nextPlayer`) — `StopControl`'s `CanHandoverToEnd`/`BeginHandover` logic branches only reference the `Stop` path explicitly; whether `Pause` (which goes through the same `Stop(overrideFade, StopMode.Pause, onFinished)` entry point) correctly suppresses or preserves a pending handover was not traced in depth and would benefit from a live-Editor trace or a dedicated loop/handover test file (likely out of this section's scope — see project memory's "Looping via handover" note).
+---
+
+## Coverage ledger
+
+Status per behavior above, per the runtime plan's Definition of Done. **covered** = the core contract is
+pinned by a test; **partial** = pinned for some overloads/inputs, with the gap named; **deferred** = no test
+yet, and testable; **out of scope** = deliberately not tested, with the reason.
+
+| Behavior | Status | Pinned by |
+|---|---|---|
+| Play — global / positioned / follow-target | partial | `PlaybackSmokeTests.Play_AfterQueueIsDrained_PlaysTheEntitysClip` (global); `PlaybackGroupTests.Play_PositionedFarApart_*` (positioned). The `Play(id, transform)` follow-target overload has no test. |
+| Play returns Empty.AudioPlayer when the sound is not playable | covered | `PlaybackLifecycleTests.Play_RejectedByValidator_ReturnsInertEmptyPlayer` |
+| Stop by SoundID | covered | `PlaybackSmokeTests.Stop_AfterPlaying_DeactivatesThePlayer`; `FadeAndTrimTests.Stop_SecondNonImmediateCall_*`, `Stop_WithImmediateFade_*` |
+| Stop by BroAudioType, including the All flag | covered | `PlaybackLifecycleTests.Stop_WithAllFlag_DeactivatesEveryConcreteType`, `Stop_WithSingleFlag_LeavesOtherTypesPlaying` |
+| Stop with a completion callback | deferred | No test passes an `onFinished` callback to `Stop`. |
+| Pause / UnPause by SoundID and by BroAudioType | partial | `PlaybackLifecycleTests.Pause_ThenUnPause_FreezesAndResumesFromSamePosition` covers the by-SoundID path; the `BroAudioType` overloads are untested. |
+| StopMode.Mute — unreachable from the public API | out of scope | No public API reaches it, so there is nothing to call from a test. Removal is a product decision, not a coverage gap. |
+| Player recycling and the stale-handle contract | covered | `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal`; `SelectionStateAndDecoratorTests.AudioSource_AccessedAfterRecycle_*` |
+| Same pooled AudioPlayer instance is reused across independent Play calls | covered | `VolumePitchMixerTests.Play_AcquiresPooledMixerTrackAndReusesOneAfterRecycle` |
+| OnStart / OnUpdate / OnPause / OnEnd callbacks | covered | `PlaybackLifecycleTests.Callbacks_OnStartOnUpdateOnPause_FireWithExpectedCounts`, `OnEnd_WhenPlaybackFinishes_FiresOnceWithOriginalID` |
+| IsActive vs IsPlaying | covered | `PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows` |
+| Empty.AudioPlayer — the null-object path | covered | `PlaybackLifecycleTests.Play_RejectedByValidator_ReturnsInertEmptyPlayer` |
+| Comb-filtering preventer bookkeeping | covered | `PlaybackGroupTests.Play_SameID_WithinCombFilteringWindow_RejectsSecond` and the four sibling cases |
+
+"Conflicts observed" and "Could not determine statically" elsewhere in this file are research notes, not behaviors, and carry no status.

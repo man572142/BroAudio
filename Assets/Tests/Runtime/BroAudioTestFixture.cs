@@ -21,10 +21,7 @@ namespace Ami.BroAudio.Tests
     public abstract class BroAudioTestFixture
     {
         /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
-        protected static readonly BroAudioType[] ConcreteAudioTypes =
-        {
-            BroAudioType.Music, BroAudioType.UI, BroAudioType.Ambience, BroAudioType.SFX, BroAudioType.VoiceOver,
-        };
+        protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
         private readonly List<UnityEngine.Object> _createdObjects = new List<UnityEngine.Object>();
         private readonly List<Action<IAudioPlayer>> _bgmSubscriptions = new List<Action<IAudioPlayer>>();

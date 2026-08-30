@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Ami.BroAudio.Data;
+using Ami.BroAudio.Tests;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -20,10 +21,7 @@ namespace Ami.BroAudio.Editor.Tests
     public abstract class BroEditorTestFixture
     {
         /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
-        protected static readonly BroAudioType[] ConcreteAudioTypes =
-        {
-            BroAudioType.Music, BroAudioType.UI, BroAudioType.Ambience, BroAudioType.SFX, BroAudioType.VoiceOver,
-        };
+        protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
         /// <summary>The only folder a test may write into. Never write into Assets/BroAudio/ — that subtree is the shipped package.</summary>
         protected const string TempFolder = "Assets/BroAudioEditorTests_Temp";

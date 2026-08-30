@@ -18,10 +18,11 @@ Unreleased (after 3.2.3).
 | 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | `a9165aa5` |
 | 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | `2b0552f1` |
 | 19 | Editor / Instructions | `BroInstruction.asset` key `15` was stale, belonging to no enum value | `a474a8a7` |
-| 16 | Effects | Resetting all effects could report completion once per effect instead of once | pending |
-| 20 | Editor / Audio type | Dead code: two audio-type index helpers with no callers, and a broken round-trip | pending |
-| 28 | Editor / Clip editing | A zero-length fade divided by zero and reported an edit it never made | pending |
-| 30 | Editor / Sample data | Trimming past the end of a clip spliced it with its own beginning | pending |
+| 16 | Effects | Resetting all effects could report completion once per effect instead of once | `48516f57` |
+| 20 | Editor / Audio type | Dead code: two audio-type index helpers with no callers, and a broken round-trip | `48516f57` |
+| 28 | Editor / Clip editing | A zero-length fade divided by zero and reported an edit it never made | `48516f57` |
+| 30 | Editor / Sample data | Trimming past the end of a clip spliced it with its own beginning | `48516f57` |
+| 33 | Editor / Logging | Three rect-splitting logs in the Editor assembly carried no `[BroAudio]` prefix | working tree |
 
 ---
 
@@ -199,3 +200,16 @@ It stayed invisible only because that callback is never supplied on this path to
 own that it releases when it has finished launching everything. A fade that completes instantly can no
 longer end the reset early, and the callback fires exactly once — including once, immediately, when
 there was nothing to reset at all.
+
+## 33. Three rect-splitting logs in the Editor assembly carried no `[BroAudio]` prefix
+
+**What was wrong:** The same problem as #15, one assembly over. `EditorScriptingExtension`'s two
+`SplitRect*` ratio-sum guards and the inner `SplitHorizontal` null-array guard logged errors with no
+`Utility.LogTitle` prefix, so a developer whose rect ratios did not sum to 1 saw an unattributed error
+in the console. The earlier sweep covered the runtime assembly only.
+
+**How it's fixed:** All three now prefix with `BroAudio.Utility.LogTitle`, exactly as #15 did. The
+tests that assert these logs previously matched the message string *exactly*, which would have turned
+them red the moment the prefix was added; they now match on a substring `Regex`, the same
+prefix-agnostic shape the runtime tests already use. The rest of the Editor assembly is still unswept —
+see TEST_FINDINGS #34.

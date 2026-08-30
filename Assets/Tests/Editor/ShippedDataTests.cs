@@ -28,14 +28,14 @@ namespace Ami.BroAudio.Editor.Tests
         {
             var entries = new List<(int, string)>();
             var so = new SerializedObject(asset);
-            SerializedProperty dictProp = so.FindProperty("_dictionary");
-            Assert.IsNotNull(dictProp, "BroInstruction's serialized field is no longer named '_dictionary' - update this test.");
+            SerializedProperty dictProp = so.FindProperty(BroInstruction.NameOf.Dictionary);
+            Assert.IsNotNull(dictProp, $"BroInstruction's serialized field is no longer named '{BroInstruction.NameOf.Dictionary}' - update this test.");
 
             for (int i = 0; i < dictProp.arraySize; i++)
             {
                 SerializedProperty element = dictProp.GetArrayElementAtIndex(i);
-                int key = element.FindPropertyRelative("Key").intValue;
-                string value = element.FindPropertyRelative("Value").stringValue;
+                int key = element.FindPropertyRelative(BroInstruction.NameOf.Key).intValue;
+                string value = element.FindPropertyRelative(BroInstruction.NameOf.Value).stringValue;
                 entries.Add((key, value));
             }
             return entries;
