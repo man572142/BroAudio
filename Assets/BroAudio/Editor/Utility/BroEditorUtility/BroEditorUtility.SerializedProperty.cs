@@ -31,29 +31,6 @@ namespace Ami.BroAudio.Editor
             property.FindPropertyRelative(nameof(BroAudioClip.Delay)).floatValue = 0f;
 		}
 
-		public static int GetSerializedEnumIndex(this BroAudioType audioType)
-		{
-			int index = 0;
-			int intAudioType = (int)audioType;
-			while (intAudioType > 0)
-			{
-				index++;
-				intAudioType = intAudioType >> 1;
-			}
-			return index;
-		}
-
-        public static BroAudioType GetAudioTypeByIndex(int enumIndex)
-        {
-            BroAudioType audioType = BroAudioType.None;
-            while(enumIndex > 0)
-            {
-                audioType = audioType.ToNext();
-                enumIndex--;
-            }
-            return audioType;
-        }
-
         public static void SafeSetCurve(this SerializedProperty property, AnimationCurve curve)
         {
             if (curve != null && curve.keys.Length > 0)

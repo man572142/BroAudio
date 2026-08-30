@@ -18,6 +18,10 @@ Unreleased (after 3.2.3).
 | 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | `a9165aa5` |
 | 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | `2b0552f1` |
 | 19 | Editor / Instructions | `BroInstruction.asset` key `15` was stale, belonging to no enum value | `a474a8a7` |
+| 16 | Effects | Resetting all effects could report completion once per effect instead of once | pending |
+| 20 | Editor / Audio type | Dead code: two audio-type index helpers with no callers, and a broken round-trip | pending |
+| 28 | Editor / Clip editing | A zero-length fade divided by zero and reported an edit it never made | pending |
+| 30 | Editor / Sample data | Trimming past the end of a clip spliced it with its own beginning | pending |
 
 ---
 
@@ -146,3 +150,52 @@ never read by anything — harmless, but dead shipped data.
 **How it's fixed:** Removed the `Key: 15` entry from `BroInstruction.asset` (both the shipped copy and
 the `Resources~` source copy).
 
+## 20. Dead code: `GetSerializedEnumIndex` / `GetAudioTypeByIndex`
+
+**What was wrong:** A pair of `BroEditorUtility` helpers that converted a `BroAudioType` to a
+dropdown index and back. Nothing in the package called either one any more, and they no longer
+agreed with each other: the "to index" side counted bits of the underlying number, so the composite
+`All` produced the same index as `VoiceOver`, and converting that index back gave you `VoiceOver`.
+
+**How it's fixed:** Both methods deleted, along with the three tests that pinned their behavior.
+Fixing dead code is worse value than removing it; whoever needs the conversion next can write the
+version their caller actually requires.
+
+## 28. A zero-length fade divided by zero and reported an edit
+
+**What was wrong:** In the Clip Editor's `AudioClipEditingHelper`, `FadeIn(0f)` (and `FadeOut(0f)`)
+computed a per-sample volume step of `1 / 0` = infinity. The infinity was never applied — the loop
+that would have used it runs zero times — so no audio was harmed. But the call still marked the clip
+as edited, which made the helper build a full copy of a clip nothing had changed.
+
+**How it's fixed:** Both methods now return immediately when the fade window rounds to zero samples.
+No division, and no phantom edit, so an untouched clip is handed back as the original instance.
+
+## 30. Trimming past the end of a clip spliced it with its own beginning
+
+**What was wrong:** `TryGetSampleData` asked Unity for however many samples the requested range
+implied, without checking that many were actually left in the clip. Unity's `AudioClip.GetData`
+does not fail in that situation — it wraps around and keeps reading from the *start* of the clip.
+A stale or too-large end position therefore produced a clip with a chunk of its own opening spliced
+onto the end, silently, with no error and the edit reported as successful.
+
+**How it's fixed:** The read now clamps to the samples that actually remain after the start
+offset, so it stops at the end of the clip instead of wrapping. A range that leaves nothing to read
+logs an error and returns false, like every other failure on this path. Normal trims are unaffected —
+the clamp only ever removes samples that were not in the clip to begin with. Covered by
+`ClipEditingTests.Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround`, which is the
+test this finding previously lacked.
+
+## 16. Resetting all effects could report completion once per effect
+
+**What was wrong:** `SetEffect` with `EffectType.None` resets every active effect at once, and counts
+the fades it started so it can report back when the last one lands. The count was raised *after* each
+fade was launched, but a fade with nothing to do (already at its target, or a zero fade time) finishes
+immediately rather than on a later frame — so it decremented a count that had not been raised yet. The
+"everything is done" callback then fired once per tracked effect instead of once for the whole reset.
+It stayed invisible only because that callback is never supplied on this path today.
+
+**How it's fixed:** The count is raised before each fade starts, and the loop holds one count of its
+own that it releases when it has finished launching everything. A fade that completes instantly can no
+longer end the reset early, and the callback fires exactly once — including once, immediately, when
+there was nothing to reset at all.

@@ -281,7 +281,9 @@ namespace Ami.BroAudio.Runtime
 
         private void ResetAllEffect(Effect effect, Action<EffectType> onResetFinished)
         {
-            int tweakingCount = 0;
+            // Starts at 1 for the loop itself, released below. Tweak can finish inside StartCoroutine
+            // (nothing to fade, or no fade time), which would otherwise end the reset on the first effect.
+            int tweakingCount = 1;
             Action onTweakFinished = OnTweakingFinished;
             foreach (var pair in _tweakerDict)
             {
@@ -293,11 +295,12 @@ namespace Ami.BroAudio.Runtime
                 {
                     string paraName = GetEffectParameterName(tweaker.Effect, out bool hasSecondaryParameter);
                     SafeStopCoroutine(tweaker.Coroutine);
+                    tweakingCount++;
                     tweaker.Coroutine = StartCoroutine(Tweak(current, GetEffectDefaultValue(effectType), effect.Fading.FadeOut, effect.Fading.FadeOutEase, paraName, hasSecondaryParameter, onTweakFinished));
                     tweaker.WaitableList.Clear();
-                    tweakingCount++;
                 }
             }
+            OnTweakingFinished();
 
             void OnTweakingFinished()
             {

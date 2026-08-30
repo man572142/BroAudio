@@ -2,7 +2,7 @@
 
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
-Findings 1-7, 15, 18-19 have since been fixed and moved to
+Findings 1-7, 15-20, 28 and 30 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
 | # | Area | Finding | Status |
 |---|---|---|---|
@@ -13,8 +13,6 @@ Findings 1-7, 15, 18-19 have since been fixed and moved to
 | 12 | Playback group | Comb-filtering is bypassed for any global+positioned pair, without comparing distance | Open, characterized |
 | 13 | Looping | `HasLoop` populates its `transitionTime` out parameter even when it returns false | Open, characterized |
 | 14 | Addressables | `AutomaticallyUnloadUnusedAddressableAudioClipsAfter` does not control the unload delay | Open, characterized |
-| 16 | Effects | `ResetAllEffect` can report completion once per tracked effect instead of once | Open, latent |
-| 20 | Editor / Audio type | `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All` | Open, latent |
 | 21 | Editor / Rect math | The `params float[] ratios` rect splits do not land on the far edge | Open, characterized |
 | 22 | Editor / Rect math | `SplitRectVertical` silently no-ops on a null array | Open, characterized |
 | 23 | Editor / Rect math | `GetFieldName` lowercases every occurrence of the leading letter | Open, characterized |
@@ -22,9 +20,7 @@ Findings 1-7, 15, 18-19 have since been fixed and moved to
 | 25 | Editor / Clip editing | `ConvertToMono` Downmixing drops the final group | Open, characterized |
 | 26 | Editor / Clip editing | `Reverse` transposes stereo channels | Open, characterized |
 | 27 | Editor / Clip editing | `AddSlient` prepends, and its sample count truncates | Open, characterized |
-| 28 | Editor / Clip editing | `FadeIn(0f)` divides by zero | Open, latent |
 | 29 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
-| 30 | Editor / Sample data | An oversized trim range silently wraps instead of failing | Open, latent, uncovered |
 | 31 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
 | 32 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
 
@@ -249,72 +245,6 @@ Two smaller consequences:
 - The routine is testable only by back-dating `_loadedEntityLastPlayedTime`, which is what
   `AddressablesTests` does — waiting out a hardcoded 60 seconds is not viable in a suite.
 
-## 16. `ResetAllEffect` can report completion once per tracked effect instead of once
-
-**Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs` — `ResetAllEffect`
-
-The reset loop counts its outstanding tweens, but increments the counter *after* starting each one:
-
-```csharp
-tweaker.Coroutine = StartCoroutine(Tweak(current, GetEffectDefaultValue(effectType), effect.Fading.FadeOut, ...,  onTweakFinished));
-tweaker.WaitableList.Clear();
-tweakingCount++;
-```
-
-`StartCoroutine` runs the body up to its first `yield`, and `Tweak` has two paths that reach the end
-without yielding at all: `from == to` hits an early `yield break`, and a zero `fadeTime` — the default
-for `new Effect(EffectType.None)` — makes `while (currentTime < fadeTime)` skip its body. On either
-path `onTweakFinished` fires *before* the matching `tweakingCount++`, so the counter goes to `-1`,
-satisfies `if (tweakingCount <= 0)`, and fires `onResetFinished`. The `++` then brings it back to `0`
-and the next tracked effect repeats the whole thing — N tracked effects means N completion callbacks
-instead of one.
-
-**Why it is latent, not a live bug:** `onResetFinished` is currently always `null` on this path.
-`ResetAllEffect` runs only when `effect.Type == EffectType.None`, and `SoundManager.SetEffect` maps
-that to `SetEffectMode.Override`, which leaves `onResetEffect` unassigned — it only builds a callback
-for `SetEffectMode.Remove`. So the extra invocations hit a `?.` and vanish. Anything that later gives
-the `None` path a callback inherits the bug.
-
-Same root cause as #17's crash: this class assumes `StartCoroutine` defers the body, and Unity does
-not. Moving `tweakingCount++` above the `StartCoroutine` call fixes it.
-
-## 20. `GetSerializedEnumIndex` and `GetAudioTypeByIndex` disagree for the composite `All`
-
-**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.SerializedProperty.cs`
-
-```csharp
-public static int GetSerializedEnumIndex(this BroAudioType audioType)
-{
-    int index = 0;
-    int intAudioType = (int)audioType;
-    while (intAudioType > 0)
-    {
-        index++;
-        intAudioType = intAudioType >> 1;
-    }
-    return index;
-}
-
-public static BroAudioType GetAudioTypeByIndex(int enumIndex)
-{
-    BroAudioType audioType = BroAudioType.None;
-    while (enumIndex > 0)
-    {
-        audioType = audioType.ToNext();
-        enumIndex--;
-    }
-    return audioType;
-}
-```
-
-`GetSerializedEnumIndex` counts the bit-length of the underlying int, so `All` (31) yields index 5 — the
-same index `VoiceOver` (16) yields — while reaching `All` from the other direction takes 6 `ToNext()`
-steps. The round-trip therefore collapses `All` into `VoiceOver`. Concrete types are unaffected, and
-**the pair has no caller left anywhere in the package** (verified by grep), so it is latent rather than
-user-visible.
-
-Characterized green by `EditorUtilityPureTests.EnumIndexRoundTrip_All_CollapsesIntoVoiceOver`.
-
 ## 21. The `params float[] ratios` rect splits do not land on the far edge
 
 **Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`,
@@ -415,15 +345,6 @@ silently loses one sample.
 
 Status: Open, characterized.
 
-## 28. `FadeIn(0f)` divides by zero
-
-**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
-
-`volIncrement` becomes `1f / 0` = ∞, but `fadeSample` is 0 so the loop body never runs and no sample
-is touched. Harmless today, and pinned by a test so it stays harmless.
-
-Status: Open, latent.
-
 ## 29. `GetResultClip` returns the original instance when nothing was edited
 
 **Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
@@ -432,19 +353,6 @@ Not a copy — reference equality. A caller that mutates the "result" is mutatin
 clip.
 
 Status: Open, characterized.
-
-## 30. An oversized trim range silently wraps instead of failing
-
-**Where:** `Assets/BroAudio/Runtime/Extension/AudioExtension.cs`, `TryGetSampleData`
-
-Unity's `AudioClip.GetData` wraps around and re-reads from the start of the clip when the requested
-range runs past the end of the data, rather than returning false. So a stale or too-large `endPos`
-produces a clip spliced with audio from its own beginning, `HasEdited` flips true, and nothing is
-logged. **This is NOT covered by a test** — it was found by reading during phase E3 and is recorded
-here only. The one reliable way to make `GetData` return false is a streaming clip, which is what
-`ClipEditingTests.Trim_OnStreamingClip_FailsAndLeavesOriginalClip` uses instead.
-
-Status: Open, latent, uncovered.
 
 ## 31. `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase
 

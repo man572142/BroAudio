@@ -13,8 +13,8 @@ namespace Ami.BroAudio.Editor.Tests
     /// exact expected sample values (via a ramp clip built in this file), not just "did it run".
     /// <para>
     /// Several tests pin down real, verified quirks in the production code (Downmix drops the final
-    /// group, Reverse swaps stereo channels, AddSlient prepends rather than appends, FadeIn(0) divides
-    /// by zero harmlessly). These are characterized, not fixed - do not "correct" them.
+    /// group, Reverse swaps stereo channels, AddSlient prepends rather than appends). These are
+    /// characterized, not fixed - do not "correct" them.
     /// </para>
     /// <para>
     /// Ramp clips run at 1000 Hz, the lowest rate AudioClip.Create accepts (it caps anything lower and
@@ -101,9 +101,9 @@ namespace Ami.BroAudio.Editor.Tests
         {
             // Per Unity's docs, AudioClip.GetData flatly refuses on a streamed clip (stream:true in
             // AudioClip.Create, or a Streaming-load-type import) - it is the one documented, reliable
-            // way to make TryGetSampleData return false rather than throw or silently wrap around.
-            // (A too-large read range does NOT fail: Unity's GetData wraps around and reads from the
-            // start of the clip again, so it was not usable to construct a failure here.)
+            // way to make TryGetSampleData return false rather than throw. (A too-large read range
+            // does not fail either - GetData wraps around - which is why TryGetSampleData clamps it;
+            // see Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround.)
             AudioClip clip = Track(AudioClip.Create("StreamedRamp10", 10, 1, SampleRate, stream: true));
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -114,6 +114,28 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.IsFalse(helper.HasEdited, "TryGetSampleData returned false, so Trim must not report an edit.");
             Assert.AreSame(clip, helper.GetResultClip(), "A failed Trim must fall back to the original clip.");
+        }
+
+        [Test]
+        public void Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround()
+        {
+            // AudioClip.GetData wraps back to the start of the clip when the requested range runs past
+            // the end rather than failing, so an oversized range used to splice the clip with its own
+            // beginning, silently. TryGetSampleData now clamps the read to the samples that remain.
+            // A negative end position is the simplest way to ask for more than the clip holds.
+            AudioClip clip = CreateRampClip("Ramp5", 5, 1);
+            using var helper = new AudioClipEditingHelper(clip);
+
+            helper.Trim(0f, -Seconds(4)); // asks for 9 samples out of a 5-sample clip
+
+            Assert.IsTrue(helper.HasEdited);
+            float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
+            Assert.AreEqual(5, actual.Length, "The read must stop at the end of the clip, not wrap around it.");
+            float[] expected = { 0f, 0.2f, 0.4f, 0.6f, 0.8f };
+            for (int i = 0; i < expected.Length; i++)
+            {
+                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
+            }
         }
         #endregion
 
@@ -232,18 +254,18 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        public void FadeIn_ZeroTime_DividesByZeroButTouchesNoSampleAndStillFlipsHasEdited()
+        public void FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit()
         {
-            // Characterized: volIncrement = 1f/0 = Infinity, but fadeSample is 0 so the loop body
-            // (`for i=0; i<0; i++`) never executes. The Infinity is computed and discarded - harmless.
+            // A zero fade window used to compute volIncrement = 1f/0 = Infinity and still flip
+            // HasEdited, which made GetResultClip mint a copy of an unchanged clip. It now returns early.
             AudioClip clip = CreateRampClip("Ramp3", 3, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
             helper.FadeIn(0f);
 
-            Assert.IsTrue(helper.HasEdited);
+            Assert.IsFalse(helper.HasEdited, "Nothing was touched, so no edit must be reported.");
             AudioClip result = Track(helper.GetResultClip());
-            Assert.AreNotSame(clip, result, "HasEdited is true, so a new clip is still built even though nothing changed.");
+            Assert.AreSame(clip, result, "With no edit, GetResultClip hands back the original instance.");
             float[] actual = ReadAllSamples(result);
             float[] expected = { 0f, 1f / 3f, 2f / 3f };
             for (int i = 0; i < expected.Length; i++)
