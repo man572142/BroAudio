@@ -6,17 +6,26 @@ namespace Ami.BroAudio.Editor
 {
     public class AssetPostprocessorEditor : AssetPostprocessor
     {
+        private static bool _userDataChecked = false;
+
         static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
         {
             OnReimportAsset(importedAssets);
 
-            if(importedAssets.Length > 0)
+            if (_userDataChecked)
             {
-                if (importedAssets[0].Contains("BroAudio") ||
-                    importedAssets[0].Contains("Bro_Audio") ||
-                    importedAssets[0].Contains("com.ami.broaudio"))
+                return;
+            }
+
+            foreach (string assetPath in importedAssets)
+            {
+                if (assetPath.Contains("BroAudio") ||
+                    assetPath.Contains("Bro_Audio") ||
+                    assetPath.Contains("com.ami.broaudio"))
                 {
+                    _userDataChecked = true;
                     BroUserDataGenerator.CheckAndGenerateUserData(OnUserDataChecked);
+                    break;
                 }
             }
         }
@@ -27,7 +36,7 @@ namespace Ami.BroAudio.Editor
             FileStructureUpgrader.TryUpgradeFileStructure();
             
             var editorSetting = Resources.Load<EditorSetting>(BroEditorUtility.EditorSettingPath);
-            if (!editorSetting || editorSetting.HasSetupWizardAutoLaunched)
+            if (!editorSetting || editorSetting.HasSetupWizardAutoLaunched || Application.isBatchMode)
             {
                 return;
             }

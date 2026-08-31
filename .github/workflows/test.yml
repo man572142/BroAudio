@@ -35,3 +35,9 @@ jobs:
           testMode: ${{ matrix.testMode }}
           artifactsPath: ${{ matrix.testMode }}-results
           githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.testMode }}-results
+          path: ${{ matrix.testMode }}-results
