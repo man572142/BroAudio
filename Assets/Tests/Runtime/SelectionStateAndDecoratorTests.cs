@@ -263,8 +263,6 @@ namespace Ami.BroAudio.Tests
             // LogAccessRecycledPlayerWarning changes nothing but whether a warning is emitted, and asserting
             // on log text is an anti-goal here — so this pins the behavior that matters (a recycled wrapper
             // resolves AudioSource to null either way) and merely consumes the warning rather than testing it.
-            // LogAssert.NoUnexpectedReceived() is deliberately not used: it also catches Unity's own
-            // "There are no audio listeners in the scene" message, which the PlayMode test scene always emits.
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = true;
             SoundID id = NewSound("RecycledSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);

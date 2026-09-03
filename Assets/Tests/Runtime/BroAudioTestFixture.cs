@@ -23,6 +23,8 @@ namespace Ami.BroAudio.Tests
         /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
         protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
+        private static AudioListener _listener;
+
         private readonly List<UnityEngine.Object> _createdObjects = new List<UnityEngine.Object>();
         private readonly List<Action<IAudioPlayer>> _bgmSubscriptions = new List<Action<IAudioPlayer>>();
         private string _settingSnapshot;
@@ -30,6 +32,15 @@ namespace Ami.BroAudio.Tests
         [UnitySetUp]
         public IEnumerator BroAudioSetUp()
         {
+            // The PlayMode test scene is empty, so Unity warns on every voice unless a listener exists.
+            // One DontDestroyOnLoad listener serves the whole run; it is deliberately never destroyed.
+            if (!_listener)
+            {
+                GameObject listenerObject = new GameObject("TestAudioListener");
+                UnityEngine.Object.DontDestroyOnLoad(listenerObject);
+                _listener = listenerObject.AddComponent<AudioListener>();
+            }
+
             // AudioMixer.SetFloat silently fails on the first Play Mode frame; SoundManager clears it in Start().
             yield return null;
             float deadline = Time.realtimeSinceStartup + 5f;
