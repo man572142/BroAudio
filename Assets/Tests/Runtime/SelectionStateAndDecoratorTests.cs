@@ -31,13 +31,13 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer player1 = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player1.IsPlaying, "the first play to start", 2f);
+            yield return WaitForPlaybackStart(player1, "the first play to start");
             Assert.AreEqual("SeqClip0", player1.AudioSource.clip.name);
 
             // characterizes: AudioEntity._clipSelectionStrategy is one field shared by every Play() on this
             // SoundID — a second concurrent play advances the same cursor rather than starting its own at 0.
             IAudioPlayer player2 = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player2.IsPlaying, "the second play to start", 2f);
+            yield return WaitForPlaybackStart(player2, "the second play to start");
             Assert.AreEqual("SeqClip1", player2.AudioSource.clip.name,
                 "The second concurrent play should advance the same shared Sequence cursor, not restart at clip 0.");
 
@@ -55,18 +55,18 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer first = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => first.IsPlaying, "the first play to start", 2f);
+            yield return WaitForPlaybackStart(first, "the first play to start");
             Assert.AreEqual("SeqResetClip0", first.AudioSource.clip.name);
 
             IAudioPlayer second = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => second.IsPlaying, "the second play to start", 2f);
+            yield return WaitForPlaybackStart(second, "the second play to start");
             Assert.AreEqual("SeqResetClip1", second.AudioSource.clip.name, "Cursor should have advanced from the first play.");
 
             // The state is never reset automatically between plays — only this explicit call clears it.
             BroAudio.ResetMultiClipStrategy(id);
 
             IAudioPlayer third = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => third.IsPlaying, "the third play to start", 2f);
+            yield return WaitForPlaybackStart(third, "the third play to start");
             Assert.AreEqual("SeqResetClip0", third.AudioSource.clip.name,
                 "ResetMultiClipStrategy is the only thing that clears the shared cursor.");
         }
@@ -93,7 +93,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.SetVelocity(50);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             Assert.AreSame(mid, player.AudioSource.clip,
                 "SetVelocity(50) called in the same frame as Play() must still steer PickNewClip to the clip at the 40 threshold.");
         }
@@ -110,19 +110,19 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer firstA = BroAudio.Play(id);
             firstA.SetSequenceId("a");
-            yield return WaitUntilOrTimeout(() => firstA.IsPlaying, "the first 'a' play to start", 2f);
+            yield return WaitForPlaybackStart(firstA, "the first 'a' play to start");
             Assert.AreSame(clip0, firstA.AudioSource.clip, "The 'a' cursor's first pick should be index 0.");
 
             IAudioPlayer secondA = BroAudio.Play(id);
             secondA.SetSequenceId("a");
-            yield return WaitUntilOrTimeout(() => secondA.IsPlaying, "the second 'a' play to start", 2f);
+            yield return WaitForPlaybackStart(secondA, "the second 'a' play to start");
             Assert.AreSame(clip1, secondA.AudioSource.clip, "The 'a' cursor should have advanced to index 1.");
 
             // characterizes: a named sequence id gets its own cursor, unlike the default shared one that
             // Play_SameSequenceEntityPlayedTwice_AdvancesSharedCursorAcrossPlayers pins down above.
             IAudioPlayer firstB = BroAudio.Play(id);
             firstB.SetSequenceId("b");
-            yield return WaitUntilOrTimeout(() => firstB.IsPlaying, "the first 'b' play to start", 2f);
+            yield return WaitForPlaybackStart(firstB, "the first 'b' play to start");
             Assert.AreSame(clip0, firstB.AudioSource.clip,
                 "A different sequence id must start fresh at index 0, unaffected by 'a' already sitting at index 1.");
         }
@@ -182,7 +182,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID dominatorId = NewSound("DominatorLowPassSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer dominatorPlayer = BroAudio.Play(dominatorId);
-            yield return WaitUntilOrTimeout(() => dominatorPlayer.IsPlaying, "the dominator to start playing", 2f);
+            yield return WaitForPlaybackStart(dominatorPlayer, "the dominator to start playing");
 
             SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float effectLowPassBefore);
 
@@ -208,7 +208,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID dominatorId = NewSound("DominatorHighPassSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer dominatorPlayer = BroAudio.Play(dominatorId);
-            yield return WaitUntilOrTimeout(() => dominatorPlayer.IsPlaying, "the dominator to start playing", 2f);
+            yield return WaitForPlaybackStart(dominatorPlayer, "the dominator to start playing");
 
             SoundManager.Instance.AudioMixer.GetFloat(BroName.HighPassParaName, out float effectHighPassBefore);
 
@@ -231,7 +231,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID dominatorId = NewSound("InvalidFreqDominatorSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer dominatorPlayer = BroAudio.Play(dominatorId);
-            yield return WaitUntilOrTimeout(() => dominatorPlayer.IsPlaying, "the dominator to start playing", 2f);
+            yield return WaitForPlaybackStart(dominatorPlayer, "the dominator to start playing");
 
             SoundManager.Instance.AudioMixer.GetFloat(BroName.Dominator_LowPassParaName, out float before);
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
@@ -268,10 +268,10 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = true;
             SoundID id = NewSound("RecycledSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             BroAudio.Stop(id, 0f);
-            yield return WaitUntilOrTimeout(() => !player.IsActive, "the player to become inactive and recycle", 2f);
+            yield return WaitForRecycle(player, "the player to become inactive and recycle");
 
             LogAssert.Expect(LogType.Warning, new Regex("has been recycled after playback"));
             Assert.IsNull(player.AudioSource, "A recycled wrapper resolves AudioSource to null.");
@@ -317,6 +317,8 @@ namespace Ami.BroAudio.Tests
         {
             AudioPlayer instance = (AudioPlayer)(AudioPlayerInstanceWrapper)player;
             FieldInfo field = typeof(AudioPlayer).GetField("_decorators", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(field, "Reflection: AudioPlayer._decorators not found - renamed? " +
+                "Update SelectionStateAndDecoratorTests.cs.GetDecorators (also guarded by the canary in SerializedTransportTests.cs).");
             return (List<AudioPlayerDecorator>)field.GetValue(instance);
         }
     }

@@ -105,11 +105,14 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_SameID_WithinCombFilteringWindow_RejectsSecond()
         {
-            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 1f);
+            // combFilteringTime is generous (10s, was 1s) so the window can't expire from a slow CI runner
+            // stalling between the first Play and the second - this test is about the rejection itself,
+            // not about timing the window's edge.
+            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f);
             SoundID id = NewGroupedSound(group, "CombWindowSfx");
 
             IAudioPlayer player1 = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player1.IsPlaying, "the first play to start so PlaybackStartingTime is recorded", 2f);
+            yield return WaitForPlaybackStart(player1, "the first play to start so PlaybackStartingTime is recorded");
             yield return WaitFrames(2); // move to a later frame - no longer "still queued"
 
             IAudioPlayer player2 = BroAudio.Play(id);
@@ -163,7 +166,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewGroupedSound(group, "CombDistanceSfx");
 
             IAudioPlayer player1 = BroAudio.Play(id, Vector3.zero);
-            yield return WaitUntilOrTimeout(() => player1.IsPlaying, "the first play to start", 2f);
+            yield return WaitForPlaybackStart(player1, "the first play to start");
             yield return WaitFrames(2);
 
             IAudioPlayer player2 = BroAudio.Play(id, new Vector3(100f, 0f, 0f));
@@ -183,7 +186,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewGroupedSound(group, "CombGlobalMixSfx");
 
             IAudioPlayer player1 = BroAudio.Play(id); // global (2D) play - no position
-            yield return WaitUntilOrTimeout(() => player1.IsPlaying, "the first play to start", 2f);
+            yield return WaitForPlaybackStart(player1, "the first play to start");
             yield return WaitFrames(2);
 
             IAudioPlayer player2 = BroAudio.Play(id, Vector3.zero); // positioned, but at the exact same origin

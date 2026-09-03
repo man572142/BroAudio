@@ -21,22 +21,24 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithClipDelayOnly_PostponesAudibleStartButNotIsPlaying()
         {
-            const float delay = 0.6f;
-            AudioEntity entity = NewEntity("ClipDelaySfx", BroAudioType.SFX, NewClip(2f));
+            // 1.5s delay (was 0.6s) with a full 1s cushion before the "still silent" check below - the old
+            // fixed 0.25s offset was thinner than a single capped hitch frame (Time.maximumDeltaTime caps
+            // Utility.GetDeltaTime at ~0.333s), which could push the check past the delay boundary.
+            const float delay = 1.5f;
+            AudioEntity entity = NewEntity("ClipDelaySfx", BroAudioType.SFX, NewClip(3f));
             entity.Clips[0].Delay = delay;
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "IsPlaying to flip true immediately despite the pending delay", 2f);
+            yield return WaitForPlaybackStart(player, "IsPlaying to flip true immediately despite the pending delay");
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Playhead must not have moved yet - still inside clip.Delay.");
 
-            // Land shortly before the delay elapses: still silent. Margin is generous (0.25s against a
-            // 0.6s delay) because PlayScheduled's own dsp-time accuracy is not sample-exact.
-            yield return WaitDspSeconds(delay - 0.25);
+            // Land a full second before the delay elapses: still silent.
+            yield return WaitDspSeconds(delay - 1.0);
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Still inside clip.Delay - playback must not have started audibly.");
 
-            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "audible playback to start once clip.Delay elapses", 1f);
+            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "audible playback to start once clip.Delay elapses", 2f);
         }
 
         // 2.5 - the priority rule that has already regressed once (project memory, commit 7bdc9431):
@@ -114,7 +116,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("ExplicitEndSfx", BroAudioType.SFX, NewClip(4f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             double target = AudioSettings.dspTime + 1.0;
             player.SetScheduledEndTime(target);
@@ -133,7 +135,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("PitchShortenSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitFrames(2);
 
             player.SetPitch(2f);
@@ -153,7 +155,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("PitchVsExplicitEndSfx", BroAudioType.SFX, NewClip(4f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             double target = AudioSettings.dspTime + 1.0;
             player.SetScheduledEndTime(target);
@@ -177,7 +179,7 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer first = BroAudio.Play(firstId);
             first.AsBGM().SetTransition(Transition.Default, 0.3f);
-            yield return WaitUntilOrTimeout(() => first.IsPlaying, "first BGM to start", 2f);
+            yield return WaitForPlaybackStart(first, "first BGM to start");
 
             IAudioPlayer second = BroAudio.Play(secondId);
             second.AsBGM().SetTransition(Transition.Default, 0.3f);
@@ -192,7 +194,7 @@ namespace Ami.BroAudio.Tests
                 }
                 yield return null;
             }
-            yield return WaitUntilOrTimeout(() => second.IsPlaying, "second BGM to eventually start once the first finishes fading out", 2f);
+            yield return WaitForPlaybackStart(second, "second BGM to eventually start once the first finishes fading out");
 
             Assert.IsFalse(bothPlayingAtOnce, "Transition.Default must be sequential - outgoing and incoming BGM must never both report IsPlaying.");
         }
@@ -207,7 +209,7 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer first = BroAudio.Play(firstId);
             first.AsBGM().SetTransition(Transition.CrossFade, 0.5f);
-            yield return WaitUntilOrTimeout(() => first.IsPlaying, "first BGM to start", 2f);
+            yield return WaitForPlaybackStart(first, "first BGM to start");
 
             IAudioPlayer second = BroAudio.Play(secondId);
             second.AsBGM().SetTransition(Transition.CrossFade, 0.5f);
@@ -221,22 +223,27 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator AlwaysPlayMusicAsBGM_Enabled_AutoTransitionsUnrelatedMusicPlaysWithoutExplicitAsBGM()
         {
-            // fixture restores RuntimeSetting in TearDown - Immediate keeps this deterministic and fast
-            // (no fade-timing overlap with the 2s clip's own natural length to reason about).
+            // fixture restores RuntimeSetting in TearDown - Immediate keeps this deterministic and fast.
             SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = true;
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
-            SoundID firstId = NewSound("AutoBgmA", BroAudioType.Music, NewClip(2f));
+            // The first clip's length is load-bearing: at 2s it used to reach its own natural end within
+            // the 2s deactivation wait below, so the assertion passed even with the auto-BGM feature
+            // deleted. 9s puts the clip's natural end far outside the 3s wait, so only the auto-transition
+            // can explain the first player deactivating.
+            SoundID firstId = NewSound("AutoBgmA", BroAudioType.Music, NewClip(9f));
             SoundID secondId = NewSound("AutoBgmB", BroAudioType.Music, NewClip(2f));
 
             IAudioPlayer first = BroAudio.Play(firstId); // never calls AsBGM() explicitly
-            yield return WaitUntilOrTimeout(() => first.IsPlaying, "first Music play to start", 2f);
+            yield return WaitForPlaybackStart(first, "first Music play to start");
 
             IAudioPlayer second = BroAudio.Play(secondId); // also never calls AsBGM() explicitly
 
+            // 3s is well under the 9s clip length, so this stays discriminating; the transition itself is
+            // Immediate, so 3s is a generous CI-safe margin rather than a tight bound on the transition.
             yield return WaitUntilOrTimeout(() => !first.IsActive,
-                "the first Music player to be auto-transitioned off by SoundManager's implicit AsBGM()+SetTransition", 2f);
-            yield return WaitUntilOrTimeout(() => second.IsPlaying, "the second Music player to take over as BGM", 2f);
+                "the first Music player to be auto-transitioned off by SoundManager's implicit AsBGM()+SetTransition", 3f);
+            yield return WaitForPlaybackStart(second, "the second Music player to take over as BGM");
         }
 
         // 2.8 - with the setting off, two Music plays are just two ordinary concurrent players -
@@ -250,10 +257,10 @@ namespace Ami.BroAudio.Tests
             SoundID secondId = NewSound("NoBgmB", BroAudioType.Music, NewClip(2f));
 
             IAudioPlayer first = BroAudio.Play(firstId);
-            yield return WaitUntilOrTimeout(() => first.IsPlaying, "first Music play to start", 2f);
+            yield return WaitForPlaybackStart(first, "first Music play to start");
 
             IAudioPlayer second = BroAudio.Play(secondId);
-            yield return WaitUntilOrTimeout(() => second.IsPlaying, "second Music play to start", 2f);
+            yield return WaitForPlaybackStart(second, "second Music play to start");
 
             yield return WaitFrames(3);
             Assert.IsTrue(first.IsPlaying, "With AlwaysPlayMusicAsBGM off, the first Music player must keep playing - no auto-transition should have stopped it.");
@@ -290,6 +297,64 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsTrue(received.Exists(p => p == null),
                 "A null argument is raised as the outgoing BGM clears.");
+        }
+
+        // 2.8 - SetTransition(Transition, StopMode) overload: MusicPlayer.DoTransition's StopCurrentPlayer
+        // calls the outgoing BGM's Stop(fadeOut, stopMode, onFinished) with the caller's StopMode instead
+        // of the default Stop. With StopMode.Pause the outgoing player is paused in place (AudioPlayer.
+        // Playback.cs StopControl's switch case) rather than ended: it stays IsActive, its AudioSource
+        // playhead freezes, and it resumes exactly like a manual Pause()/UnPause() would.
+        [UnityTest]
+        public IEnumerator SetTransition_WithStopModePause_PausesOutgoingBGMInPlaceAndItResumesOnUnPause()
+        {
+            SoundID firstId = NewSound("StopModePauseBgmA", BroAudioType.Music, NewClip(4f));
+            SoundID secondId = NewSound("StopModePauseBgmB", BroAudioType.Music, NewClip(4f));
+
+            IAudioPlayer first = BroAudio.Play(firstId);
+            first.AsBGM().SetTransition(Transition.Immediate); // first BGM - no prior player to transition off
+            yield return WaitForPlaybackStart(first, "first BGM to start");
+            yield return WaitFrames(5); // let the playhead move so a frozen-vs-advancing check is meaningful
+
+            IAudioPlayer second = BroAudio.Play(secondId);
+            second.AsBGM().SetTransition(Transition.Immediate, StopMode.Pause);
+
+            yield return WaitUntilOrTimeout(() => !first.IsPlaying, "the outgoing BGM to pause rather than stop", 2f);
+            Assert.IsTrue(first.IsActive, "StopMode.Pause must leave the outgoing BGM active, not ended.");
+            yield return WaitForPlaybackStart(second, "the incoming BGM to be playing");
+
+            int pausedSamples = first.AudioSource.timeSamples;
+            yield return WaitFrames(5);
+            Assert.AreEqual(pausedSamples, first.AudioSource.timeSamples, "The paused outgoing BGM's playhead must not advance.");
+
+            first.UnPause();
+            yield return WaitForPlaybackStart(first, "the paused-off BGM to resume via a plain UnPause()");
+            Assert.GreaterOrEqual(first.AudioSource.timeSamples, pausedSamples,
+                "Resuming the StopMode.Pause'd BGM must continue from where it was paused, not restart from 0.");
+        }
+
+        // 2.8 - StopMode.Mute is the "keep playing silently" mode: StopControl's switch case for Mute only
+        // calls SetVolume(0f) - it never calls AudioSource.Pause()/Stop() - so the outgoing BGM keeps
+        // AudioSource.isPlaying true and its playhead keeps advancing in the background; only its linear
+        // volume drops to (near) zero.
+        [UnityTest]
+        public IEnumerator SetTransition_WithStopModeMute_MutesOutgoingBGMButLeavesItAudiblyPlaying()
+        {
+            SoundID firstId = NewSound("StopModeMuteBgmA", BroAudioType.Music, NewClip(4f));
+            SoundID secondId = NewSound("StopModeMuteBgmB", BroAudioType.Music, NewClip(4f));
+
+            IAudioPlayer first = BroAudio.Play(firstId);
+            first.AsBGM().SetTransition(Transition.Immediate); // first BGM - no prior player to transition off
+            yield return WaitForPlaybackStart(first, "first BGM to start");
+
+            IAudioPlayer second = BroAudio.Play(secondId);
+            second.AsBGM().SetTransition(Transition.Immediate, StopMode.Mute);
+
+            yield return WaitForPlaybackStart(second, "the incoming BGM to be playing");
+            yield return WaitUntilOrTimeout(() => first.GetVolume() < 0.05f, "the outgoing BGM's linear volume to drop to (near) zero", 2f);
+
+            Assert.IsTrue(first.IsPlaying,
+                "characterizes: StopMode.Mute never calls AudioSource.Pause/Stop - the muted BGM keeps AudioSource.isPlaying true, running silently in the background.");
+            Assert.IsTrue(first.IsActive, "A muted BGM must stay active, not ended.");
         }
     }
 }

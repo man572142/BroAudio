@@ -32,7 +32,9 @@ the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverag
 [volume-mixer](inventory/volume-mixer.md#coverage-ledger) — where every inventoried behavior is marked
 covered / partial / deferred / out of scope with the test that pins it.
 
-179 tests, ~24s per PlayMode run. `AudioEffectTests.cs` (added 2026-08-29, 22 tests, `157 -> 179`)
+179 tests, ~24s per PlayMode run (pre-reorg figure — see the note below the ledger: tier 0's 98 tests
+have since moved into the EditMode assembly and no longer count here).
+`AudioEffectTests.cs` (added 2026-08-29, 22 tests, `157 -> 179`)
 covers the two largest remaining gaps outside the tiers above: the per-player Unity filter surface
 (`AddChorusEffect`/`AddLowPassEffect`/etc. — attach, duplicate, remove, recycle cleanup, the
 `OnAudioFilterRead` callback, exposed parameter writes) and the mixer-routed `BroAudio.SetEffect`
@@ -52,6 +54,15 @@ the guard clauses that keep Stop/Pause/UnPause/SetVolume/SetPitch inert without 
 TEST_FINDINGS #35. **These 15 tests have not been executed** — they were written in an environment with
 no Unity Editor, so the `194` above is arithmetic, not a run. Compile and run them before trusting
 either number.
+
+**Tier 0 moved to the EditMode assembly.** `ClipSelectionTests.cs`, `AudioMathTests.cs` and
+`LocalizationClipStrategyTests.cs` are plain `[Test]`s with no `[UnityTest]` and no `SoundManager` — they
+never needed Play Mode, they just happened to live in `Assets/Tests/Runtime/` (the `Tests.asmdef`
+PlayMode assembly). They now live in `Assets/Tests/Editor/` and compile into `EditorTests.asmdef`
+instead, so they run in the EditMode lane. That moves 98 tests (57 + 37 + 4) out of the PlayMode total
+above and into the Editor suite's total below: PlayMode `194 -> 96`, EditMode `97 -> 195` (`98 -> 196`
+including the unrelated Addressables stub test). Not re-run after the move; confirm both totals next
+time either suite runs.
 
 The other two components under `Runtime/MonoComponent/` — `SoundVolume` and `SpectrumAnalyzer` — remain
 uncovered, which is why tier 6 is *partial*.
@@ -85,7 +96,10 @@ A separate EditMode assembly covering `BroAudioEditor` (`Ami.BroAudio.Editor.Tes
 runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in
 [TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md).
 
-**97 EditMode tests, all pass, ~5s wall.** The two shipped-data gaps once deliberately left red —
+**97 EditMode tests, all pass, ~5s wall** (pre-reorg figure — see the tier 0 move note above; with
+`ClipSelectionTests.cs`, `AudioMathTests.cs` and `LocalizationClipStrategyTests.cs` now compiling into
+this assembly too, the total is `195` (`196` including the unrelated Addressables stub test), not
+re-run since the move). The two shipped-data gaps once deliberately left red —
 TEST_FINDINGS #18 (`SoundSource_PositionMode` had no shipped text) and #19 (stale asset key `15`) —
 have both since been fixed; see [FIXED_ISSUES.md](FIXED_ISSUES.md). Confirmed all-green 2026-08-30
 via `unity cmd run_tests --mode EditMode` (98/98, the +1 being an unrelated Addressables package
@@ -95,7 +109,9 @@ production code the suite exercises — **re-run before trusting the green.**
 Per-file counts, each also verified passing in isolation: `IsolationContractTests` 5,
 `EditorUtilityPureTests` 16, `TransportAndRectMathTests` 28, `ShippedDataTests` 6,
 `IssueReportMarkdownTests` 5, `SerializedPropertyResetTests` 5, `SerializedTransportTests` 8,
-`ClipEditingTests` 16, `AssetWritingTests` 8.
+`ClipEditingTests` 16, `AssetWritingTests` 8. Plus, as of this reorg (not yet re-run in this assembly):
+`ClipSelectionTests` 37, `AudioMathTests` 57, `LocalizationClipStrategyTests` 4 (behind
+`PACKAGE_LOCALIZATION`).
 
 The isolation contract lives in `BroEditorTestFixture`
 (`Assets/Tests/Editor/BroEditorTestFixture.cs`): JSON snapshot/restore of the on-disk `EditorSetting` and
@@ -151,7 +167,9 @@ rather than writing a second clip builder).
 ## Tier 0 — EditMode units (phase 2, do first)
 
 Pure functions, no `SoundManager`, no Play Mode, no clocks. This is the cheapest confidence in the whole plan
-and it runs in milliseconds.
+and it runs in milliseconds — literally, as of this reorg: the three files below live in
+`Assets/Tests/Editor/` and compile into `EditorTests.asmdef`, so they run in the EditMode lane instead
+of riding along with the PlayMode suite.
 
 | # | Behavior | Where | Risk |
 |---|---|---|---|

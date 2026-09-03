@@ -30,8 +30,11 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithClipFadeIn_RampsVolumeUpFromSilence()
         {
-            const float fadeIn = 0.4f;
-            AudioClip clip = NewClip(1.5f);
+            // 1.2s fade (was 0.4s): the near-silence check below runs on the same frame IsPlaying is
+            // observed true, which can already be a frame or more into the fade - at 0.4s a single capped
+            // hitch frame (Time.maximumDeltaTime ~0.333s) was enough to push the read past NearSilenceThreshold.
+            const float fadeIn = 1.2f;
+            AudioClip clip = NewClip(3f);
             AudioEntity entity = NewEntity("FadeInSfx", BroAudioType.SFX, clip);
             entity.Clips[0].FadeIn = fadeIn;
             SoundID id = IdOf(entity);
@@ -40,7 +43,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnUpdate(p => samples.Add(p.GetVolume()));
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             // SetupClipVolume snaps _clipVolume.Current to 0 before the fade-in coroutine starts ramping it up.
             Assert.Less(player.GetVolume(), NearSilenceThreshold, "Volume should start near silence when the clip has a FadeIn.");
@@ -69,7 +72,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitFrames(2);
             Assert.GreaterOrEqual(player.GetVolume(), NearTargetThreshold,
                 "With no FadeIn set, volume should already be at full target once playback starts.");
@@ -93,7 +96,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer firstPlayer = BroAudio.Play(id, overrideFadeIn);
-            yield return WaitUntilOrTimeout(() => firstPlayer.IsPlaying, "first playback to start", 2f);
+            yield return WaitForPlaybackStart(firstPlayer, "first playback to start");
 
             // By now the clip's own 0.15s fade would already be done; the 0.6s explicit override should not be.
             yield return WaitDspSeconds(clipFadeIn + 0.1);
@@ -101,10 +104,10 @@ namespace Ami.BroAudio.Tests
                 "The explicit fadeIn override should still be ramping well past the clip's own (shorter) FadeIn duration - FadeData.cs's one-shot Next override should have taken priority over the clip setting.");
 
             firstPlayer.Stop(FadeData.Immediate);
-            yield return WaitUntilOrTimeout(() => !firstPlayer.IsActive, "the first player to stop", 2f);
+            yield return WaitForRecycle(firstPlayer, "the first player to stop");
 
             IAudioPlayer secondPlayer = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => secondPlayer.IsPlaying, "second playback to start", 2f);
+            yield return WaitForPlaybackStart(secondPlayer, "second playback to start");
 
             // The override was consumed by TryGetOrConsumeOverride during the first play (FadeData.cs); this
             // play should fall back to only the clip's own short FadeIn.
@@ -127,7 +130,7 @@ namespace Ami.BroAudio.Tests
             // characterized for SetPitch in VolumePitchMixerTests.SetPitch_BeforePlaybackStarts_DefersFadeRatherThanSnapping.
             player.SetFadeInEase(Ease.OutCubic);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitUntilOrTimeout(() => player.GetVolume() >= NearTargetThreshold,
                 "a fade-in with a custom ease to still reach its target", 1.5f);
 
@@ -147,13 +150,15 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             int expectedSample = Utility.GetSample(clip.frequency, startPosition);
             int actualSample = player.AudioSource.timeSamples;
-            // 0.1s of slack: timeSamples keeps advancing at clip.frequency/sec between AudioSource.Play() and
-            // this read, and WaitUntilOrTimeout only guarantees IsPlaying became true at some point in the past frame.
-            int tolerance = Utility.GetSample(clip.frequency, 0.1f);
+            // 0.25s of slack (was 0.1s, thinner than a single capped hitch frame at ~0.333s):
+            // timeSamples keeps advancing at clip.frequency/sec between AudioSource.Play() and this read,
+            // and WaitUntilOrTimeout only guarantees IsPlaying became true at some point in the past frame.
+            // Still decisive against a 0.5s StartPosition - a regression to 0 would be off by 0.5s, not 0.25s.
+            int tolerance = Utility.GetSample(clip.frequency, 0.25f);
 
             Assert.LessOrEqual(Mathf.Abs(actualSample - expectedSample), tolerance,
                 $"AudioSource.timeSamples right after playback starts ({actualSample}) should be near StartPosition * frequency ({expectedSample}), not 0.");
@@ -170,7 +175,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             double dspStart = AudioSettings.dspTime;
 
             yield return WaitUntilOrTimeout(() => !player.IsActive,
@@ -191,7 +196,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("StopGuardSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             player.Stop(0.8f); // Starts an 0.8s fade-out immediately - Stop has no DSP wait gate.
             yield return WaitFrames(3);
@@ -203,8 +208,13 @@ namespace Ami.BroAudio.Tests
             // regresses, a fresh 2s fade would begin here and the wait below would time out.
             player.Stop(2f);
 
+            // 1.8s deadline (was 1.3s, thin enough that a single capped hitch frame plus the 3 frames
+            // already burned above could outrun the ~0.7s of fade actually remaining). Still well short
+            // of the ~2s a genuinely un-ignored Stop(2f) would take to ramp down from here, so a timeout
+            // here means either the original fade stalled or the guard regressed - not proof of either on
+            // its own, unlike the old message which asserted the guard specifically.
             yield return WaitUntilOrTimeout(() => !player.IsActive,
-                "the ORIGINAL 0.8s fade-out to finish on its own schedule (the second Stop(2f) call should have been ignored)", 1.3f);
+                "the original 0.8s fade-out to finish (a timeout here does not by itself prove the second Stop(2f) call went through)", 1.8f);
         }
 
         [UnityTest]
@@ -212,7 +222,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("StopImmediateSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             player.Stop(1f); // Starts a 1s fade-out.
             yield return WaitFrames(3);

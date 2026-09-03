@@ -24,6 +24,7 @@ namespace Ami.BroAudio.Editor.Tests
         {
             Assert.IsNotNull(_markdownType, "IssueReportMarkdown type not found via reflection - was it renamed or moved?");
             MethodInfo method = _markdownType.GetMethod("ComposeTitle", BindingFlags.Public | BindingFlags.Static);
+            Assert.IsNotNull(method, "Reflection: IssueReportMarkdown.ComposeTitle not found - renamed? Update IssueReportMarkdownTests.cs.");
             return (string)method.Invoke(null, new object[] { draft });
         }
 
@@ -31,6 +32,7 @@ namespace Ami.BroAudio.Editor.Tests
         {
             Assert.IsNotNull(_markdownType, "IssueReportMarkdown type not found via reflection - was it renamed or moved?");
             MethodInfo method = _markdownType.GetMethod("BuildGitHubIssueURL", BindingFlags.Public | BindingFlags.Static);
+            Assert.IsNotNull(method, "Reflection: IssueReportMarkdown.BuildGitHubIssueURL not found - renamed? Update IssueReportMarkdownTests.cs.");
             return (string)method.Invoke(null, new object[] { title });
         }
 
