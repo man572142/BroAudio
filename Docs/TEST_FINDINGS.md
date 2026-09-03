@@ -385,14 +385,6 @@ Status: Open, characterized. Pinned by
 
 ---
 
-## Environmental note, not a product defect
-
-The PlayMode test scene contains no `AudioListener`, so Unity logs *"There are no audio listeners in the
-scene"* during runs. It is harmless, but it means `LogAssert.NoUnexpectedReceived()` cannot be used in this
-suite — it catches that message and fails the test. Assert specific expected logs instead, or assert behavior.
-
----
-
 ## 34. The Editor assembly was never swept for the `[BroAudio]` log prefix
 
 Findings #15 and #33 each fixed a handful of unprefixed logs, but neither was a sweep of the Editor
