@@ -36,6 +36,8 @@ namespace Ami.BroAudio.Tests
 
         private static Effect CreateEffect(EffectType type, float rawValue)
         {
+            Assert.IsNotNull(_effectCtor, "Reflection: Effect(EffectType, float, Fading, bool) constructor not found - " +
+                "renamed or its signature changed? Update AudioMathTests.cs._effectCtor.");
             return (Effect)_effectCtor.Invoke(new object[] { type, rawValue, new Fading(type), false });
         }
 

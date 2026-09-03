@@ -138,6 +138,17 @@ namespace Ami.BroAudio.Tests
             }
         }
 
+        /// <summary>The shared timeout for <see cref="WaitForPlaybackStart"/> and <see cref="WaitForRecycle"/>.</summary>
+        protected const float DefaultPlaybackWaitSeconds = 2f;
+
+        /// <summary>Shorthand for <see cref="WaitUntilOrTimeout"/> on <paramref name="player"/>.IsPlaying — the most common wait in this suite.</summary>
+        protected static IEnumerator WaitForPlaybackStart(IAudioPlayer player, string what = "playback to start", float timeout = DefaultPlaybackWaitSeconds)
+            => WaitUntilOrTimeout(() => player.IsPlaying, what, timeout);
+
+        /// <summary>Shorthand for <see cref="WaitUntilOrTimeout"/> on !<paramref name="player"/>.IsActive.</summary>
+        protected static IEnumerator WaitForRecycle(IAudioPlayer player, string what = "player to be recycled", float timeout = DefaultPlaybackWaitSeconds)
+            => WaitUntilOrTimeout(() => !player.IsActive, what, timeout);
+
         /// <summary>Waits on the DSP clock — the clock scheduling, seamless loops and handovers actually run on.</summary>
         protected static IEnumerator WaitDspSeconds(double seconds)
         {

@@ -17,7 +17,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
 
             Assert.IsTrue(player.IsActive, "Play should return an active player immediately.");
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "the queued player to start playing", 2f);
+            yield return WaitForPlaybackStart(player, "the queued player to start playing");
             Assert.AreSame(clip, player.AudioSource.clip, "The AudioSource should be playing the entity's clip.");
             Assert.AreEqual(id, player.ID);
         }
@@ -28,11 +28,11 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("StopSfx", BroAudioType.SFX, NewClip(2f));
 
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             BroAudio.Stop(id, 0f);
 
-            yield return WaitUntilOrTimeout(() => !player.IsActive, "the player to become inactive after Stop", 2f);
+            yield return WaitForRecycle(player, "the player to become inactive after Stop");
             Assert.IsFalse(player.IsPlaying);
         }
     }

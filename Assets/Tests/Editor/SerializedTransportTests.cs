@@ -1,4 +1,6 @@
+using System.Reflection;
 using Ami.BroAudio.Data;
+using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tests;
 using Ami.Extension;
 using NUnit.Framework;
@@ -112,6 +114,7 @@ namespace Ami.BroAudio.Editor.Tests
                 nameof(AudioEntity.Pitch),
                 nameof(AudioEntity.PitchRandomRange),
                 nameof(AudioEntity.Flags),
+                nameof(AudioEntity.TransitionTime),
             };
 
             foreach (string member in members)
@@ -132,6 +135,45 @@ namespace Ami.BroAudio.Editor.Tests
             SerializedProperty prop = assetSo.FindBackingFieldProperty(nameof(AudioAsset.AssetName));
 
             Assert.IsNotNull(prop, "AudioAsset.AssetName's backing field property could not be resolved.");
+        }
+        #endregion
+
+        #region Reflection canaries — plain private field/method names reached by string literal elsewhere in the suite
+        // These are not auto-property backing fields (FindBackingFieldProperty doesn't apply), so the
+        // runtime PlayMode suite reaches them via TestAudioLibrary.SetPrivateField / raw GetField / GetMethod
+        // with a bare string. A rename here would otherwise surface as a NullReferenceException or a
+        // MissingFieldException deep in an unrelated PlayMode test - this fails loudly, in one place, and
+        // names the offending type and member.
+        [TestCase(typeof(AudioEntity), "MulticlipsPlayMode")]
+        [TestCase(typeof(AudioEntity), "_group")]
+        [TestCase(typeof(DefaultPlaybackGroup), "_maxPlayableCount")]
+        [TestCase(typeof(DefaultPlaybackGroup), "_combFilteringTime")]
+        [TestCase(typeof(DefaultPlaybackGroup), "_ignoreCombFilteringIfSameFrame")]
+        [TestCase(typeof(DefaultPlaybackGroup), "_ignoreIfDistanceIsGreaterThan")]
+        [TestCase(typeof(DefaultPlaybackGroup), "_logCombFilteringWarning")]
+        [TestCase(typeof(SoundSource), "_sound")]
+        [TestCase(typeof(SoundSource), "_positionMode")]
+        [TestCase(typeof(SoundSource), "_playOnEnable")]
+        [TestCase(typeof(SoundSource), "_onlyPlayOnce")]
+        [TestCase(typeof(SoundSource), "_stopOnDisable")]
+        [TestCase(typeof(SoundSource), "_overrideFadeOut")]
+        [TestCase(typeof(SoundSource), "_delay")]
+        [TestCase(typeof(SoundSource), "_overrideGroup")]
+        [TestCase(typeof(AudioPlayer), "_decorators")]
+        [TestCase(typeof(SoundManager), "_loadedEntityLastPlayedTime")]
+        public void PrivateField_UsedByStringLiteralElsewhereInTheSuite_StillResolves(System.Type type, string fieldName)
+        {
+            FieldInfo field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, $"{type.Name}.{fieldName} could not be resolved via reflection. " +
+                "Some test under Assets/Tests reaches this field by that exact string literal - grep for it and update the caller.");
+        }
+
+        [Test]
+        public void PrivateMethod_GetCurrentAudioPlayers_StillResolvesOnSoundManager()
+        {
+            MethodInfo method = typeof(SoundManager).GetMethod("GetCurrentAudioPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(method, "SoundManager.GetCurrentAudioPlayers could not be resolved via reflection. " +
+                "LoopHandoverTests.cs reaches this method by that exact string literal.");
         }
         #endregion
 

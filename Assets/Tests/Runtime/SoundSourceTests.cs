@@ -259,9 +259,13 @@ namespace Ami.BroAudio.Tests
 
             source.gameObject.SetActive(false);
 
-            // The default-fade case above is already gone two frames after the disable; a 0.5s override has
-            // to still be alive and audible here. That is the whole contrast.
-            yield return WaitFrames(2);
+            // Poll for the fade actually starting (volume dropping below "still full") instead of a fixed
+            // 2-frame wait - two capped hitch frames (Time.maximumDeltaTime ~0.333s each) can already
+            // total more than this 0.5s fade, which would false-fail an IsActive check taken right after.
+            // The default-fade case (contrasted elsewhere in this file) is cut instantly instead of ramping,
+            // so seeing the volume decline at all here is already the discriminating signal.
+            yield return WaitUntilOrTimeout(() => player.GetVolume() < NearTargetVolume,
+                "the override fade-out to begin ramping the volume down", fadeOut);
             Assert.IsTrue(player.IsActive, "A 0.5s override fade-out must keep the player alive while it ramps, not cut it instantly.");
             Assert.IsTrue(player.IsPlaying, "The voice stays audible for the length of the fade.");
 
@@ -397,7 +401,10 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator OnEnable_WithDelay_HoldsThePlayheadUntilTheDelayElapses()
         {
-            const float delay = 0.5f;
+            // 1.5s delay (was 0.5s): the old "2 frames + 0.15s" check point left only ~0.32s of margin
+            // before the delay's own boundary - thinner than a single capped hitch frame
+            // (Time.maximumDeltaTime ~0.333s). The wider delay below leaves a full ~1s of margin instead.
+            const float delay = 1.5f;
             SoundID id = NewSound("DelayedSourceSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, delay: delay);
 
@@ -405,9 +412,9 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(source.IsActive, "A delayed play is active from the moment OnEnable schedules it.");
             Assert.AreEqual(0, source.CurrentPlayer.AudioSource.timeSamples, "The playhead must not have moved - still inside the Delay.");
 
-            // Well short of the full delay even counting the two frames above, so this stays a real
+            // Still well short of the full delay even counting the two frames above, so this stays a real
             // assertion rather than a race with the scheduled start.
-            yield return WaitDspSeconds(0.15);
+            yield return WaitDspSeconds(0.5);
             Assert.AreEqual(0, source.CurrentPlayer.AudioSource.timeSamples, "Partway through the Delay, playback must still not have started audibly.");
 
             yield return WaitUntilOrTimeout(() => source.CurrentPlayer.AudioSource.timeSamples > 0,

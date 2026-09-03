@@ -34,9 +34,10 @@ namespace Ami.BroAudio.Tests
         /// <summary>
         /// SetEffect's Add/Override modes for a non-default value permanently flip a bit in the SFX-type's
         /// stored EffectType pref (read by every future Play() via AudioPlayer.Playback.cs's SetTrackEffect)
-        /// - state this fixture's own Setting/volume snapshot-restore does not know about. Any test that
-        /// moves the mixer-routed LowPass effect away from its default must undo it explicitly here, or it
-        /// leaks into later tests in this Editor session.
+        /// - state this fixture's own Setting/volume snapshot-restore does not know about, because it lives
+        /// on a separate in-memory AudioTypePlaybackPreference, not on the RuntimeSetting asset. <see
+        /// cref="AudioEffectTearDown"/> below undoes it unconditionally after every test in this fixture, so
+        /// a failed assertion earlier in a test body can no longer skip cleanup and leak it into later tests.
         /// <para>
         /// This targets LowPass only. SetEffect(new Effect(EffectType.None)) resets every tracked effect at
         /// once, but it logs on construction and for any unresolvable tracked entry, so it stays out of the
@@ -49,12 +50,29 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(2);
         }
 
+        /// <summary>
+        /// Runs before BroAudioTestFixture's own [UnityTearDown] (NUnit runs derived-class UnityTearDown
+        /// before base-class UnityTearDown), so SoundManager is still alive here. Unconditional - unlike the
+        /// old in-body calls it replaces, this also fires when an earlier assertion in the test already failed.
+        /// <para>
+        /// AudioFilterSlope itself (mutated by the FourPole test below) needs no separate restore here: it
+        /// lives on the RuntimeSetting object, which BroAudioTestFixture's own JSON snapshot restore already
+        /// puts back afterwards. ResetLowPassEffect() writes the LowPass parameter(s) correctly regardless of
+        /// whichever slope value is still in effect when this runs.
+        /// </para>
+        /// </summary>
+        [UnityTearDown]
+        public IEnumerator AudioEffectTearDown()
+        {
+            yield return ResetLowPassEffect();
+        }
+
         [UnityTest]
         public IEnumerator AddLowPassEffect_OnActivePlayer_AttachesFilterAndConfiguresThroughProxy()
         {
             SoundID id = NewSound("LowPassFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             player.AddLowPassEffect(proxy => proxy.cutoffFrequency = 3000f);
             yield return WaitFrames(1);
@@ -70,7 +88,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("AllEffectsFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             AudioPlayer concrete = Underlying(player);
 
             (Action<IAudioPlayer> AddEffect, Type ComponentType)[] verbs =
@@ -97,7 +115,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("DuplicateFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             AudioPlayer concrete = Underlying(player);
 
             player.AddLowPassEffect();
@@ -115,7 +133,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("RemoveFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             AudioPlayer concrete = Underlying(player);
 
             player.AddLowPassEffect();
@@ -136,7 +154,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("RecycleFx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             AudioPlayer concrete = Underlying(player);
 
             player.AddLowPassEffect();
@@ -149,7 +167,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(concrete.GetComponent<AudioFilterReader>(), "Precondition: the filter reader should be attached before recycling.");
 
             BroAudio.Stop(id, 0f);
-            yield return WaitUntilOrTimeout(() => !concrete.IsActive, "the player to recycle after Stop", 2f);
+            yield return WaitForRecycle(concrete, "the player to recycle after Stop");
             yield return WaitFrames(1); // Destroy() is deferred to end of frame
 
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "Recycle should destroy every added effect component.");
@@ -161,7 +179,7 @@ namespace Ami.BroAudio.Tests
             // very next Play() must hand this exact instance back.
             SoundID id2 = NewSound("RecycleFx2", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player2 = BroAudio.Play(id2);
-            yield return WaitUntilOrTimeout(() => player2.IsPlaying, "second playback to start", 2f);
+            yield return WaitForPlaybackStart(player2, "second playback to start");
             AudioPlayer concrete2 = Underlying(player2);
 
             Assert.AreSame(concrete, concrete2, "The pool should hand the just-recycled player back on the very next Play().");
@@ -175,11 +193,11 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("InactiveFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             AudioPlayer concrete = Underlying(player);
 
             BroAudio.Stop(id, 0f);
-            yield return WaitUntilOrTimeout(() => !concrete.IsActive, "the player to recycle after Stop", 2f);
+            yield return WaitForRecycle(concrete, "the player to recycle after Stop");
             yield return WaitFrames(1);
 
             // Go through the recycled concrete AudioPlayer directly, not the AudioPlayerInstanceWrapper that
@@ -205,7 +223,7 @@ namespace Ami.BroAudio.Tests
 
             SoundID id = NewSound("FilterReadFx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             player.OnAudioFilterRead((data, channels) =>
             {
@@ -235,13 +253,11 @@ namespace Ami.BroAudio.Tests
             // retroactively re-route a player that was already playing before SetEffect was called.
             SoundID id = NewSound("EffectSendFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             AudioPlayer concrete = Underlying(player);
             Assert.IsTrue(concrete.IsUsingTrackEffect, "A player started after SetEffect(LowPass) should route through the effect send channel.");
             Assert.AreNotEqual(EffectType.None, concrete.CurrentActiveTrackEffects & EffectType.LowPass, "LowPass should be part of the player's active track effects.");
-
-            yield return ResetLowPassEffect();
         }
 
         [UnityTest]
@@ -295,8 +311,6 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float resetFreq));
             Assert.AreEqual(AudioConstant.MaxFrequency, resetFreq, FrequencyTolerance,
                 "ForSeconds on a zero-fade effect should still auto-reset the parameter once the duration elapses.");
-
-            yield return ResetLowPassEffect();
         }
 
         [UnityTest]
@@ -314,8 +328,6 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float resetFreq));
             Assert.AreEqual(AudioConstant.MaxFrequency, resetFreq, FrequencyTolerance, "ForSeconds should auto-reset the parameter back to its default once the duration elapses.");
-
-            yield return ResetLowPassEffect();
         }
 
         [UnityTest]
@@ -340,8 +352,6 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(secondaryParaName, out float secondary));
             Assert.AreEqual(650f, primary, FrequencyTolerance);
             Assert.AreEqual(650f, secondary, FrequencyTolerance, "FourPole slope should also write the secondary (Effect_LowPass2) parameter.");
-
-            yield return ResetLowPassEffect();
         }
 
         [UnityTest]

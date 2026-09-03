@@ -25,7 +25,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("MasterVolSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             float baselineLinear = player.GetVolume();
 
@@ -45,7 +45,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("CompositionSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             // Fresh play: clip.Volume(1) * entity.MasterVolume(1) baked into _clipVolume, _trackVolume
             // and _audioTypeVolume both still at their default of 1.
@@ -65,7 +65,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID liveId = NewSound("LiveTypeSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer livePlayer = BroAudio.Play(liveId);
-            yield return WaitUntilOrTimeout(() => livePlayer.IsPlaying, "live playback to start", 2f);
+            yield return WaitForPlaybackStart(livePlayer, "live playback to start");
 
             // Move the live player's per-type factor away from default so a push back to it is observable.
             BroAudio.SetVolume(BroAudioType.SFX, 0.4f, 0f);
@@ -84,7 +84,7 @@ namespace Ami.BroAudio.Tests
 
             SoundID futureId = NewSound("FutureTypeSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer futurePlayer = BroAudio.Play(futureId);
-            yield return WaitUntilOrTimeout(() => futurePlayer.IsPlaying, "future playback to start", 2f);
+            yield return WaitForPlaybackStart(futurePlayer, "future playback to start");
             Assert.AreEqual(1f, futurePlayer.GetVolume(), LinearTolerance, "A fresh player should read the stored per-type volume.");
         }
 
@@ -93,17 +93,17 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id1 = NewSound("TrackSfx1", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player1 = BroAudio.Play(id1);
-            yield return WaitUntilOrTimeout(() => player1.IsPlaying, "first playback to start", 2f);
+            yield return WaitForPlaybackStart(player1, "first playback to start");
 
             Assert.IsNotNull(player1.AudioSource.outputAudioMixerGroup, "A player should acquire a pooled mixer group once play starts.");
             StringAssert.StartsWith(BroName.GenericTrackName, player1.AudioSource.outputAudioMixerGroup.name);
 
             BroAudio.Stop(id1, 0f);
-            yield return WaitUntilOrTimeout(() => !player1.IsActive, "the player to recycle after Stop", 2f);
+            yield return WaitForRecycle(player1, "the player to recycle after Stop");
 
             SoundID id2 = NewSound("TrackSfx2", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player2 = BroAudio.Play(id2);
-            yield return WaitUntilOrTimeout(() => player2.IsPlaying, "second playback to start", 2f);
+            yield return WaitForPlaybackStart(player2, "second playback to start");
 
             Assert.IsNotNull(player2.AudioSource.outputAudioMixerGroup, "A subsequent play should reuse a group from the pool rather than getting null.");
             StringAssert.StartsWith(BroName.GenericTrackName, player2.AudioSource.outputAudioMixerGroup.name);
@@ -114,7 +114,7 @@ namespace Ami.BroAudio.Tests
         {
             SoundID id = NewSound("PitchClampSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             player.SetPitch(10f, 0f);
             yield return WaitFrames(1);
@@ -135,7 +135,7 @@ namespace Ami.BroAudio.Tests
             // queue and SetInitialPitch runs - so this must hit the deferred-fade branch, not the live one.
             player.SetPitch(2f, 0.5f);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
 
             // The very first playing frame should still read close to the entity's base pitch (1), proving
             // the fade was deferred rather than the pitch snapping straight to the target (2).
@@ -143,6 +143,35 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitUntilOrTimeout(() => Mathf.Abs(player.AudioSource.pitch - 2f) < 0.01f, "the deferred pitch fade to reach its target", 2f);
             Assert.AreEqual(2f, player.AudioSource.pitch, LinearTolerance);
+        }
+
+        // SoundManager.SetPitch(float, BroAudioType, float) (~SoundManager.cs:349) mirrors
+        // SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers above: it both pushes the new
+        // pitch to every live player of the matching type and stores it into AudioTypePlaybackPreference,
+        // so a player that hasn't been played yet also picks it up via SetInitialPitch. BroAudio.SetPitch
+        // with no fadeTime argument defaults to BroAdvice.FadeTime_Immediate, so this applies instantly.
+        [UnityTest]
+        public IEnumerator SetPitch_ByBroAudioType_AppliesToLiveAndFuturePlayersOfThatTypeOnly()
+        {
+            SoundID sfxId = NewSound("PitchTypeLiveSfx", BroAudioType.SFX, NewClip(3f));
+            SoundID musicId = NewSound("PitchTypeLiveMusic", BroAudioType.Music, NewClip(3f));
+            IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
+            IAudioPlayer musicPlayer = BroAudio.Play(musicId);
+            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", 2f);
+
+            BroAudio.SetPitch(BroAudioType.SFX, 0.5f);
+            yield return WaitFrames(1);
+
+            Assert.AreEqual(0.5f, sfxPlayer.AudioSource.pitch, LinearTolerance, "SetPitch by type must reach the live SFX player's AudioSource.");
+            Assert.AreEqual(1f, musicPlayer.AudioSource.pitch, LinearTolerance, "SetPitch(SFX) must never touch a Music player.");
+
+            Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref pref));
+            Assert.AreEqual(0.5f, pref.Pitch, LinearTolerance, "The per-type pref must also store the new pitch for future players.");
+
+            SoundID futureSfxId = NewSound("PitchTypeFutureSfx", BroAudioType.SFX, NewClip(2f));
+            IAudioPlayer futureSfxPlayer = BroAudio.Play(futureSfxId);
+            yield return WaitForPlaybackStart(futureSfxPlayer, "future playback to start");
+            Assert.AreEqual(0.5f, futureSfxPlayer.AudioSource.pitch, LinearTolerance, "A freshly played SFX entity should pick up the stored per-type pitch.");
         }
     }
 }

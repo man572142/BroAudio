@@ -9,9 +9,11 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// EditMode-pure characterization tests for the clip selection strategies and their supporting
+    /// Characterization tests for the clip selection strategies and their supporting
     /// <see cref="AudioEntity"/> helpers. No SoundManager, no Play Mode: strategies and clip arrays
-    /// are constructed directly. Deliberately does not derive from BroAudioTestFixture.
+    /// are constructed directly, so this lives in the EditMode assembly (<c>EditorTests.asmdef</c>)
+    /// and runs without entering Play Mode. Deliberately does not derive from BroAudioTestFixture —
+    /// that fixture forces Play Mode setup, which nothing here needs.
     /// </summary>
     public class ClipSelectionTests
     {
@@ -535,8 +537,8 @@ namespace Ami.BroAudio.Tests
         public void GetRandomValue_WithFlagOff_ReturnsBaseValueRegardlessOfRange()
         {
             AudioEntity entity = NewEntity();
-            TestAudioLibrary.SetPrivateField(entity, "RandomFlags", RandomFlag.None);
-            TestAudioLibrary.SetPrivateField(entity, "PitchRandomRange", 100f);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.RandomFlags), RandomFlag.None);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.PitchRandomRange), 100f);
 
             for (int i = 0; i < 10; i++)
             {
@@ -548,8 +550,8 @@ namespace Ami.BroAudio.Tests
         public void GetRandomValue_WithFlagOnAndZeroRange_ReturnsBaseValueExactly()
         {
             AudioEntity entity = NewEntity();
-            TestAudioLibrary.SetPrivateField(entity, "RandomFlags", RandomFlag.Volume);
-            TestAudioLibrary.SetPrivateField(entity, "VolumeRandomRange", 0f);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.RandomFlags), RandomFlag.Volume);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.VolumeRandomRange), 0f);
 
             for (int i = 0; i < 10; i++)
             {
@@ -561,9 +563,9 @@ namespace Ami.BroAudio.Tests
         public void GetRandomValue_WithFlagsSet_JitterStaysWithinConfiguredRangePerFlag()
         {
             AudioEntity entity = NewEntity();
-            TestAudioLibrary.SetPrivateField(entity, "RandomFlags", RandomFlag.Pitch | RandomFlag.Volume);
-            TestAudioLibrary.SetPrivateField(entity, "PitchRandomRange", 4f);
-            TestAudioLibrary.SetPrivateField(entity, "VolumeRandomRange", 10f);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.RandomFlags), RandomFlag.Pitch | RandomFlag.Volume);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.PitchRandomRange), 4f);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.VolumeRandomRange), 10f);
 
             for (int i = 0; i < 20; i++)
             {
@@ -582,7 +584,7 @@ namespace Ami.BroAudio.Tests
         public void HasLoop_WithLoopFlag_ReturnsLoopType()
         {
             AudioEntity entity = NewEntity();
-            TestAudioLibrary.SetPrivateField(entity, "Loop", true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
 
             bool hasLoop = entity.HasLoop(out LoopType loopType, out float transitionTime, LoopType.None, 0f);
 
@@ -595,8 +597,8 @@ namespace Ami.BroAudio.Tests
         public void HasLoop_WithSeamlessLoopFlag_ReturnsSeamlessLoopAndOwnTransitionTime()
         {
             AudioEntity entity = NewEntity();
-            TestAudioLibrary.SetPrivateField(entity, "SeamlessLoop", true);
-            TestAudioLibrary.SetPrivateField(entity, "TransitionTime", 2.5f);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.TransitionTime), 2.5f);
 
             bool hasLoop = entity.HasLoop(out LoopType loopType, out float transitionTime, LoopType.None, 0f);
 
@@ -609,7 +611,11 @@ namespace Ami.BroAudio.Tests
         public void HasLoop_WithChainedModeAndNoFlags_FallsBackToProvidedDefaults()
         {
             AudioEntity entity = NewEntity();
-            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Chained);
+            // This file lives in the Editor assembly (moved from Runtime), so the UNITY_EDITOR-gated
+            // EditorPropertyName accessor is always available here - it makes a rename a compile error
+            // instead of a reflection-time failure, unlike the runtime-suite call sites that must stay
+            // string literals because they also compile in Player test builds.
+            TestAudioLibrary.SetPrivateField(entity, AudioEntity.EditorPropertyName.MulticlipsPlayMode, MulticlipsPlayMode.Chained);
 
             bool hasLoop = entity.HasLoop(out LoopType loopType, out float transitionTime, LoopType.SeamlessLoop, 3f);
 

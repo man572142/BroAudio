@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
+using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -35,8 +36,16 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class LoopHandoverTests : BroAudioTestFixture
     {
-        private static readonly MethodInfo GetCurrentAudioPlayersMethod =
-            typeof(SoundManager).GetMethod("GetCurrentAudioPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly MethodInfo GetCurrentAudioPlayersMethod = GetCurrentAudioPlayersMethodOrThrow();
+
+        // Guards the reflection lookup above: an un-checked null here would NRE at Invoke with no useful
+        // message if SoundManager.GetCurrentAudioPlayers is ever renamed.
+        private static MethodInfo GetCurrentAudioPlayersMethodOrThrow()
+        {
+            MethodInfo method = typeof(SoundManager).GetMethod("GetCurrentAudioPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(method, "Reflection: SoundManager.GetCurrentAudioPlayers not found - renamed? Update LoopHandoverTests.");
+            return method;
+        }
 
         /// <summary>
         /// All active, audibly-playing AudioPlayer instances for a SoundID - mirrors the filter behind the
@@ -74,7 +83,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
 
             Assert.IsFalse(player.AudioSource.loop,
@@ -98,8 +107,11 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam()
         {
-            const float ClipSeconds = 1f;
-            const float TransitionSeconds = 0.3f;
+            // TransitionSeconds widened to 1s (was 0.3s, ~0.15s slack either side of the sampled midpoint -
+            // thinner than a single capped hitch frame at Time.maximumDeltaTime's ~0.333s). ClipSeconds
+            // grows to match so the whole crossfade window still sits comfortably inside one clip iteration.
+            const float ClipSeconds = 3f;
+            const float TransitionSeconds = 1f;
             AudioEntity entity = NewEntity("SeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
             TestAudioLibrary.SetPrivateField(entity, "SeamlessLoop", true);
             TestAudioLibrary.SetPrivateField(entity, "TransitionTime", TransitionSeconds);
@@ -109,16 +121,18 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
 
-            double crossfadeMidpointDsp = startDsp.Value + ClipSeconds - (TransitionSeconds / 2.0);
-            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeMidpointDsp,
-                "the dsp clock to reach the middle of the crossfade window", 5f);
+            // Wait to the start of the crossfade window, then poll for the 2-player overlap anywhere inside
+            // it, rather than sampling a single dsp-clock instant - with a 1s-wide window any frame that
+            // lands inside it will do, so this is no longer sensitive to one slow frame's overshoot.
+            double crossfadeStartDsp = startDsp.Value + ClipSeconds - TransitionSeconds;
+            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
+                "the dsp clock to reach the start of the crossfade window", 5f);
 
-            List<AudioPlayer> duringCrossfade = GetActivePlayers(id);
-            Assert.AreEqual(2, duringCrossfade.Count,
-                "A seamless-loop crossfade must have exactly two active players overlapping mid-transition.");
+            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 2,
+                "both players to be simultaneously active at some point during the crossfade window", TransitionSeconds + 1f);
 
             yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
                 "the crossfade to finish, leaving only the handed-over player active", 5f);
@@ -144,7 +158,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "the intro clip to start playing", 2f);
+            yield return WaitForPlaybackStart(player, "the intro clip to start playing");
             yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the intro clip", 2f);
 
             List<AudioPlayer> atStart = GetActivePlayers(id);
@@ -192,7 +206,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
 
             double seamMidpointDsp = startDsp.Value + ClipSeconds - (TransitionSeconds / 2.0);
@@ -209,6 +223,47 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitUntilOrTimeout(() => BroAudio.HasAnyPlayingInstances(id),
                 "the sound to be audibly playing again after UnPause", 3f);
+        }
+
+        // 2.3 (Tempo variant) - SeamlessType.Tempo is purely an Editor-authoring convenience: both
+        // SeamlessType and TempoTransition are wrapped in #if UNITY_EDITOR and don't exist as types
+        // outside the Editor, while Tests.asmdef targets every platform - so this test never references
+        // either type. AudioEntityEditor.AdditionalProperties.cs (~line 408) computes
+        // transitionTimeProp.floatValue = TempoToTime(bpm, beats) and writes that straight into the
+        // entity's ordinary TransitionTime float; there is no separate runtime code path for a
+        // Tempo-authored loop; once TransitionTime is set, playback treats it identically to a
+        // Time-authored seamless loop. This reproduces that exact computation via the plain (ungated)
+        // AudioExtension.TempoToTime and feeds the result into TransitionTime the same way the
+        // Time-authored test above does, to pin that the crossfade window really is timed off the
+        // BPM/beats-derived duration.
+        [UnityTest]
+        public IEnumerator Play_WithTempoAuthoredSeamlessLoop_CrossfadesForTheBpmDerivedDuration()
+        {
+            const float ClipSeconds = 3f;
+            const float BPM = 120f;
+            const int Beats = 2;
+            float transitionSeconds = AudioExtension.TempoToTime(BPM, Beats); // 60/120 * 2 = 1s
+            AudioEntity entity = NewEntity("TempoSeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            TestAudioLibrary.SetPrivateField(entity, "SeamlessLoop", true);
+            TestAudioLibrary.SetPrivateField(entity, "TransitionTime", transitionSeconds);
+            SoundID id = IdOf(entity);
+
+            double? startDsp = null;
+            IAudioPlayer player = BroAudio.Play(id);
+            player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
+
+            yield return WaitForPlaybackStart(player);
+            yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
+
+            double crossfadeStartDsp = startDsp.Value + ClipSeconds - transitionSeconds;
+            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
+                "the dsp clock to reach the start of the BPM-derived crossfade window", 5f);
+
+            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 2,
+                "both players to be simultaneously active at some point during the BPM-derived crossfade window", transitionSeconds + 1f);
+
+            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
+                "the crossfade to finish, leaving only the handed-over player active", 5f);
         }
     }
 }

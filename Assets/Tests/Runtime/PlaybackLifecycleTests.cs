@@ -35,8 +35,8 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("StaleHandleSfx", BroAudioType.SFX, NewClip(0.2f));
             IAudioPlayer player = BroAudio.Play(id);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
-            yield return WaitUntilOrTimeout(() => !player.IsActive, "the short clip to finish and the player to recycle", 2f);
+            yield return WaitForPlaybackStart(player);
+            yield return WaitForRecycle(player, "the short clip to finish and the player to recycle");
 
             IAudioPlayer afterSetVolume = null;
             IMusicPlayer afterBGM = null;
@@ -70,14 +70,14 @@ namespace Ami.BroAudio.Tests
 
             foreach (IAudioPlayer player in players)
             {
-                yield return WaitUntilOrTimeout(() => player.IsPlaying, "each player to start playing", 2f);
+                yield return WaitForPlaybackStart(player, "each player to start playing");
             }
 
             BroAudio.Stop(BroAudioType.All, 0f);
 
             foreach (IAudioPlayer player in players)
             {
-                yield return WaitUntilOrTimeout(() => !player.IsActive, "every player to stop after Stop(All, 0f)", 2f);
+                yield return WaitForRecycle(player, "every player to stop after Stop(All, 0f)");
             }
         }
 
@@ -94,7 +94,7 @@ namespace Ami.BroAudio.Tests
 
             BroAudio.Stop(BroAudioType.SFX, 0f);
 
-            yield return WaitUntilOrTimeout(() => !sfxPlayer.IsActive, "the SFX player to stop", 2f);
+            yield return WaitForRecycle(sfxPlayer, "the SFX player to stop");
             yield return WaitFrames(2);
 
             Assert.IsTrue(musicPlayer.IsActive, "Stopping SFX must not deactivate a Music player.");
@@ -110,7 +110,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnStart(_ => onStartCount++);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             yield return WaitFrames(3);
             Assert.AreEqual(1, onStartCount, "OnStart should have fired once by the time playback is underway.");
 
@@ -123,7 +123,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(capturedTimeSamples, player.AudioSource.timeSamples, "A paused AudioSource must not advance its playhead.");
 
             player.UnPause();
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "the player to resume after UnPause", 2f);
+            yield return WaitForPlaybackStart(player, "the player to resume after UnPause");
 
             Assert.GreaterOrEqual(player.AudioSource.timeSamples, capturedTimeSamples,
                 "Resuming must continue from the paused position, not restart from 0.");
@@ -141,7 +141,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(player.IsActive, "IsActive must be true the instant Play enqueues.");
             Assert.IsFalse(player.IsPlaying, "IsPlaying must still be false before SoundManager.LateUpdate drains the queue.");
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "the queued player to start playing after a frame", 2f);
+            yield return WaitForPlaybackStart(player, "the queued player to start playing after a frame");
 
             Assert.IsTrue(player.IsActive);
             Assert.IsTrue(player.IsPlaying);
@@ -194,7 +194,7 @@ namespace Ami.BroAudio.Tests
             player.OnUpdate(_ => onUpdateCount++);
             player.OnPause(_ => onPauseCount++);
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
+            yield return WaitForPlaybackStart(player);
             Assert.AreEqual(1, onStartCount, "OnStart should fire exactly once when playback starts.");
 
             yield return WaitFrames(3);
@@ -205,7 +205,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(1, onPauseCount, "OnPause should fire on the pause transition.");
 
             player.UnPause();
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "the player to resume", 2f);
+            yield return WaitForPlaybackStart(player, "the player to resume");
             Assert.AreEqual(1, onStartCount, "OnStart must not re-fire when resuming from pause.");
 
             player.Pause();
@@ -229,8 +229,8 @@ namespace Ami.BroAudio.Tests
                 receivedID = endedID;
             });
 
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start", 2f);
-            yield return WaitUntilOrTimeout(() => !player.IsActive, "the short clip to finish and recycle", 2f);
+            yield return WaitForPlaybackStart(player);
+            yield return WaitForRecycle(player, "the short clip to finish and recycle");
 
             Assert.AreEqual(1, onEndCount, "OnEnd should fire exactly once.");
             Assert.AreEqual(id, receivedID, "OnEnd's SoundID argument should equal the original ID despite the immediate recycle.");
@@ -256,6 +256,88 @@ namespace Ami.BroAudio.Tests
             Assert.IsNull(invalidInfo, "The out-param must be null when the id doesn't resolve to an entity.");
 
             yield break;
+        }
+
+        // Facade broadcast: BroAudio.Pause(BroAudioType)/UnPause(BroAudioType) forward to
+        // SoundManager.Pause(BroAudioType, ...), which matches every live player by type flags
+        // (SoundManager.Playback.cs ~229-241). Only the matching type must freeze/resume.
+        [UnityTest]
+        public IEnumerator Pause_ByBroAudioType_AffectsOnlyThatTypeAndUnPauseResumesFromSamePosition()
+        {
+            SoundID sfxId = NewSound("TypePauseSfx", BroAudioType.SFX, NewClip(3f));
+            SoundID musicId = NewSound("TypePauseMusic", BroAudioType.Music, NewClip(3f));
+            IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
+            IAudioPlayer musicPlayer = BroAudio.Play(musicId);
+
+            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", 2f);
+            yield return WaitFrames(3);
+
+            BroAudio.Pause(BroAudioType.SFX);
+            yield return WaitUntilOrTimeout(() => !sfxPlayer.IsPlaying, "the SFX player to pause", 2f);
+
+            Assert.IsTrue(sfxPlayer.IsActive, "A paused player must remain active - pause does not deactivate.");
+            Assert.IsTrue(musicPlayer.IsPlaying, "Pausing by BroAudioType.SFX must not touch a Music player.");
+
+            int pausedSamples = sfxPlayer.AudioSource.timeSamples;
+            yield return WaitFrames(5);
+            Assert.AreEqual(pausedSamples, sfxPlayer.AudioSource.timeSamples, "The paused SFX playhead must not advance.");
+
+            BroAudio.UnPause(BroAudioType.SFX);
+            yield return WaitForPlaybackStart(sfxPlayer, "the SFX player to resume after UnPause(type)");
+
+            Assert.GreaterOrEqual(sfxPlayer.AudioSource.timeSamples, pausedSamples,
+                "UnPause(type) must resume from the paused position, not restart from 0.");
+        }
+
+        // Facade broadcast: BroAudio.Pause(SoundID)/UnPause(SoundID) forward to
+        // SoundManager.Pause(SoundID, ...), matching live players by exact id (SoundManager.Playback.cs
+        // ~206-222) rather than by type - a second player of the same type but a different SoundID
+        // must be left untouched.
+        [UnityTest]
+        public IEnumerator Pause_BySoundID_AffectsOnlyThatIdNotOtherPlayersOfTheSameType()
+        {
+            SoundID targetId = NewSound("IdPauseTargetSfx", BroAudioType.SFX, NewClip(3f));
+            SoundID otherId = NewSound("IdPauseOtherSfx", BroAudioType.SFX, NewClip(3f));
+            IAudioPlayer targetPlayer = BroAudio.Play(targetId);
+            IAudioPlayer otherPlayer = BroAudio.Play(otherId);
+
+            yield return WaitUntilOrTimeout(() => targetPlayer.IsPlaying && otherPlayer.IsPlaying, "both players to start playing", 2f);
+
+            BroAudio.Pause(targetId);
+            yield return WaitUntilOrTimeout(() => !targetPlayer.IsPlaying, "the targeted id's player to pause", 2f);
+            yield return WaitFrames(2);
+
+            Assert.IsTrue(otherPlayer.IsPlaying, "Pausing by SoundID must not affect a different SoundID of the same BroAudioType.");
+
+            BroAudio.UnPause(targetId);
+            yield return WaitForPlaybackStart(targetPlayer, "the targeted id's player to resume after UnPause(id)");
+        }
+
+        // Facade broadcast, fade overloads: BroAudio.Pause(type, fadeTime)/UnPause(type, fadeTime) feed
+        // fadeTime through to AudioPlayer.Pause/UnPause's own fade-out/fade-in. Fade progress uses
+        // capped Time.deltaTime, so the fade window is kept wide (>=1s) to stay CI-safe.
+        [UnityTest]
+        public IEnumerator Pause_ByTypeWithFadeTime_CompletesOnlyAfterTheFadeElapses()
+        {
+            const float fadeTime = 1f;
+            SoundID id = NewSound("FadedPauseSfx", BroAudioType.SFX, NewClip(4f));
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitForPlaybackStart(player);
+            yield return WaitFrames(3);
+
+            BroAudio.Pause(BroAudioType.SFX, fadeTime);
+
+            // Shortly after issuing the fade-out pause, the source must still be audibly playing -
+            // AudioSource.Pause() is only called once the fade-out completes (AudioPlayer.Playback.cs
+            // StopControl's fade region runs before the StopMode.Pause switch case).
+            yield return WaitDspSeconds(0.35);
+            Assert.IsTrue(player.IsPlaying, "A 1s fade-out pause must not have paused the AudioSource yet at 0.35s in.");
+
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the fade-out to finish and the pause to actually take effect", fadeTime + 1f);
+            Assert.IsTrue(player.IsActive, "A faded-out pause must still leave the player active, not recycled.");
+
+            BroAudio.UnPause(BroAudioType.SFX, fadeTime);
+            yield return WaitForPlaybackStart(player, "UnPause(type, fadeTime) to resume the AudioSource");
         }
     }
 }

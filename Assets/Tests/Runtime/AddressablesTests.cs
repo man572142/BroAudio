@@ -192,6 +192,8 @@ namespace Ami.BroAudio.Tests
         {
             FieldInfo field = typeof(SoundManager).GetField("_loadedEntityLastPlayedTime",
                 BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, "Reflection: SoundManager._loadedEntityLastPlayedTime not found - renamed? " +
+                "Update AddressablesTests.cs.BackDateLastPlayedTime (also guarded by the canary in SerializedTransportTests.cs).");
             var tracked = (Dictionary<SoundID, double>)field.GetValue(SoundManager.Instance);
             tracked[id] = Time.unscaledTimeAsDouble - secondsAgo;
         }
