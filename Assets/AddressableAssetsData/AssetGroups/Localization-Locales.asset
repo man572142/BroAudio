@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Localization-Locales
   m_EditorClassIdentifier: Unity.Addressables.Editor::UnityEditor.AddressableAssets.Settings.AddressableAssetGroup
   m_GroupName: Localization-Locales
-  m_GUID: ae7223a044948434a81e38f1827863ce
+  m_GUID: b87bc0b424010db47a5238a53a7d7634
   m_SerializeEntries:
   - m_GUID: 51c6809d04544fb42b333d4917009264
     m_Address: Chinese (Traditional) (zh-TW)
