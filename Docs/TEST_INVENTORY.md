@@ -23,7 +23,7 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
-| 6 — MonoComponents | **partial** — `SoundSource` only | `SoundSourceTests.cs` |
+| 6 — MonoComponents | **covered** | `SoundSourceTests.cs`, `SoundVolumeTests.cs`, `SpectrumAnalyzerTests.cs` |
 
 Tier status is the summary; the **per-behavior** ledger required by the plan's Definition of Done lives at
 the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverage-ledger),
@@ -64,14 +64,39 @@ above and into the Editor suite's total below: PlayMode `194 -> 96`, EditMode `9
 including the unrelated Addressables stub test). Not re-run after the move; confirm both totals next
 time either suite runs.
 
-The other two components under `Runtime/MonoComponent/` — `SoundVolume` and `SpectrumAnalyzer` — remain
-uncovered, which is why tier 6 is *partial*.
+`SoundVolumeTests.cs` and `SpectrumAnalyzerTests.cs` close tier 6 by covering the remaining two components
+under `Runtime/MonoComponent/`.
+
+`SoundVolumeTests.cs` (16 tests) covers both halves of the component's contract: the system half (Apply On
+Enable, Only Apply Once, Reset On Disable's record-at-enable / restore-at-disable pairing, several settings
+in one array, and a composite `[Flags]` audio type fanning out over the types it contains) and the slider
+half (the volume → slider mapping for each `SliderType`, the rounding to `RoundingDigits`, Allow Boost, the
+slider → volume conversion on drag, and listener add/remove across enable/disable). It found
+TEST_FINDINGS #36 and #37.
+
+`SpectrumAnalyzerTests.cs` (13 tests) covers source acquisition (`SetSource`, the serialized `SoundSource`
+fallback, and going quiet once the player is recycled), the `Start`-time buffer sizing, and the per-band
+ballistics — attack, decay and smoothing — plus one end-to-end test that plays a real 440Hz tone and checks
+that only the band covering it lights up. It found TEST_FINDINGS #38, #39 and #40.
+
+Most of the analyzer's tests drive a **silent** clip on purpose: with an all-zero spectrum every band's
+target is exactly the decibel floor, so the ballistics become deterministic and independent of whether the
+machine's audio device produces real spectrum data. Only the tone test depends on that, and it ignores
+itself when the spectrum never leaves zero. Every test that needs playback to last more than a frame calls
+`RequireRealtimeAudioClock` first.
+
+**None of these 29 tests were executed when they were written** — like `SoundSourceTests.cs` before them,
+they were authored in an environment with no Unity Editor, so the counts above are arithmetic rather than a
+run. Compile and run both files before trusting them.
 
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
 
 `Tests.asmdef` gained a `Unity.Localization` reference for 0.6 — asmdef references are not transitive, so
-referencing `BroAudio` does not bring Localization types into scope. Phase 4 needs it regardless.
+referencing `BroAudio` does not bring Localization types into scope. Phase 4 needs it regardless. It gained a
+`UnityEngine.UI` reference for the same reason when tier 6 reached `SoundVolume`: that component holds a
+`UnityEngine.UI.Slider` directly and ungated, but `BroAudio.asmdef`'s own reference to uGUI does not carry
+into the test assembly, so half of `SoundVolume`'s contract was unreachable without it.
 
 ---
 

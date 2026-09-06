@@ -107,10 +107,25 @@ namespace Ami.BroAudio.Tests
 #endif
 
         /// <summary>
+        /// Reads a private field or an auto-property backing field, walking the type hierarchy.
+        /// The read counterpart of <see cref="SetPrivateField"/>, for state a type exposes no getter for
+        /// (e.g. <c>SoundVolume.Setting</c>'s current volume).
+        /// </summary>
+        public static T GetPrivateField<T>(object target, string fieldName)
+        {
+            return (T)GetFieldOrThrow(target, fieldName).GetValue(target);
+        }
+
+        /// <summary>
         /// Writes a private field or an auto-property backing field, walking the type hierarchy.
         /// Needed because most of <see cref="AudioEntity"/> is `private set`.
         /// </summary>
         public static void SetPrivateField(object target, string fieldName, object value)
+        {
+            GetFieldOrThrow(target, fieldName).SetValue(target, value);
+        }
+
+        private static FieldInfo GetFieldOrThrow(object target, string fieldName)
         {
             System.Type type = target.GetType();
             while (type != null)
@@ -119,8 +134,7 @@ namespace Ami.BroAudio.Tests
                                   ?? type.GetField($"<{fieldName}>k__BackingField", PrivateInstance);
                 if (field != null)
                 {
-                    field.SetValue(target, value);
-                    return;
+                    return field;
                 }
                 type = type.BaseType;
             }

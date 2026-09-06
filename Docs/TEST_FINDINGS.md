@@ -25,6 +25,11 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 32 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
 | 34 | Editor / Logging | Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still carry no `[BroAudio]` prefix | Open, characterized |
 | 35 | MonoComponent / SoundSource | `Stop On Disable` silently does nothing when the object is disabled in the frame it was enabled | Open, characterized |
+| 36 | MonoComponent / SoundVolume | `Only Apply Once` applies only the *first* settings entry, on the very first enable | Open, characterized |
+| 37 | MonoComponent / SoundVolume | A setting typed `BroAudioType.All` writes the master volume, which `Reset On Disable` cannot restore | Open, characterized |
+| 38 | MonoComponent / SpectrumAnalyzer | Whether the serialized `SoundSource` is polled is decided once, in `Start` | Open, characterized |
+| 39 | MonoComponent / SpectrumAnalyzer | A band narrower than one FFT bin makes RMS/Average divide by zero, and the NaN drives the band below the floor forever | Open, characterized |
+| 40 | MonoComponent / SpectrumAnalyzer | Every band draws a `Weighted` field in the inspector that the runtime never reads | Open, characterized |
 
 ---
 
@@ -452,3 +457,160 @@ the plan's characterize-don't-fix rule.
 
 Status: Open, characterized. Pinned by
 `SoundSourceTests.OnDisable_InTheSameFrameAsOnEnable_LeavesTheQueuedVoicePlaying`.
+
+---
+
+## 36. `SoundVolume`'s Only Apply Once applies only the first settings entry
+
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs:134-159`
+
+```csharp
+private void OnEnable()
+{
+    foreach (var setting in _settings)
+    {
+        ...
+        if (_applyOnEnable && !(_onlyApplyOnce && _hasApplyOnce))
+        {
+            setting.ApplyVolumeToSystem(_fadeTime);
+            setting.SetVolumeToSlider(false);
+            _hasApplyOnce = true;
+        }
+    }
+}
+```
+
+`_hasApplyOnce` is raised **inside** the loop it gates, and it is a single flag on the component rather than
+one per `Setting`. So the first entry consumes the one permitted apply and every later entry of the same
+array is skipped - not on a later enable, but on the *first* one. A component with a Music entry and an SFX
+entry, Apply On Enable and Only Apply Once both ticked, silently applies Music only, and the SFX slider it
+also owns is never moved to match its configured volume either.
+
+The name and the inspector both read as "apply this component's settings once", which is what raising the
+flag *after* the loop would do. Not changed here, per the plan's characterize-don't-fix rule.
+
+Status: Open, characterized. Pinned by
+`SoundVolumeTests.OnEnable_WithOnlyApplyOnceAndSeveralSettings_AppliesOnlyTheFirstEntry`, with
+`OnEnable_WithSeveralSettings_AppliesEveryOneOfThem` as the control.
+
+---
+
+## 37. A `SoundVolume` setting typed `BroAudioType.All` writes a volume Reset On Disable cannot restore
+
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs:39-85`,
+`Assets/BroAudio/Runtime/SoundManager/SoundManager.cs:170-192`
+
+The audio type of a `Setting` is drawn as a flags field, so `All` (or Unity's Everything) is a legal choice.
+The two halves of the component then read that choice differently:
+
+- **Apply** goes through `BroAudio.SetVolume(audioType, ...)`, and `SoundManager.SetVolume` special-cases
+  `BroAudioType.All` into `SetMasterVolume` - a write to the mixer's `Master` parameter, not to any per-type
+  playback preference.
+- **Record / reset** goes through `OriginVolumeRecorder`, which iterates the *concrete* audio types and
+  snapshots `TryGetAudioTypePref(...).Volume` for each, then writes those same per-type values back.
+
+So an All-typed setting with Apply On Enable and Reset On Disable both ticked moves the master volume on
+enable and, on disable, restores five per-type volumes that were never touched - leaving the master exactly
+where it put it. The component looks symmetrical and is not.
+
+`SetMasterVolume` has no read-back path a recorder could use either: the current master level lives only in
+the mixer parameter (or `WebGLMasterVolume` on WebGL). Not changed here.
+
+Status: Open, characterized. Pinned by
+`SoundVolumeTests.OnEnable_WithAllAudioType_WritesTheMasterVolumeThatResetOnDisableCannotRestore`.
+
+---
+
+## 38. `SpectrumAnalyzer` decides whether it has a SoundSource once, in `Start`
+
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:68-90`
+
+```csharp
+private void Start()
+{
+    ...
+    _isUsingSoundSource = _soundSource != null;
+}
+
+private void Update()
+{
+    if (_player == null && _isUsingSoundSource)
+    {
+        _player = _soundSource.CurrentPlayer;
+    }
+    ...
+}
+```
+
+`_isUsingSoundSource` is a one-shot snapshot. Assign `_soundSource` after `Start` has run - from a spawner,
+a pooled prefab being re-targeted, or any inspector edit made in Play Mode - and the analyzer never polls it,
+for the rest of that object's life. The field is still there and still shown as wired in the inspector, so
+the failure is silent: the meter simply stays flat.
+
+Reading `_soundSource` directly in the `Update` guard (it is already dereferenced on the next line) would
+make the field live. `SetSource` remains the working escape hatch. Not changed here.
+
+Status: Open, characterized. Pinned by
+`SpectrumAnalyzerTests.Update_TakesThePlayerFromItsSoundSource_ButOnlyIfItWasAssignedBeforeStart`.
+
+---
+
+## 39. A `SpectrumAnalyzer` band narrower than one FFT bin runs away below the decibel floor
+
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:92-184`
+
+`GetFrequencyRangeIndex` turns a band's frequency window into bin indices:
+
+```csharp
+range.start = Mathf.CeilToInt(minFreq / _harmonic);
+int end = Mathf.FloorToInt(maxFreq / _harmonic);
+range.length = end - range.start;
+```
+
+Two neighbouring band frequencies that round to the same bin give `length == 0` - easy to hit with a
+many-band meter at a low resolution scale, where one bin is tens of Hz wide. `Metering.RMS` and
+`Metering.Average` then divide by that length:
+
+```csharp
+return Mathf.Sqrt(sum / range.length);   // RMS
+return sum / range.length;               // Average
+```
+
+`0f / 0` is `NaN`, and the NaN survives `ToDecibel` (`Mathf.Clamp` returns NaN for a NaN input, and
+`Mathf.Log10(NaN)` is NaN). It then loses every comparison in the ballistics block, and each one fails
+towards *falling*:
+
+- `diff > 0` is false, so the slower `_decay` is chosen as the change time;
+- `Mathf.Sign(NaN)` is `-1` (it is `f >= 0f ? 1f : -1f`), so the step is negative;
+- `(diff * sign) <= change` is false, so the "close enough, snap to the target" branch never runs.
+
+The band therefore subtracts a step every frame forever. `Amplitube` clamps at `MinVolume` and hides it, so a
+meter bound to the amplitude just reads silent; anything reading `DecibelVolume` gets a number that sinks
+past -80 without bound. `Metering.Peak` is unaffected - it never divides by the length.
+
+Two smaller bugs sit in the same three lines. `RangeInt.end` is `start + length`, and the metering loops run
+`i <= range.end`, so they read `length + 1` bins while `GetRMS`/`GetAverage` divide by `length` - every
+non-Peak mean is inflated by `(n + 1) / n`. And a band frequency above the Nyquist limit makes `end` exceed
+the buffer, indexing `_spectrum` out of range every frame. Neither is pinned by a test.
+
+Status: Open, characterized. Pinned by
+`SpectrumAnalyzerTests.Update_WithABandNarrowerThanOneFftBin_SinksBelowTheFloorUnderRmsButHoldsUnderPeak`.
+
+---
+
+## 40. `SpectrumAnalyzer`'s per-band Weighted field is inspector-only
+
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:20-21`,
+`Assets/BroAudio/Editor/MonoComponentEditor/SpectrumAnalyzerEditor.cs:123-148`
+
+```csharp
+[SerializeField, Min(1f)]
+private float _weighted;
+```
+
+`SpectrumAnalyzerEditor` draws a Weighted field for every band and seeds it to `1` when a band is added, so
+it presents as a per-band gain the analyzer applies. Nothing reads it: `_weighted` has no accessor, and
+`UpdateSpectrum` composes each band purely from the metered amplitude and the attack/decay/smooth ballistics.
+Changing it in the inspector changes nothing about what the analyzer outputs.
+
+Status: Open, characterized. Pinned by `SpectrumAnalyzerTests.Update_BandWeighting_HasNoEffectOnTheBandOutput`.
