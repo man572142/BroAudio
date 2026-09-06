@@ -319,6 +319,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Pause_ByTypeWithFadeTime_CompletesOnlyAfterTheFadeElapses()
         {
+            yield return RequireRealtimeAudioClock();
+
             const float fadeTime = 1f;
             SoundID id = NewSound("FadedPauseSfx", BroAudioType.SFX, NewClip(4f));
             IAudioPlayer player = BroAudio.Play(id);
@@ -330,7 +332,7 @@ namespace Ami.BroAudio.Tests
             // Shortly after issuing the fade-out pause, the source must still be audibly playing -
             // AudioSource.Pause() is only called once the fade-out completes (AudioPlayer.Playback.cs
             // StopControl's fade region runs before the StopMode.Pause switch case).
-            yield return WaitDspSeconds(0.35);
+            yield return new WaitForSeconds(0.35f);
             Assert.IsTrue(player.IsPlaying, "A 1s fade-out pause must not have paused the AudioSource yet at 0.35s in.");
 
             yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the fade-out to finish and the pause to actually take effect", fadeTime + 1f);
