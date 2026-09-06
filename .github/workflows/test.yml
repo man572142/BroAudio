@@ -20,7 +20,8 @@ jobs:
         with:
           lfs: true
 
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: library-cache
         with:
           path: Library
           key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
@@ -35,6 +36,14 @@ jobs:
           testMode: ${{ matrix.testMode }}
           artifactsPath: ${{ matrix.testMode }}-results
           githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # Saved separately from the restore so a failing test run still warms the
+      # Library for the next one - actions/cache skips its own save on failure.
+      - uses: actions/cache/save@v4
+        if: always() && steps.library-cache.outputs.cache-hit != 'true'
+        with:
+          path: Library
+          key: ${{ steps.library-cache.outputs.cache-primary-key }}
 
       - uses: actions/upload-artifact@v4
         if: always()
