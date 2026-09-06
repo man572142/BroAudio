@@ -5,6 +5,7 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "BroAudio",
+        "UnityEngine.UI",
         "Unity.Localization",
         "Unity.Addressables",
         "Unity.ResourceManager"
