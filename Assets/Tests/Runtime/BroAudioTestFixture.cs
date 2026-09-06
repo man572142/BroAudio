@@ -160,7 +160,37 @@ namespace Ami.BroAudio.Tests
         protected static IEnumerator WaitForRecycle(IAudioPlayer player, string what = "player to be recycled", float timeout = DefaultPlaybackWaitSeconds)
             => WaitUntilOrTimeout(() => !player.IsActive, what, timeout);
 
-        /// <summary>Waits on the DSP clock — the clock scheduling, seamless loops and handovers actually run on.</summary>
+        private static float _audioClockRate = -1f;
+
+        /// <summary>
+        /// A machine with no audio output device (CI runners) runs the engine's DSP clock decoupled from
+        /// wall time, so a voice can start and finish between two frames. Tests that need the voice itself
+        /// to advance in real time gate on this; the rate is measured once and reused for the whole run.
+        /// </summary>
+        protected static IEnumerator RequireRealtimeAudioClock()
+        {
+            if (_audioClockRate < 0f)
+            {
+                double dspStart = AudioSettings.dspTime;
+                float realStart = Time.realtimeSinceStartup;
+                yield return new WaitForSecondsRealtime(0.25f);
+                _audioClockRate = (float)((AudioSettings.dspTime - dspStart) / (Time.realtimeSinceStartup - realStart));
+            }
+
+            if (Mathf.Abs(_audioClockRate - 1f) > 0.1f)
+            {
+                Assert.Ignore($"DSP clock runs at {_audioClockRate:F2}x wall time (no audio output device) - this test needs a realtime audio clock.");
+            }
+        }
+
+        /// <summary>
+        /// Waits on the DSP clock — the clock scheduling, seamless loops and handovers actually run on.
+        /// <para>
+        /// Only for asserting on DSP-scheduled state (timeSamples, scheduled start/end). Fades, pitch ramps
+        /// and every other FaderModule-driven value run on the frame clock (Utility.GetDeltaTime), so time
+        /// those with WaitForSeconds — a machine with no audio device runs the two clocks at different rates.
+        /// </para>
+        /// </summary>
         protected static IEnumerator WaitDspSeconds(double seconds)
         {
             double target = AudioSettings.dspTime + seconds;

@@ -209,6 +209,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator OnEnable_WithOnlyPlayOnce_NeverPlaysASecondTime()
         {
+            yield return RequireRealtimeAudioClock();
+
             SoundID id = NewSound("OnlyOnceSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, onlyPlayOnce: true, stopOnDisable: true);
 

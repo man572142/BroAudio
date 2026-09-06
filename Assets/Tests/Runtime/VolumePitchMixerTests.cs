@@ -128,6 +128,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetPitch_BeforePlaybackStarts_DefersFadeRatherThanSnapping()
         {
+            yield return RequireRealtimeAudioClock();
+
             SoundID id = NewSound("DeferredPitchSfx", BroAudioType.SFX, NewClip(3f));
 
             IAudioPlayer player = BroAudio.Play(id);

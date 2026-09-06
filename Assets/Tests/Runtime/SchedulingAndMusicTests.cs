@@ -81,6 +81,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetScheduledStartTime_OnAlreadyPlayingSource_StallsPlayheadWithoutChangingIsPlaying()
         {
+            yield return RequireRealtimeAudioClock();
+
             int onPauseCount = 0;
             SoundID id = NewSound("RescheduleWhilePlayingSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
@@ -133,6 +135,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration()
         {
+            yield return RequireRealtimeAudioClock();
+
             SoundID id = NewSound("PitchShortenSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);

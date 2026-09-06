@@ -107,6 +107,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam()
         {
+            yield return RequireRealtimeAudioClock();
+
             // TransitionSeconds widened to 1s (was 0.3s, ~0.15s slack either side of the sampled midpoint -
             // thinner than a single capped hitch frame at Time.maximumDeltaTime's ~0.333s). ClipSeconds
             // grows to match so the whole crossfade window still sits comfortably inside one clip iteration.
@@ -146,6 +148,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator ChainedPlayMode_HandsOverIntroToLoopToOutro_OutroHandoverFiresSynchronouslyOnStop()
         {
+            yield return RequireRealtimeAudioClock();
+
             const float ClipSeconds = 0.3f;
             AudioClip introClip = NewClip(ClipSeconds, "Intro");
             AudioClip loopClip = NewClip(ClipSeconds, "Loop");
@@ -239,6 +243,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithTempoAuthoredSeamlessLoop_CrossfadesForTheBpmDerivedDuration()
         {
+            yield return RequireRealtimeAudioClock();
+
             const float ClipSeconds = 3f;
             const float BPM = 120f;
             const int Beats = 2;

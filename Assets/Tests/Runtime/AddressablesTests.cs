@@ -69,6 +69,8 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator LoadAssetAsync_Preloaded_ReportsLoadedBeforePlaybackStarts()
         {
+            yield return RequireRealtimeAudioClock();
+
             AudioEntity entity = NewAddressableEntity("AddrPreload", TestAudioLibrary.AddressableClipGuids[0]);
             SoundID id = IdOf(entity);
 

@@ -99,7 +99,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(firstPlayer, "first playback to start");
 
             // By now the clip's own 0.15s fade would already be done; the 0.6s explicit override should not be.
-            yield return WaitDspSeconds(clipFadeIn + 0.1);
+            yield return new WaitForSeconds(clipFadeIn + 0.1f);
             Assert.Less(firstPlayer.GetVolume(), NearTargetThreshold,
                 "The explicit fadeIn override should still be ramping well past the clip's own (shorter) FadeIn duration - FadeData.cs's one-shot Next override should have taken priority over the clip setting.");
 
@@ -111,7 +111,7 @@ namespace Ami.BroAudio.Tests
 
             // The override was consumed by TryGetOrConsumeOverride during the first play (FadeData.cs); this
             // play should fall back to only the clip's own short FadeIn.
-            yield return WaitDspSeconds(clipFadeIn + 0.1);
+            yield return new WaitForSeconds(clipFadeIn + 0.1f);
             Assert.GreaterOrEqual(secondPlayer.GetVolume(), NearTargetThreshold,
                 "Without a fresh override, the second play should already be at target using the clip's own short FadeIn - the one-shot override must not leak into a later play.");
         }
