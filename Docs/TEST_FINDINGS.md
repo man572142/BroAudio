@@ -28,7 +28,7 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 36 | MonoComponent / SoundVolume | `Only Apply Once` applies only the *first* settings entry, on the very first enable | Open, characterized |
 | 37 | MonoComponent / SoundVolume | A setting typed `BroAudioType.All` writes the master volume, which `Reset On Disable` cannot restore | Open, characterized |
 | 38 | MonoComponent / SpectrumAnalyzer | Whether the serialized `SoundSource` is polled is decided once, in `Start` | Open, characterized |
-| 39 | MonoComponent / SpectrumAnalyzer | A band narrower than one FFT bin makes RMS/Average divide by zero, and the NaN drives the band below the floor forever | Open, characterized |
+| 39 | MonoComponent / SpectrumAnalyzer | A band narrower than one FFT bin makes RMS/Average divide by zero, and the band runs away to one end of the scale | Open, characterized |
 | 40 | MonoComponent / SpectrumAnalyzer | Every band draws a `Weighted` field in the inspector that the runtime never reads | Open, characterized |
 
 ---
@@ -555,7 +555,7 @@ Status: Open, characterized. Pinned by
 
 ---
 
-## 39. A `SpectrumAnalyzer` band narrower than one FFT bin runs away below the decibel floor
+## 39. A `SpectrumAnalyzer` band narrower than one FFT bin runs away off the decibel scale
 
 **Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:92-184`
 
@@ -576,9 +576,12 @@ return Mathf.Sqrt(sum / range.length);   // RMS
 return sum / range.length;               // Average
 ```
 
-`0f / 0` is `NaN`, and the NaN survives `ToDecibel` (`Mathf.Clamp` returns NaN for a NaN input, and
-`Mathf.Log10(NaN)` is NaN). It then loses every comparison in the ballistics block, and each one fails
-towards *falling*:
+Which way that breaks is decided by the one bin the band still reads, and the two outcomes run in opposite
+directions.
+
+**An exactly-zero bin.** `0f / 0` is `NaN`, and the NaN survives `ToDecibel` (`Mathf.Clamp` returns NaN for a
+NaN input, and `Mathf.Log10(NaN)` is NaN). It then loses every comparison in the ballistics block, and each
+one fails towards *falling*:
 
 - `diff > 0` is false, so the slower `_decay` is chosen as the change time;
 - `Mathf.Sign(NaN)` is `-1` (it is `f >= 0f ? 1f : -1f`), so the step is negative;
@@ -586,7 +589,16 @@ towards *falling*:
 
 The band therefore subtracts a step every frame forever. `Amplitube` clamps at `MinVolume` and hides it, so a
 meter bound to the amplitude just reads silent; anything reading `DecibelVolume` gets a number that sinks
-past -80 without bound. `Metering.Peak` is unaffected - it never divides by the length.
+past -80 without bound.
+
+**A bin holding any energy at all.** `x / 0` is `+Infinity`, and there `Mathf.Clamp` does fire:
+`ClampNormalize` pins it to `MaxVolume`, so the target is `MaxDecibelVolume`. `diff > 0` now picks the much
+faster `_attack`, and the band climbs to +20dB and stays pinned there - reporting full scale for whatever is
+in one bin, including the mixer's residual noise on a silent clip. CI appears to take this branch - the first
+version of the test waited only for the fall and timed out there - which is why the test now asserts on the
+runaway rather than on its direction.
+
+`Metering.Peak` is unaffected either way - it never divides by the length.
 
 Two smaller bugs sit in the same three lines. `RangeInt.end` is `start + length`, and the metering loops run
 `i <= range.end`, so they read `length + 1` bins while `GetRMS`/`GetAverage` divide by `length` - every
@@ -594,7 +606,7 @@ non-Peak mean is inflated by `(n + 1) / n`. And a band frequency above the Nyqui
 the buffer, indexing `_spectrum` out of range every frame. Neither is pinned by a test.
 
 Status: Open, characterized. Pinned by
-`SpectrumAnalyzerTests.Update_WithABandNarrowerThanOneFftBin_SinksBelowTheFloorUnderRmsButHoldsUnderPeak`.
+`SpectrumAnalyzerTests.Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak`.
 
 ---
 
