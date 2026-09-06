@@ -31,6 +31,19 @@ jobs:
           key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
           restore-keys: Library-${{ matrix.testMode }}-
 
+      # Addressables keeps its play mode catalog inside Library, so the restore above brings back whatever
+      # state the previous run left there. That state is not self-repairing: run 8 restored the Library run 6
+      # saved and then failed 7 of the 8 AddressablesTests on
+      #   Invalid path in TextDataProvider : 'Library/com.unity.addressables/aa/Linux/settings.json'
+      #   -> Addressables - Unable to load runtime data -> No Location found for Key=<fixture guid>
+      # What is certain is that the catalog is absent at read time and nothing rebuilds it, and that run 6 -
+      # the last green one, and the run that saved this cache - restored no Library at all. The likely
+      # mechanism is that the file is cleaned when play mode exits, so the cache carries the bookkeeping that
+      # says "already built" without the file it points at. Either way, dropping the subtree puts Addressables
+      # back in the cold state it does build a catalog from; it is a no-op on a cold Library.
+      - name: Drop the cached Addressables play mode catalog
+        run: rm -rf Library/com.unity.addressables
+
       # The stock unityci/editor image ships no audio libraries, so FMOD finds no output device
       # and falls back to a non-realtime null sink pumped by the frame loop - measured at 747.94x
       # wall time, which makes every PlayMode timing test a coin flip. This image adds a
