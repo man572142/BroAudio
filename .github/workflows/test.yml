@@ -8,6 +8,15 @@ on:
     branches: [main, test, DEV_Unity6]
   workflow_dispatch:
 
+# A PR run is superseded the moment its branch is pushed again, so cancel the stale one
+# rather than paying for two Unity runs. Push runs on main/test are not grouped together
+# (github.ref differs per branch) and are never cancelled: each one is the only run that
+# ever sees the tree that actually landed, including the commit
+# rename-directories-on-push.yml pushes on top of a merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
