@@ -14,8 +14,8 @@ namespace Ami.BroAudio.Tests
     /// <summary>
     /// Inventory phase 5: Addressables load-on-play, preloading, release, and the unused-entity cleanup routine.
     /// <para>
-    /// Two demo clips are marked addressable for this suite — <c>BroAudioTest/Footstep1</c> and
-    /// <c>BroAudioTest/Footstep2</c> in the Default Local Group. Their GUIDs live in
+    /// Two generated sine fixtures are marked addressable for this suite — <c>BroAudioTest/ToneA</c> and
+    /// <c>BroAudioTest/ToneB</c> in the Default Local Group. Their GUIDs live in
     /// <see cref="TestAudioLibrary.AddressableClipGuids"/>. Entities are built in code against those GUIDs, so
     /// no authored <c>AudioEntity</c> asset is involved.
     /// </para>
