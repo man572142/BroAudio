@@ -17,7 +17,10 @@ namespace Ami.BroAudio.Tests
     /// floor (<c>0f.ToDecibel()</c> == <see cref="AudioConstant.MinDecibelVolume"/>), so a band pinned above
     /// the floor must fall and a band pinned below it must rise, at a rate the inspector fields control and
     /// nothing else. <see cref="SpectrumAnalyzer.Band.SetVolume"/> is public, so pinning a band is done
-    /// through the component's own API rather than by reflection.
+    /// through the component's own API rather than by reflection. That holds for any band wide enough to
+    /// meter over - residual noise from the mixer is orders of magnitude below <c>MinVolume</c> and clamps
+    /// away - but not for the divide-by-zero band below, whose target is decided by whether one bin is
+    /// exactly zero or merely near it, so that one test asserts on both outcomes.
     /// </para>
     /// <para>
     /// One test plays a real tone end to end. It is the only one whose result depends on the engine actually
@@ -395,11 +398,15 @@ namespace Ami.BroAudio.Tests
 
         #region Band ranges
         // TEST_FINDINGS #39. A band whose frequency window is narrower than one FFT bin has start == end, so
-        // RangeInt.length is 0, and RMS/Average divide the summed magnitude by it. The resulting NaN fails
-        // every comparison in the ballistics block, which leaves the band subtracting a step forever: its
-        // decibel value sinks below a floor it is supposed to rest on, while Amplitube clamps and hides it.
+        // RangeInt.length is 0, and RMS/Average divide the summed magnitude by it. Which way that breaks is
+        // decided by the one bin the band covers, and the test may not assume either: an exactly-zero bin
+        // gives 0/0 = NaN, which loses every comparison in the ballistics block and leaves the band
+        // subtracting a step forever, while a bin holding any energy at all gives x/0 = +Infinity, which
+        // ClampNormalize pins to MaxVolume and the band climbs to the ceiling instead. Both ends are wrong in
+        // the same way - the band stops reporting the signal - so the assertion is that it leaves the floor,
+        // and then that whichever end it ran to is the end the ballistics block makes it run to.
         [UnityTest]
-        public IEnumerator Update_WithABandNarrowerThanOneFftBin_SinksBelowTheFloorUnderRmsButHoldsUnderPeak()
+        public IEnumerator Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak()
         {
             yield return RequireRealtimeAudioClock();
             IAudioPlayer player = PlaySilence();
@@ -417,17 +424,37 @@ namespace Ami.BroAudio.Tests
             rms.SetSource(player);
             peak.SetSource(player);
 
-            yield return WaitUntilOrTimeout(() => rms.Bands[1].DecibelVolume < AudioConstant.MinDecibelVolume - 10f,
-                "the RMS metering of a sub-bin band to sink well below the decibel floor", 3f);
+            // 10dB is far enough out that no ballistics ramp can be sitting there by accident, and both
+            // runaways cover it in well under a second: the decay step is 20dB/1500ms, the attack 20dB/100ms.
+            const float FloorDistance = 10f;
+            yield return WaitUntilOrTimeout(
+                () => Mathf.Abs(rms.Bands[1].DecibelVolume - AudioConstant.MinDecibelVolume) > FloorDistance,
+                "the RMS metering of a sub-bin band to leave the decibel floor in either direction", 3f);
 
-            Assert.AreEqual(AudioConstant.MinVolume, rms.Bands[1].Amplitube, 1e-6f,
-                "Amplitube clamps at the floor, so nothing bound to it can see the value running away underneath.");
-            Assert.GreaterOrEqual(rms.Bands[0].DecibelVolume, AudioConstant.MinDecibelVolume - 1f,
+            if (rms.Bands[1].DecibelVolume < AudioConstant.MinDecibelVolume)
+            {
+                // 0/0: the NaN target fails even "close enough, snap to it", so the band never stops falling.
+                Assert.AreEqual(AudioConstant.MinVolume, rms.Bands[1].Amplitube, 1e-6f,
+                    "Amplitube clamps at the floor, so nothing bound to it can see the value running away underneath.");
+            }
+            else
+            {
+                // x/0: ClampNormalize turns the +Infinity target into MaxVolume, so the band settles on the
+                // ceiling and reports full scale for a signal that is not there.
+                // The ballistics block snaps to the target once one step covers what is left, so the climb
+                // ends on MaxDecibelVolume exactly rather than approaching it.
+                yield return WaitUntilOrTimeout(
+                    () => rms.Bands[1].DecibelVolume >= AudioConstant.MaxDecibelVolume,
+                    "the same band to finish its climb to the ceiling", 3f);
+
+                Assert.AreEqual(AudioConstant.MaxVolume, rms.Bands[1].Amplitube, 1e-4f,
+                    "Amplitube clamps at the ceiling, so a meter bound to it reads full scale on silence.");
+            }
+
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, rms.Bands[0].DecibelVolume, DecibelTolerance,
                 "The wide band of the same analyzer holds - this is the range width, not the metering mode.");
-            Assert.GreaterOrEqual(peak.Bands[1].DecibelVolume, AudioConstant.MinDecibelVolume - 1f,
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, peak.Bands[1].DecibelVolume, DecibelTolerance,
                 "Peak metering never divides by the range length, so the same band rests on the floor.");
-            Assert.LessOrEqual(peak.Bands[1].DecibelVolume, AudioConstant.MinDecibelVolume + DecibelTolerance,
-                "...and silence still gives it nothing to rise for.");
         }
         #endregion
 
