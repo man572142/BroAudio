@@ -11,6 +11,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -27,12 +31,50 @@ jobs:
           key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
           restore-keys: Library-${{ matrix.testMode }}-
 
+      # The stock unityci/editor image ships no audio libraries, so FMOD finds no output device
+      # and falls back to a non-realtime null sink pumped by the frame loop - measured at 747.94x
+      # wall time, which makes every PlayMode timing test a coin flip. This image adds a
+      # timer-paced PulseAudio null sink; see .github/docker/Dockerfile. The suite's
+      # RequireRealtimeAudioClock reports the measured rate, so the results say whether it worked.
+      #
+      # It has to come from a registry rather than a local tag: unity-test-runner runs an
+      # unconditional `docker pull` on customImage before it runs the container.
+      - name: Resolve the editor images
+        id: images
+        if: matrix.testMode == 'PlayMode'
+        run: |
+          version=$(sed -n 's/^m_EditorVersion: //p' ProjectSettings/ProjectVersion.txt | tr -d '[:cntrl:]')
+          # -linux-il2cpp-3 mirrors the tag unity-test-runner resolves for this project; the
+          # trailing -3 is game-ci's image revision and moves independently of the Unity version.
+          echo "base=unityci/editor:ubuntu-${version}-linux-il2cpp-3" >> "$GITHUB_OUTPUT"
+          echo "audio=ghcr.io/${{ github.repository_owner }}/unity-editor-audio:${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        if: matrix.testMode == 'PlayMode'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built once per Unity version, then reused - the push is only paid on an editor upgrade.
+      - name: Build the editor image with an audio device
+        if: matrix.testMode == 'PlayMode'
+        run: |
+          image='${{ steps.images.outputs.audio }}'
+          if docker manifest inspect "$image" > /dev/null 2>&1; then
+            echo "$image already published, reusing it."
+          else
+            docker build --build-arg BASE_IMAGE='${{ steps.images.outputs.base }}' --tag "$image" .github/docker
+            docker push "$image"
+          fi
+
       - uses: game-ci/unity-test-runner@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
+          customImage: ${{ steps.images.outputs.audio }} # empty on EditMode, which needs no audio device
           testMode: ${{ matrix.testMode }}
           artifactsPath: ${{ matrix.testMode }}-results
           githubToken: ${{ secrets.GITHUB_TOKEN }}
