@@ -1,11 +1,13 @@
 #if PACKAGE_ADDRESSABLES
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.TestTools;
 
@@ -20,9 +22,26 @@ namespace Ami.BroAudio.Tests
     /// no authored <c>AudioEntity</c> asset is involved.
     /// </para>
     /// </summary>
+    [PrebuildSetup("Ami.BroAudio.Tests.AddressablesPlayModeContent")]
     public class AddressablesTests : BroAudioTestFixture
     {
         private readonly List<AudioEntity> _addressableEntities = new List<AudioEntity>();
+
+        /// <summary>
+        /// The catalog every test here resolves its fixture GUIDs through is built by
+        /// <c>AddressablesPlayModeContent</c> before play mode is entered — it lives in <c>Library</c>, which CI
+        /// restores from a cache, and a restored Library does not rebuild it on its own. Without the catalog
+        /// Addressables fails inside <c>InitializeAsync</c> and every test here dies on an unrelated-looking
+        /// <c>InvalidKeyException</c>, so state the real cause once rather than eight times.
+        /// </summary>
+        [OneTimeSetUp]
+        public void RequireTheAddressablesPlayModeCatalog()
+        {
+            string catalogSettings = Path.Combine(Addressables.BuildPath, "settings.json");
+            Assert.IsTrue(File.Exists(catalogSettings),
+                $"The Addressables play mode catalog is missing ({catalogSettings}). It is built before play mode " +
+                "by AddressablesPlayModeContent — check that the prebuild setup ran and what it logged.");
+        }
 
         /// <summary>Creates a tracked addressable entity whose handles are released after the test.</summary>
         private AudioEntity NewAddressableEntity(string name, params string[] guids)

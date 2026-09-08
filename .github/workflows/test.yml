@@ -40,16 +40,16 @@ jobs:
           key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
           restore-keys: Library-${{ matrix.testMode }}-
 
-      # Addressables keeps its play mode catalog inside Library, so the restore above brings back whatever
-      # state the previous run left there. That state is not self-repairing: run 8 restored the Library run 6
-      # saved and then failed 7 of the 8 AddressablesTests on
+      # Addressables keeps its play mode catalog inside Library, so the restore above brings back whatever state
+      # the previous run left there - and a restored Library never rebuilds it. Every run that restored one
+      # (7, 8, 12) lost the whole AddressablesTests suite to
       #   Invalid path in TextDataProvider : 'Library/com.unity.addressables/aa/Linux/settings.json'
       #   -> Addressables - Unable to load runtime data -> No Location found for Key=<fixture guid>
-      # What is certain is that the catalog is absent at read time and nothing rebuilds it, and that run 6 -
-      # the last green one, and the run that saved this cache - restored no Library at all. The likely
-      # mechanism is that the file is cleaned when play mode exits, so the cache carries the bookkeeping that
-      # says "already built" without the file it points at. Either way, dropping the subtree puts Addressables
-      # back in the cold state it does build a catalog from; it is a no-op on a cold Library.
+      # while every cold run passed. Dropping this subtree is not the fix - run 12 dropped it and failed anyway,
+      # so what the restored Library suppresses is not the file. The suite now builds the catalog itself, before
+      # play mode, in Assets/Tests/Editor/AddressablesPlayModeContent.cs.
+      # The drop stays because it makes that build load-bearing: without it a stale cached catalog could carry a
+      # run whose prebuild had actually failed, which is the false green this workflow just spent three runs on.
       - name: Drop the cached Addressables play mode catalog
         run: rm -rf Library/com.unity.addressables
 
@@ -100,6 +100,18 @@ jobs:
           testMode: ${{ matrix.testMode }}
           artifactsPath: ${{ matrix.testMode }}-results
           githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # A suite that compiled to nothing does not fail - it is absent from the results, and the leg reports every
+      # test it did run as green. Run 11 passed that way twice over: PlayMode ran 124 tests instead of 132 with
+      # AddressablesTests gone, EditMode 209 instead of 214 with LocalizationClipStrategyTests gone, and the
+      # Addressables failure they were hiding came straight back on the next push.
+      - name: Check every required test suite ran
+        if: always()
+        run: >-
+          python3 .github/scripts/check_test_suites.py
+          '${{ matrix.testMode }}'
+          '${{ matrix.testMode }}-results'
+          .github/required-test-suites.json
 
       # Saved separately from the restore so a failing test run still warms the
       # Library for the next one - actions/cache skips its own save on failure.
