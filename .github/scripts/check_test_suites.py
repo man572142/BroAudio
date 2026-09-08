@@ -17,16 +17,33 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
+# A parameterized fixture reports as a ParameterizedFixture suite whose children are TestFixtures named
+# "Thing(1)", "Thing(2)" - so match on the class rather than the display name, or the manifest never matches.
+FIXTURE_TYPES = ("TestFixture", "ParameterizedFixture")
+
+
 def read_report(path):
-    """Returns (fixture names, test count) for an NUnit report, or None for any other XML."""
-    root = ET.parse(path).getroot()
+    """Returns (fixture class names, test count) for an NUnit report, or None for anything else.
+
+    Anything else includes XML this script has no business reading and XML it cannot read at all: a
+    half-written report from an editor that died mid-run is exactly the case the check exists for, and it
+    must not surface as a traceback.
+    """
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as error:
+        print(f"warning: {path.name} is not parseable XML ({error}); ignoring it.")
+        return None
     if root.tag != "test-run":
         return None
-    names = {
-        suite.get("name")
-        for suite in root.iter("test-suite")
-        if suite.get("type") == "TestFixture" and suite.get("name")
-    }
+    names = set()
+    for suite in root.iter("test-suite"):
+        if suite.get("type") not in FIXTURE_TYPES:
+            continue
+        # classname is absent on a ParameterizedFixture; fullname carries the class there.
+        name = suite.get("classname") or suite.get("fullname") or suite.get("name")
+        if name:
+            names.add(name.rsplit(".", 1)[-1])
     return names, int(root.get("testcasecount") or 0)
 
 
@@ -57,8 +74,9 @@ def main(argv):
         print(f"::error title=Missing {mode} test suites::{', '.join(missing)}")
         sys.exit(
             f"\n{len(missing)} required {mode} suite(s) never ran: {', '.join(missing)}.\n"
-            "They are absent from the results rather than failing, which means they were compiled out. Check "
-            "that every package in Packages/manifest.json resolved and that both test assemblies built."
+            "They are absent from the results rather than failing, so either they were compiled out - check that "
+            "every package in Packages/manifest.json resolved and that both test assemblies built - or they were "
+            f"renamed or removed on purpose, in which case update {manifest_path}."
         )
 
     print(f"{mode}: all {len(required)} required suites ran.")

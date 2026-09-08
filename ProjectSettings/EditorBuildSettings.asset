@@ -8,4 +8,6 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/BroAudio/Demo/Demo.unity
     guid: 05a9e41d79251594aad6850fbdf49b6f
-  m_configObjects: {}
+  m_configObjects:
+    com.unity.addressableassets: {fileID: 11400000, guid: 1a19190409105354eb029791489f66eb,
+      type: 2}
