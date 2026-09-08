@@ -1,0 +1,37 @@
+# BroAudio Test Suite: Intent
+
+One-page summary of what the regression suite is for. Full plans: [TESTING_PLAN.md](TESTING_PLAN.md) (runtime) and [TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md) (editor).
+
+## The goal
+
+**Maximum behavioral confidence per test, minimum test count.** The suite exists so BroAudio can be refactored and upgraded across Unity versions without silently changing what the user hears. Coverage percentage is explicitly not a goal.
+
+## The core idea: characterize, don't fix
+
+Before this work there were zero tests and no independent record of how the library actually behaves. So the suite was built as a **characterization pass**: every test pins current behavior as-is, even where it contradicts the docs or the apparent intent.
+
+- Where behavior looked wrong, the test asserts the *actual* behavior and the conflict is logged in [TEST_FINDINGS.md](TEST_FINDINGS.md).
+- Production code was never touched to make a test pass. Zero production changes during the build, verified by diff.
+- Only after both suites were green did the maintainer review the findings and approve fixing a subset. Fixed ones moved to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit. Several tests are written to fail loudly if a still-open defect gets fixed, so a repair is a deliberate test update, never a surprise.
+
+This separates two questions that usually get tangled: *what does it do* (the tests) and *what should it do* (the findings). The findings list is the actionable output; the tests are the safety net that makes acting on it safe.
+
+## What a good test looks like here
+
+1. **Highest reliable boundary.** Assert through the public `BroAudio` / `IAudioPlayer` API first, then Unity runtime state (`AudioSource`, mixer parameters) as the proxy for what is heard, and internal state only when nothing external observes the result.
+2. **Scenarios, not methods.** One test may cross several internal systems if they implement one user-meaningful behavior. No test exists because a class or branch exists.
+3. **Unit tests only where they genuinely pay.** Conversion math, clip-selection strategies, flag helpers: fast, deterministic EditMode tests.
+4. **Everything is built in code.** Tests construct their own `AudioEntity` library through `TestAudioLibrary`; no authored assets, and the project is byte-identical after a run.
+
+## Shape
+
+| Suite | Where | Isolation problem it solves |
+|---|---|---|
+| Runtime (PlayMode) | `Assets/Tests/Runtime/` | One `SoundManager` singleton persists across the whole run; a base fixture stops, drains, and restores state per test. |
+| Editor (EditMode) | `Assets/Tests/Editor/` | The project on disk leaks state; the fixture snapshots and restores settings assets, prefs, clipboard, and a temp output folder. |
+
+Ranked inventory of covered / deferred / out-of-scope behaviors: [TEST_INVENTORY.md](TEST_INVENTORY.md).
+
+## Anti-goals
+
+Coverage targets. A test per method. `WaitForSeconds` sprinkled until it passes. Refactoring production code for testability without asking. Testing Editor windows or inspectors. Asserting on log text. Handing back tests that were never executed.
