@@ -1,0 +1,41 @@
+{
+  "_comment": [
+    "Test fixtures that must appear in each leg's results. A fixture that compiles to nothing - an optional",
+    "package that did not resolve, an assembly that failed to build - is absent from the NUnit results rather",
+    "than failing, so the leg reports green while covering less than it claims. check_test_suites.py turns that",
+    "into a failure. Adding a fixture here is deliberate; adding one to Assets/Tests without listing it is fine."
+  ],
+  "suites": {
+    "EditMode": [
+      "AssetWritingTests",
+      "AudioMathTests",
+      "ClipEditingTests",
+      "ClipSelectionTests",
+      "EditorUtilityPureTests",
+      "IsolationContractTests",
+      "IssueReportMarkdownTests",
+      "LocalizationClipStrategyTests",
+      "OptionalPackageEditorTests",
+      "SerializedPropertyResetTests",
+      "SerializedTransportTests",
+      "ShippedDataTests",
+      "TransportAndRectMathTests"
+    ],
+    "PlayMode": [
+      "AddressablesTests",
+      "AudioEffectTests",
+      "FadeAndTrimTests",
+      "LoopHandoverTests",
+      "OptionalPackageTests",
+      "PlaybackGroupTests",
+      "PlaybackLifecycleTests",
+      "PlaybackSmokeTests",
+      "SchedulingAndMusicTests",
+      "SelectionStateAndDecoratorTests",
+      "SoundSourceTests",
+      "SoundVolumeTests",
+      "SpectrumAnalyzerTests",
+      "VolumePitchMixerTests"
+    ]
+  }
+}
