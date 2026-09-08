@@ -40,19 +40,6 @@ jobs:
           key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
           restore-keys: Library-${{ matrix.testMode }}-
 
-      # Addressables keeps its play mode catalog inside Library, so the restore above brings back whatever state
-      # the previous run left there - and a restored Library never rebuilds it. Every run that restored one
-      # (7, 8, 12) lost the whole AddressablesTests suite to
-      #   Invalid path in TextDataProvider : 'Library/com.unity.addressables/aa/Linux/settings.json'
-      #   -> Addressables - Unable to load runtime data -> No Location found for Key=<fixture guid>
-      # while every cold run passed. Dropping this subtree is not the fix - run 12 dropped it and failed anyway,
-      # so what the restored Library suppresses is not the file. The suite now builds the catalog itself, before
-      # play mode, in Assets/Tests/Editor/AddressablesPlayModeContent.cs.
-      # The drop stays because it makes that build load-bearing: without it a stale cached catalog could carry a
-      # run whose prebuild had actually failed, which is the false green this workflow just spent three runs on.
-      - name: Drop the cached Addressables play mode catalog
-        run: rm -rf Library/com.unity.addressables
-
       # The stock unityci/editor image ships no audio libraries, so FMOD finds no output device
       # and falls back to a non-realtime null sink pumped by the frame loop - measured at 747.94x
       # wall time, which makes every PlayMode timing test a coin flip. This image adds a
@@ -106,7 +93,7 @@ jobs:
       # AddressablesTests gone, EditMode 209 instead of 214 with LocalizationClipStrategyTests gone, and the
       # Addressables failure they were hiding came straight back on the next push.
       - name: Check every required test suite ran
-        if: always()
+        if: ${{ !cancelled() }}
         run: >-
           python3 .github/scripts/check_test_suites.py
           '${{ matrix.testMode }}'
