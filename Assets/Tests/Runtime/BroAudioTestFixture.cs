@@ -68,6 +68,17 @@ namespace Ami.BroAudio.Tests
                 BroAudio.SetVolume(audioType, AudioConstant.FullVolume, 0f);
             }
 
+            // Per-type pitch leaks exactly like per-type volume: SoundManager.SetPitch stores it into
+            // AudioTypePlaybackPreference (SoundManager.cs:358), so every *later* player of that type picks
+            // it up through SetInitialPitch. Volume only shifts an amplitude, but pitch rescales duration -
+            // a leaked 0.5x makes every later clip run twice as long and moves every duration window in the
+            // fade, scheduling and loop tests. Mind the argument order: SetPitch(type, pitch, fadeTime) is
+            // the current overload (BroAudio.cs:245); SetPitch(pitch, type, fadeTime) is [Obsolete] (:237).
+            foreach (BroAudioType audioType in ConcreteAudioTypes)
+            {
+                BroAudio.SetPitch(audioType, AudioConstant.DefaultPitch, 0f);
+            }
+
             // BroAudio.OnBGMChanged forwards to a *static* event on MusicPlayer — an un-removed handler
             // outlives the test and fires during every later one.
             foreach (Action<IAudioPlayer> handler in _bgmSubscriptions)
@@ -162,12 +173,22 @@ namespace Ami.BroAudio.Tests
 
         private static float _audioClockRate = -1f;
 
+        /// <summary>How far the DSP clock may drift from wall time before it counts as unrealtime.</summary>
+        protected const float RealtimeAudioClockTolerance = 0.1f;
+
         /// <summary>
-        /// A machine with no audio output device (CI runners) runs the engine's DSP clock decoupled from
-        /// wall time, so a voice can start and finish between two frames. Tests that need the voice itself
-        /// to advance in real time gate on this; the rate is measured once and reused for the whole run.
+        /// The DSP clock's rate as a multiple of wall time, as last measured by
+        /// <see cref="MeasureAudioClockRate"/>; negative before the first measurement. 1 means a real
+        /// output device. Exposed so <see cref="AudioClockProbeTests"/> can report on the same number the
+        /// ignore gate below decides on, rather than measuring a second, possibly different one.
         /// </summary>
-        protected static IEnumerator RequireRealtimeAudioClock()
+        protected static float AudioClockRate => _audioClockRate;
+
+        /// <summary>
+        /// Measures the DSP clock against wall time, once per run — the result is cached in
+        /// <see cref="AudioClockRate"/> and every later call returns immediately.
+        /// </summary>
+        protected static IEnumerator MeasureAudioClockRate()
         {
             if (_audioClockRate < 0f)
             {
@@ -176,8 +197,23 @@ namespace Ami.BroAudio.Tests
                 yield return new WaitForSecondsRealtime(0.25f);
                 _audioClockRate = (float)((AudioSettings.dspTime - dspStart) / (Time.realtimeSinceStartup - realStart));
             }
+        }
 
-            if (Mathf.Abs(_audioClockRate - 1f) > 0.1f)
+        /// <summary>
+        /// A machine with no audio output device (CI runners) runs the engine's DSP clock decoupled from
+        /// wall time, so a voice can start and finish between two frames. Tests that need the voice itself
+        /// to advance in real time gate on this; the rate is measured once and reused for the whole run.
+        /// <para>
+        /// This ignores rather than fails, so a local run without an audio device stays green.
+        /// <see cref="AudioClockProbeTests"/> is what turns the same condition into a CI failure — without
+        /// it, an image that lost its audio device silently skips every test that gates on this.
+        /// </para>
+        /// </summary>
+        protected static IEnumerator RequireRealtimeAudioClock()
+        {
+            yield return MeasureAudioClockRate();
+
+            if (Mathf.Abs(_audioClockRate - 1f) > RealtimeAudioClockTolerance)
             {
                 Assert.Ignore($"DSP clock runs at {_audioClockRate:F2}x wall time (no audio output device) - this test needs a realtime audio clock.");
             }
@@ -191,11 +227,29 @@ namespace Ami.BroAudio.Tests
         /// those with WaitForSeconds — a machine with no audio device runs the two clocks at different rates.
         /// </para>
         /// </summary>
-        protected static IEnumerator WaitDspSeconds(double seconds)
+        /// <param name="timeout">
+        /// Realtime deadline. Negative derives one from <paramref name="seconds"/>, generously: the DSP clock
+        /// is never slower than wall time in practice (a machine with no audio device runs it hundreds of
+        /// times faster, returning almost immediately), so the derived deadline only has to outlast a
+        /// realtime clock plus scheduling noise — it exists to name a stalled clock, not to time anything.
+        /// </param>
+        protected static IEnumerator WaitDspSeconds(double seconds, float timeout = -1f)
         {
-            double target = AudioSettings.dspTime + seconds;
+            if (timeout < 0f)
+            {
+                timeout = ((float)seconds * 4f) + 5f;
+            }
+
+            float deadline = Time.realtimeSinceStartup + timeout;
+            double dspStart = AudioSettings.dspTime;
+            double target = dspStart + seconds;
             while (AudioSettings.dspTime < target)
             {
+                if (Time.realtimeSinceStartup > deadline)
+                {
+                    Assert.Fail($"DSP clock stalled: after {timeout}s of wall time it had advanced only " +
+                                $"{AudioSettings.dspTime - dspStart:F3}s of the {seconds}s waited for.");
+                }
                 yield return null;
             }
         }
