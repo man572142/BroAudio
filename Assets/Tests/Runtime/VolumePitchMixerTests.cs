@@ -58,6 +58,31 @@ namespace Ami.BroAudio.Tests
             BroAudio.SetVolume(BroAudioType.SFX, 0.4f, 0f);
             yield return WaitFrames(1);
             Assert.AreEqual(0.5f * 0.4f, player.GetVolume(), LinearTolerance, "Per-BroAudioType volume should further multiply the same linear product (0.5 * 0.4).");
+
+            // Everything above reads the library's own bookkeeping - the *inputs* to the mixer write - so a
+            // broken UpdateVolume would still pass. What the listener hears is
+            // AudioPlayer.UpdateVolume (AudioPlayer.Volume.cs:99-103): it writes
+            // (_clipVolume * _trackVolume * _audioTypeVolume).ToDecibel() through TrySetMixerDecibelVolume
+            // to VolumeParaName, and only falls back to AudioSource.volume when there is no mixer/track.
+            // Read the mixer back so the composition rule is proven at the output, not just at the input.
+            //
+            // VolumeParaName (AudioPlayer.cs:72) is GetSendParaName() while the player is routed through a
+            // track effect, and GetCurrentTrackName() - the output group's own name - otherwise. This is a
+            // plain SFX with no effect set, so the group's name is the right parameter here; it would NOT be
+            // for a player under SetEffect, which writes to "<track>_Effect" instead.
+            Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must still hold a pooled track for its volume parameter to be exposed.");
+
+            // A fixed frame wait is enough: TrySetMixerDecibelVolume only defers through DelaySetMixerVolume
+            // while Mixer.WaitForAudioMixerInitialization is non-null, and SoundManager.Start (SoundManager.cs:126)
+            // nulls it on the first Play Mode frame - long before the fixture hands a test a live manager - so
+            // SetVolume writes to the mixer synchronously.
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
+
+            // Log10(0.2) * 20 = -13.98 dB. TrySetMixerDecibelVolume then applies ClampDecibel(true), whose
+            // range is [MinDecibelVolume, MaxDecibelVolume] = [-80, 20], so 0.2 passes through untouched and
+            // the expected value stays the plain conversion. dB needs the looser tolerance because it carries
+            // both the log conversion and the mixer round-trip.
+            Assert.AreEqual((0.5f * 0.4f).ToDecibel(), db, DecibelTolerance, "The composed linear product must reach the track's exposed mixer parameter in decibels - GetVolume() alone is only the input to that write.");
         }
 
         [UnityTest]
