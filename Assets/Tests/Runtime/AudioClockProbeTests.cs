@@ -10,9 +10,11 @@ namespace Ami.BroAudio.Tests
     /// Fails the PlayMode run when the editor image's audio device is gone, instead of letting the tests
     /// that need it quietly do nothing.
     /// <para>
-    /// 18 tests open with <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/> — every seamless and
-    /// chained handover, nine of the thirteen spectrum analyzer tests, the scheduling pins, and the only
-    /// tests that characterize TEST_FINDINGS #38-#40. It calls <c>Assert.Ignore</c> when the DSP clock is off
+    /// Two dozen and counting open with <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/> — every
+    /// seamless and chained handover, most of the spectrum analyzer suite, the scheduling pins, the dominator
+    /// routing tests, and the only tests that characterize TEST_FINDINGS #38-#40. (Deliberately not an exact
+    /// count: one was written here and went stale within the week. `grep -rc "yield return
+    /// RequireRealtimeAudioClock();" Assets/Tests/Runtime/` is the current number.) It calls <c>Assert.Ignore</c> when the DSP clock is off
     /// wall time by more than 10%, which is right for a developer machine and silent on CI: an ignored test
     /// is not a failure, so an image that lost its PulseAudio null sink reports green with the heart of the
     /// suite never executed. <c>check_test_suites.py</c> cannot catch it either — the fixtures are all
@@ -55,9 +57,9 @@ namespace Ami.BroAudio.Tests
             Assert.Fail(
                 $"The DSP clock runs at {rate:F2}x wall time, so this run had no realtime audio output device - " +
                 $"but {CiExpectsAudioVariable} is set, meaning the editor image is supposed to provide one. " +
-                "All 18 tests that open with RequireRealtimeAudioClock were silently ignored rather than run: " +
+                "Every test that opens with RequireRealtimeAudioClock was silently ignored rather than run: " +
                 "the seamless and chained handovers, most of the spectrum analyzer suite, the scheduling pins, " +
-                "and the TEST_FINDINGS #38-#40 characterizations. Everything else in this run reported green, so " +
+                "the dominator routing tests, and the TEST_FINDINGS #38-#40 characterizations. Everything else in this run reported green, so " +
                 "treat that green as meaningless until this passes. Check the PulseAudio null sink in " +
                 ".github/docker/Dockerfile: that the image was rebuilt after the Dockerfile last changed (the " +
                 "workflow reuses an already-published tag), and that /usr/bin/unity-editor.d/00-audio.sh still " +
