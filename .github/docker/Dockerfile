@@ -20,3 +20,10 @@ RUN apt-get update \
 RUN printf '%s\n' \
       'pulseaudio --system --disallow-exit --exit-idle-time=-1 --daemonize > /dev/null 2>&1 || true' \
       > /usr/bin/unity-editor.d/00-audio.sh
+
+# AudioClockProbeTests reads this to tell "this image promised an audio device and lost it" (a failure)
+# from "this machine simply has none" (a local run, which stays green). It is set here rather than in the
+# workflow because customImage is only passed on the PlayMode leg, so the variable exists exactly where a
+# realtime DSP clock is expected. Bump the image tag in test.yml when you change anything above - an
+# already-published tag is reused as-is and would never carry this.
+ENV BROAUDIO_CI_EXPECTS_AUDIO=1

@@ -43,8 +43,10 @@ jobs:
       # The stock unityci/editor image ships no audio libraries, so FMOD finds no output device
       # and falls back to a non-realtime null sink pumped by the frame loop - measured at 747.94x
       # wall time, which makes every PlayMode timing test a coin flip. This image adds a
-      # timer-paced PulseAudio null sink; see .github/docker/Dockerfile. The suite's
-      # RequireRealtimeAudioClock reports the measured rate, so the results say whether it worked.
+      # timer-paced PulseAudio null sink; see .github/docker/Dockerfile. The image also sets
+      # BROAUDIO_CI_EXPECTS_AUDIO, which AudioClockProbeTests reads to fail this leg outright if the
+      # sink is not working - the 18 tests that gate on a realtime clock are Assert.Ignore'd when it
+      # is not, and an ignored test is not a failure.
       #
       # It has to come from a registry rather than a local tag: unity-test-runner runs an
       # unconditional `docker pull` on customImage before it runs the container.
@@ -56,7 +58,11 @@ jobs:
           # -linux-il2cpp-3 mirrors the tag unity-test-runner resolves for this project; the
           # trailing -3 is game-ci's image revision and moves independently of the Unity version.
           echo "base=unityci/editor:ubuntu-${version}-linux-il2cpp-3" >> "$GITHUB_OUTPUT"
-          echo "audio=ghcr.io/${{ github.repository_owner }}/unity-editor-audio:${version}" >> "$GITHUB_OUTPUT"
+          # The trailing -2 is our Dockerfile's revision, and it is load-bearing: the build step below
+          # skips the build whenever the tag already exists in the registry, so an edit to
+          # .github/docker/Dockerfile only ever reaches CI under a tag nobody has published yet. Bump it
+          # with every Dockerfile change. -2 is the revision that added BROAUDIO_CI_EXPECTS_AUDIO.
+          echo "audio=ghcr.io/${{ github.repository_owner }}/unity-editor-audio:${version}-2" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
         if: matrix.testMode == 'PlayMode'
@@ -65,7 +71,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Built once per Unity version, then reused - the push is only paid on an editor upgrade.
+      # Built once per Unity version and Dockerfile revision, then reused - the push is only paid on an
+      # editor upgrade or a bump of the -N suffix above.
       - name: Build the editor image with an audio device
         if: matrix.testMode == 'PlayMode'
         run: |

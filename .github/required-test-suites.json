@@ -23,6 +23,7 @@
     ],
     "PlayMode": [
       "AddressablesTests",
+      "AudioClockProbeTests",
       "AudioEffectTests",
       "FadeAndTrimTests",
       "LoopHandoverTests",
