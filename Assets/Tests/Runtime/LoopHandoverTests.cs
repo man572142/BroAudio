@@ -15,11 +15,17 @@ namespace Ami.BroAudio.Tests
     /// handover rather than AudioSource.loop. See Docs/inventory/time-dependent.md, sections
     /// "Plain looping", "Seamless looping", "Chained playback", "Pause across a handover seam".
     /// <para>
-    /// A handed-over sound is tracked through BroAudio.HasAnyPlayingInstances and through the
-    /// GetActivePlayers reflection helper below (a thin window onto SoundManager's private player pool),
-    /// never by asserting that the original IAudioPlayer handle's IsPlaying stays true across a seam -
-    /// whether a caller's handle keeps tracking the sound after a handover is exactly the kind of internal
-    /// detail these tests deliberately do not depend on either way.
+    /// This file takes it as contract that the IAudioPlayer handle a caller kept keeps driving the sound
+    /// across a handover seam. AudioPlayerInstanceWrapper.UpdateInstance (AudioPlayerInstanceWrapper.cs:112-156)
+    /// exists for no other reason - it re-points the wrapper at the incoming player and carries the
+    /// registered callbacks, decorators and added effect components over - and looping BGM, the default use
+    /// of this library, leaves its owner with no handle other than the one Play returned. So the survival of
+    /// that handle is public API, not an internal detail:
+    /// Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams pins it directly, driving SetVolume,
+    /// OnEnd and Stop on the original handle after two handovers. The other tests here still track a
+    /// handed-over sound through BroAudio.HasAnyPlayingInstances and through the GetActivePlayers reflection
+    /// helper below (a thin window onto SoundManager's private player pool), because what they are about is
+    /// which players exist and what each one is playing, not what the caller's handle points at.
     /// </para>
     /// <para>
     /// Not included: the inventory's "transition time longer than the clip" edge case for SeamlessLoop.
@@ -99,6 +105,71 @@ namespace Ami.BroAudio.Tests
                 "the dsp clock to pass a second loop seam", 5f);
             Assert.IsTrue(BroAudio.HasAnyPlayingInstances(id),
                 "The loop must survive a second seam too, not just the first.");
+        }
+
+        // 2.2 (handle continuity) - the other half of the same handover: what the caller is left holding.
+        // ScheduleNextPlayback bakes the outgoing player's _trackVolume.Target into
+        // PlaybackHandoverData.TrackVolume (AudioPlayer.Playback.cs:354) and ReceiveHandover completes the
+        // incoming player's fader on it (line 399), while UpdateInstance moves the registered onEnd
+        // delegates to the incoming player and leaves the outgoing player's _onEnd null
+        // (AudioPlayerInstanceWrapper.cs:128-134 via AudioPlayer.TransferOnEnds, AudioPlayer.cs:341-350) -
+        // so EndPlaying's _onEnd?.Invoke (AudioPlayer.Playback.cs:570) is a no-op at a seam and fires once,
+        // at the real end. None of that is observable except through the handle the caller kept.
+        // A plain loop rather than a seamless one on purpose: with no crossfade, _clipVolume sits completed
+        // at its target the whole time, so GetVolume() reads back the track volume alone.
+        [UnityTest]
+        public IEnumerator Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 0.4f;
+            const float TargetVolume = 0.3f;
+            const float VolumeTolerance = 0.01f;
+            AudioEntity entity = NewEntity("HandoverHandleSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            TestAudioLibrary.SetPrivateField(entity, "Loop", true);
+            SoundID id = IdOf(entity);
+
+            double? startDsp = null;
+            int onEndCount = 0;
+            IAudioPlayer player = BroAudio.Play(id);
+            player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
+
+            yield return WaitForPlaybackStart(player);
+            yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
+
+            // Both are registered on the first player, well before the first seam. GetVolume() is
+            // _clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current (AudioPlayer.Volume.cs:113-116);
+            // the latter two are 1 here, so it reads back exactly what SetVolume put on the track fader.
+            player.OnEnd(_ => onEndCount++);
+            player.SetVolume(TargetVolume);
+            Assert.AreEqual(TargetVolume, player.GetVolume(), VolumeTolerance,
+                "Precondition: SetVolume must land on the first player before any handover.");
+
+            double secondSeamDsp = startDsp.Value + (ClipSeconds * 2);
+            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= secondSeamDsp + 0.2,
+                "the dsp clock to pass two loop seams", 5f);
+
+            // If the handle had been left behind on the first player, the wrapper would have been recycled
+            // with it (AudioPlayer.Recycling.cs:64) and IsActive would read false.
+            Assert.IsTrue(player.IsActive,
+                "The caller's IAudioPlayer must still be live after two handovers - UpdateInstance re-points " +
+                "it at the incoming player, and the owner of a looping sound has no other handle to hold.");
+            Assert.AreEqual(TargetVolume, player.GetVolume(), VolumeTolerance,
+                "The volume set before the first seam must ride across both handovers, via " +
+                "PlaybackHandoverData.TrackVolume and ReceiveHandover's _trackVolume.Complete.");
+            Assert.AreEqual(0, onEndCount,
+                "characterizes: OnEnd is an end-of-sound callback, not a per-iteration one - BeginHandover " +
+                "transfers the delegate away before the outgoing player's EndPlaying could invoke it.");
+
+            // The real proof that the handle still commands the sound: a handle stranded on the recycled
+            // first player would make this a no-op and the loop would keep running.
+            player.Stop(0f);
+            yield return WaitFrames(3);
+
+            Assert.AreEqual(0, GetActivePlayers(id).Count,
+                "Stop() on the handle must stop the handed-over player and the one already scheduled behind it.");
+            Assert.AreEqual(1, onEndCount,
+                "OnEnd must fire exactly once, at the real end of the sound, no matter how many seams it crossed.");
         }
 
         // 2.3 - a seamless loop's transition time is applied as both the outgoing player's fade-out and the
