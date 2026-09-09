@@ -33,6 +33,8 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 41 | Playback / Stop | `Stop(onFinished)` on a recycled handle drops the callback silently | Open, characterized |
 | 42 | Decorators / Dominator | `AsDominator()` after playback started cannot re-route the player, so it filters itself | Open, characterized |
 | 43 | Decorators / Dominator | `QuietOthers` with a zero fade time is overwritten by `SwitchMainTrackMode`, so nothing ducks | Open, suspected |
+| 44 | Decorators / Dominator | A looping dominator's incoming player takes a generic track at the first seam, so it ducks itself | Open, characterized |
+| 45 | Playback / Handover | `TransferAddedEffectComponents` runs once per decorator plus once, duplicating added effects every seam | Open, suspected |
 
 ---
 
@@ -753,7 +755,9 @@ requested level. Correct.
 
 With `fadeTime` 0 the loop body never executes and `Tweak` falls straight through to
 `_mixer.SafeSetFloat(paraName, to)`. The suite already documents that a zero-fade tween drains synchronously
-inside `StartCoroutine` — that is the finding #17 regression `AudioEffectTests` guards. If that holds here, the
+inside `StartCoroutine` — `AudioEffectTests.SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing`
+guards it, and the bug it came from is [FIXED_ISSUES.md](FIXED_ISSUES.md) #17, that file's numbering rather than
+this one's (this file has no #17; 15-20 were fixed and moved). If that holds here, the
 ducked value is written *before* `SwitchMainTrackMode(true)` replaces it with `FullDecibelVolume`, and
 `QuietOthers(vol, 0f)` ends with `Main_Dominated` at 0dB: nothing is quieted, silently.
 
@@ -765,3 +769,84 @@ the synchronous-drain step has not been confirmed for this path specifically. De
 asserting the clobber would fail the build if the derivation is wrong. The same-frame dominator test uses a
 non-zero fade to stay clear of it. Confirming or refuting this by running
 `QuietOthers(0.2f, 0f)` and reading `Main_Dominated` is a small, worthwhile follow-up.
+
+---
+
+## 44. A looping dominator loses its Dominator track at the first handover seam
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs:118`, `:229`, `:334-338`, `:365`, `:402`;
+`Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:144-151`
+
+```csharp
+if (!isEnd)
+{
+    double warmUpTime = SoundManager.Instance.ScheduledPlaybackWarmUpTime;
+    while (AudioSettings.dspTime < _playbackEndDspTime - seamlessFadeOut - warmUpTime)
+    {
+        yield return null;
+    }
+}
+...
+_nextPlayer = RequestNextPlayer?.Invoke(handover);
+```
+
+Looping is player handover, and the handover is deliberately staged: the incoming player is created and
+started one warm-up time (0.1s) *before* the seam, while the decorators move only at `BeginHandover`, at the
+seam itself. `RequestNextPlayer` runs `SoundManager.ScheduleNextPlayback` → `ReceiveHandover` → `PlayInternal`
+synchronously, and `PlayControl` reaches `SetupAudioTrack` with nothing yielding before it — so
+`SetupAudioTrack` reads `IsDominator == false` on a player whose `_decorators` is still `null`, and takes a
+**generic** track from the pool.
+
+The decorator itself survives (`TransferDecorators`/`SetDecorators`), so `IsDominator` reads true again a
+warm-up time later, and the duck never lets go: `DominatorPlayer.PlayerIsPlaying()` is the decorator's own
+`IsActive`, the decorator is re-pointed at the incoming player before the outgoing one is recycled (and the
+outgoing `Recycle()` no longer sees the list, so it never recycles the decorator), and the `.While()` waitable
+in `TweakTrackParameter` never observes a false. `Main` stays at `MinDecibelVolume` and everything audible
+keeps flowing through `Main_Dominated` at the ducked level.
+
+The result is finding #42's self-ducking, arriving on its own: from the first loop seam onward the
+"dominator" plays under `Main` at the volume it imposed on everyone else. Unlike #42 the caller did nothing
+wrong — `AsDominator()` was chained onto `Play()` exactly as documented, and the handle they kept is still the
+live one. The generic track also picks up any non-dominator `BroAudio.SetEffect` filter via
+`SetupAudioTrack`'s `SetTrackEffect(audioTypePref.EffectType, Add)`, which a real dominator skips.
+
+A fix would be for `ReceiveHandover` (or `PlaybackHandoverData`) to carry the outgoing player's `TrackType`,
+or for the decorators to be transferred at handover-request time rather than at `BeginHandover`.
+
+Status: Open, characterized. Pinned by
+`SelectionStateAndDecoratorTests.Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack`,
+which asserts the decorator survives, the duck survives, and the track does not.
+
+---
+
+## 45. `TransferAddedEffectComponents` looks like it runs once per decorator, plus once
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:144-153`
+
+```csharp
+if (Instance.TransferDecorators(out var decorators))
+{
+    foreach (var decorator in decorators)
+    {
+        decorator.UpdateInstance(newInstance);
+    }
+    newInstance.SetDecorators(decorators);
+}
+
+Instance.TransferAddedEffectComponents(newInstance);
+```
+
+`AudioPlayerDecorator` *is* an `AudioPlayerInstanceWrapper`, so `decorator.UpdateInstance(newInstance)`
+re-enters this same override with its own `Instance` still pointing at the outgoing player — and runs
+`Instance.TransferAddedEffectComponents(newInstance)` itself. Then the outer call runs it once more. The
+delegate and decorator transfers are self-limiting because each nulls its source; `_addedEffects` is never
+cleared, so the incoming player would receive N+1 copies for N decorators, compounding at every subsequent
+seam.
+
+Reachable for any looping entity that has both an added filter component and a decorator — including a
+looping Music entity, where `RuntimeSetting.AlwaysPlayMusicAsBGM` attaches `MusicPlayer` automatically and
+`SetSpatial` adds a low-pass component for a spatial setting with `HasLowPassFilter`.
+
+Status: **Open, suspected — derived from source, not observed.** Unity was unavailable, and this was found
+while investigating #44 rather than by running anything. Not pinned: confirming it means counting components
+on the incoming player across a seam, which is worth doing before writing an assertion about the count.
