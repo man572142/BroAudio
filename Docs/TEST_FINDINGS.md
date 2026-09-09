@@ -30,6 +30,9 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 38 | MonoComponent / SpectrumAnalyzer | Whether the serialized `SoundSource` is polled is decided once, in `Start` | Open, characterized |
 | 39 | MonoComponent / SpectrumAnalyzer | A band narrower than one FFT bin makes RMS/Average divide by zero, and the band runs away to one end of the scale | Open, characterized |
 | 40 | MonoComponent / SpectrumAnalyzer | Every band draws a `Weighted` field in the inspector that the runtime never reads | Open, characterized |
+| 41 | Playback / Stop | `Stop(onFinished)` on a recycled handle drops the callback silently | Open, characterized |
+| 42 | Decorators / Dominator | `AsDominator()` after playback started cannot re-route the player, so it filters itself | Open, characterized |
+| 43 | Decorators / Dominator | `QuietOthers` with a zero fade time is overwritten by `SwitchMainTrackMode`, so nothing ducks | Open, suspected |
 
 ---
 
@@ -251,6 +254,20 @@ Two smaller consequences:
   at runtime has no effect even on the polling interval.
 - The routine is testable only by back-dating `_loadedEntityLastPlayedTime`, which is what
   `AddressablesTests` does — waiting out a hardcoded 60 seconds is not viable in a suite.
+
+It is in fact stronger than "testable only by back-dating": **nothing in production ever adds a key to that
+dictionary**. `UpdateLoadedEntityLastPlayedTime` is guarded by `if (_loadedEntityLastPlayedTime.ContainsKey(id))`,
+and all three of its call sites intend to *register* the entity on load. The only other writes are the refresh
+inside the routine, which iterates keys that already exist, and the `Remove` after unloading. So the dictionary
+stays empty for the life of the player and the auto-unload feature never fires at all; the tests work only
+because `BackDateLastPlayedTime`'s indexer write is what registers the entity in the first place. That is
+arguably the more severe half of this finding and is not separately pinned.
+
+Status: Open, characterized. Pinned by
+`AddressablesTests.CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_KeepsTheEntityLoadedAnyway`, which asks for
+a 5-second unload delay, lets the entity idle 30 seconds, and asserts it is still loaded.
+`AddressablesTests.CleanupRoutine_WhenAnEntityHasBeenIdleLongEnough_ReleasesItsAssets` covers the other half —
+that the routine fires at all — but cannot pin the defect alone, since the setting's factory default is 60 too.
 
 ## 21. The `params float[] ratios` rect splits do not land on the far edge
 
@@ -625,4 +642,126 @@ it presents as a per-band gain the analyzer applies. Nothing reads it: `_weighte
 `UpdateSpectrum` composes each band purely from the metered amplitude and the attack/decay/smooth ballistics.
 Changing it in the inspector changes nothing about what the analyzer outputs.
 
-Status: Open, characterized. Pinned by `SpectrumAnalyzerTests.Update_BandWeighting_HasNoEffectOnTheBandOutput`.
+Status: Open, characterized. Pinned by
+`SpectrumAnalyzerTests.Update_BandWeighting_HasNoEffectOnTheBandOutput`, which drives both analyzers with a real
+440Hz tone rather than silence — on an all-zero spectrum a weight applied as a multiplier would still leave the
+two bands equal, and the pin would survive the fix it exists to catch.
+
+---
+
+## 41. `Stop(onFinished)` on a recycled handle drops the callback, silently
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:44-47`,
+`Assets/BroAudio/Runtime/Extension/Tools/InstanceWrapper.cs:8` and `:34-37`,
+`Assets/BroAudio/Runtime/Player/EmptyInstance.cs:48-51`
+
+```csharp
+void IAudioStoppable.Stop() => Instance?.Stop();
+void IAudioStoppable.Stop(Action onFinished) => Instance?.Stop(onFinished);
+void IAudioStoppable.Stop(float fadeOut) => Instance?.Stop(fadeOut);
+void IAudioStoppable.Stop(float fadeOut, Action onFinished) => Instance?.Stop(fadeOut, onFinished);
+```
+
+`InstanceWrapper.Instance` is `IsAvailable() ? _instance : null` and `Recycle()` clears `_instance`, so on a
+handle whose player has already gone back to the pool the null-conditional swallows the whole call. That is the
+right answer for the two parameterless overloads — there is nothing left to stop — but the two `Action`
+overloads carry a continuation, and it goes down with the call. `onFinished` is never stored, never queued,
+never invoked, and nothing in the signature can report it: the methods return `void`. `Empty.AudioPlayer`'s
+`Stop(Action)` is an empty body, so the handle a rejected `Play` hands back drops it identically.
+
+The canonical use of the overload is exactly what breaks:
+
+```csharp
+bgm.Stop(2f, () => SceneManager.LoadScene("Level2"));
+```
+
+If that player was recycled first — the track reached its end, a `Stop(All)` swept it, a new BGM replaced it —
+the scene never loads. Nothing distinguishes this from a fade that simply has not finished yet: no exception, no
+return value, and the stale-handle warning only appears when `RuntimeSetting.LogAccessRecycledPlayerWarning` is
+on, which is a diagnostic toggle rather than something a caller can branch on. The failure mode is a game that
+quietly stops progressing.
+
+The ordering on the live path is worth recording alongside it, because a fix has to preserve it. `StopControl`
+invokes `onFinished` at its very tail, *after* `EndPlaying()` has already recycled the player; the no-fade
+early-out invokes it *before* `EndPlaying()`. Either way the callback runs against a player that is already
+inactive or about to be, so a handler must never touch the handle it was stopped from.
+
+A wrapper that treated "already recycled" as "the work is done" could invoke `onFinished` immediately rather
+than dropping it. That would make the callback fire exactly once whether or not the caller won the race, which
+is the contract the call site is written against.
+
+Status: Open, characterized. Pinned by
+`PlaybackLifecycleTests.Stop_WithOnFinishedCallback_FiresAfterTheFadeButIsDroppedByARecycledHandle`.
+
+---
+
+## 42. `AsDominator()` after playback has started cannot re-route the player
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs:255-262`,
+`Assets/BroAudio/Runtime/Player/AudioPlayer.cs:40`
+
+```csharp
+private void SetupAudioTrack(IAudioPlaybackPref audioTypePref)
+{
+    if (IsDominator)
+    {
+        TrackType = AudioTrackType.Dominator;
+    }
+    AudioTrack = Mixer.GetTrack(TrackType);
+```
+
+`SetupAudioTrack` is the only place `TrackType` becomes `Dominator`, it reads `IsDominator` (i.e. whether a
+`DominatorPlayer` decorator is attached), and it runs once, at play time, when `SoundManager.LateUpdate` drains
+the queue. `AsDominator()` called after that attaches the decorator but changes nothing about routing: the
+player has already taken a generic track from the pool and stays under `Main`.
+
+That matters because a dominator's whole purpose is to duck or filter *everything else*. A dominator sitting on
+a generic track under `Main` is inside the group its own `QuietOthers`/`LowPassOthers` applies to, so it ducks
+and filters itself along with the rest. `AsDominator()` is chainable off `Play()` precisely so this does not
+happen, but nothing warns a caller who decorates a frame later.
+
+This also explains why the pre-existing `LowPassOthers_MovesDominatorLowPassParameter_*` and its HighPass twin
+never caught it: both decorate after `WaitForPlaybackStart`, and both only assert that the
+`Main_LowPass`/`Main_HighPass` parameter moved, which is true whichever track the dominator itself is on.
+
+Status: Open, characterized. Pinned by
+`SelectionStateAndDecoratorTests.Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack`, with the
+correct same-frame routing asserted by
+`SelectionStateAndDecoratorTests.Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack`.
+
+---
+
+## 43. `QuietOthers` with a zero fade time looks like it is overwritten before it takes effect
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs:181-188`, `:199-212`, `:239-260`
+
+```csharp
+RestartCoroutine(TweakTrackParameter(tweaker, effect.Type, effect.IsDominator, onReset), ref tweaker.Coroutine);
+if (effect.IsDominator)
+{
+    SwitchMainTrackMode(true);
+}
+```
+
+`TweakTrackParameter` writes the ducked level to `Main_Dominated`, and `SwitchMainTrackMode(true)` then calls
+`ChangeChannel(Main -> Main_Dominated, FullDecibelVolume)`, which sets `Main` to `MinDecibelVolume` and
+`Main_Dominated` to **0dB**. Which of the two lands last decides whether anything ducks.
+
+With a non-zero fade time the tween yields inside its `while (currentTime < fadeTime)` loop before writing its
+final value, so `SwitchMainTrackMode(true)` runs first and the tween then ramps `Main_Dominated` down to the
+requested level. Correct.
+
+With `fadeTime` 0 the loop body never executes and `Tweak` falls straight through to
+`_mixer.SafeSetFloat(paraName, to)`. The suite already documents that a zero-fade tween drains synchronously
+inside `StartCoroutine` — that is the finding #17 regression `AudioEffectTests` guards. If that holds here, the
+ducked value is written *before* `SwitchMainTrackMode(true)` replaces it with `FullDecibelVolume`, and
+`QuietOthers(vol, 0f)` ends with `Main_Dominated` at 0dB: nothing is quieted, silently.
+
+`QuietOthers(othersVol, fadeTime)` with `fadeTime` 0 is a natural thing for a caller to write, and the reference
+docs offer no reason to avoid it.
+
+Status: **Open, suspected — derived from source, not observed.** Unity was unavailable when this was written, so
+the synchronous-drain step has not been confirmed for this path specifically. Deliberately not pinned: a test
+asserting the clobber would fail the build if the derivation is wrong. The same-frame dominator test uses a
+non-zero fade to stay clear of it. Confirming or refuting this by running
+`QuietOthers(0.2f, 0f)` and reading `Main_Dominated` is a small, worthwhile follow-up.
