@@ -23,11 +23,12 @@ namespace Ami.BroAudio.Tests
     /// exactly zero or merely near it, so that one test asserts on both outcomes.
     /// </para>
     /// <para>
-    /// One test plays a real tone end to end. It is the only one whose result depends on the engine actually
-    /// producing spectrum data, so it says so and ignores itself when the buffer never leaves zero. Every
-    /// test that needs playback to survive more than a frame first calls RequireRealtimeAudioClock: without
-    /// an audio output device the DSP clock runs hundreds of times faster than wall time and a clip is over
-    /// before the analyzer ever sees it.
+    /// Two tests play a real tone end to end - the band-coverage check and the Weighted pin, which needs a
+    /// band carrying real energy for a weighting to have anything to act on. They are the only ones whose
+    /// result depends on the engine actually producing spectrum data, so they say so and ignore themselves
+    /// when the buffer never leaves zero. Every test that needs playback to survive more than a frame first
+    /// calls RequireRealtimeAudioClock: without an audio output device the DSP clock runs hundreds of times
+    /// faster than wall time and a clip is over before the analyzer ever sees it.
     /// </para>
     /// </summary>
     public class SpectrumAnalyzerTests : BroAudioTestFixture
@@ -363,37 +364,6 @@ namespace Ami.BroAudio.Tests
             Assert.Greater(smoothed.Bands[0].DecibelVolume, -40f,
                 "An 80dB difference over a smoothing of 4000 scales the step down 50x, so the smoothed band is nowhere near the floor yet.");
         }
-        // TEST_FINDINGS #40. Every Band carries a serialized, inspector-drawn "Weighted" value that
-        // UpdateSpectrum never reads, so two analyzers that differ only in it produce the same numbers. The
-        // rise is deliberately slow enough that both are still mid-travel when they are compared - two bands
-        // resting on the same target would agree whether or not the field did anything.
-        [UnityTest]
-        public IEnumerator Update_BandWeighting_HasNoEffectOnTheBandOutput()
-        {
-            yield return RequireRealtimeAudioClock();
-            IAudioPlayer player = PlaySilence();
-            yield return WaitForPlaybackStart(player);
-
-            const float StartDecibel = -200f;
-            SpectrumAnalyzer unweighted = NewAnalyzer(new[] { 1000f }, attack: 2000);
-            SpectrumAnalyzer weighted = NewAnalyzer(new[] { 1000f }, attack: 2000);
-            yield return WaitForStart(unweighted);
-            yield return WaitForStart(weighted);
-            TestAudioLibrary.SetPrivateField(unweighted.Bands[0], SpectrumAnalyzer.Band.NameOf.Weighted, 1f);
-            TestAudioLibrary.SetPrivateField(weighted.Bands[0], SpectrumAnalyzer.Band.NameOf.Weighted, 20f);
-            unweighted.SetSource(player);
-            weighted.SetSource(player);
-
-            PinBandTo(unweighted.Bands[0], StartDecibel);
-            PinBandTo(weighted.Bands[0], StartDecibel);
-
-            yield return new WaitForSeconds(0.5f); // a frame-clock ramp, so wall time is the right clock
-
-            Assert.Greater(unweighted.Bands[0].DecibelVolume, StartDecibel, "Precondition: the bands are mid-rise, not parked on a shared target.");
-            Assert.Less(unweighted.Bands[0].DecibelVolume, AudioConstant.MinDecibelVolume, "Precondition: neither band has reached the floor yet.");
-            Assert.AreEqual(unweighted.Bands[0].DecibelVolume, weighted.Bands[0].DecibelVolume, 0.5f,
-                "Characterizes TEST_FINDINGS #40: a band's Weighted field is written by the inspector and read by nothing.");
-        }
         #endregion
 
         #region Band ranges
@@ -483,9 +453,48 @@ namespace Ami.BroAudio.Tests
                 "The normalized amplitude a meter binds to must rise with the decibel value.");
         }
 
+        // TEST_FINDINGS #40. Every Band carries a serialized, inspector-drawn "Weighted" value that
+        // UpdateSpectrum never reads, so two analyzers that differ only in it produce the same numbers.
+        // Driven by the tone rather than by silence deliberately: on an all-zero spectrum the obvious fix -
+        // scaling the metered amplitude by the weight - would still leave the two bands identical, because
+        // 0 * 1 == 0 * 20, and the pin would survive the very change it exists to catch. Metering a band
+        // that carries real energy, any use of the field at all pulls the two readings apart.
+        [UnityTest]
+        public IEnumerator Update_BandWeighting_HasNoEffectOnTheBandOutput()
+        {
+            yield return RequireRealtimeAudioClock();
+            SoundID id = NewSound("WeightedSpectrumSfx", BroAudioType.SFX, NewClip(20f)); // NewClip is a 440Hz sine
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitForPlaybackStart(player);
+
+            // One 10Hz-1kHz band - the window the test above proves the 440Hz tone lights up.
+            SpectrumAnalyzer unweighted = NewAnalyzer(new[] { 1000f }, attack: 100);
+            SpectrumAnalyzer weighted = NewAnalyzer(new[] { 1000f }, attack: 100);
+            yield return WaitForStart(unweighted);
+            yield return WaitForStart(weighted);
+            TestAudioLibrary.SetPrivateField(unweighted.Bands[0], SpectrumAnalyzer.Band.NameOf.Weighted, 1f);
+            TestAudioLibrary.SetPrivateField(weighted.Bands[0], SpectrumAnalyzer.Band.NameOf.Weighted, 20f);
+            unweighted.SetSource(player);
+            weighted.SetSource(player);
+
+            yield return WaitForSpectrumData(unweighted);
+            yield return WaitUntilOrTimeout(() => unweighted.Bands[0].DecibelVolume > AudioConstant.MinDecibelVolume + 20f,
+                "the tone's own band to rise well clear of the floor", 3f);
+            // Both bands climb from the floor under the same 20dB-per-100ms attack, so half a second puts
+            // them past the ramp and onto the tone's own level, which each then re-snaps to every frame -
+            // the state in which a weight applied to one of them has nothing left to hide behind.
+            yield return new WaitForSeconds(0.5f); // a frame-clock ramp, so wall time is the right clock
+
+            Assert.Greater(weighted.Bands[0].DecibelVolume, AudioConstant.MinDecibelVolume + 20f,
+                "Precondition: both analyzers are metering the tone, not resting on a floor where any weighting would cancel out.");
+            Assert.AreEqual(unweighted.Bands[0].DecibelVolume, weighted.Bands[0].DecibelVolume, 0.5f,
+                "Characterizes TEST_FINDINGS #40: a band's Weighted field is written by the inspector and read by nothing - "
+                + "a 20x weight on a band metering a real tone moves its output by less than half a dB, which is to say not at all.");
+        }
+
         /// <summary>
         /// Ignores the calling test unless the engine actually fills the spectrum buffer. Everything else in
-        /// this file is written to hold on an all-zero spectrum; this is the one assertion that cannot be.
+        /// this file is written to hold on an all-zero spectrum; the two tone-driven tests cannot be.
         /// </summary>
         private static IEnumerator WaitForSpectrumData(SpectrumAnalyzer analyzer, float timeout = 2f)
         {

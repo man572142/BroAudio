@@ -141,6 +141,8 @@ namespace Ami.BroAudio.Tests
             // The routine's staleness threshold is a hardcoded 60 seconds, so a test cannot wait it out.
             // Back-dating the tracked timestamp puts the entity past the threshold immediately; the routine's
             // own tick interval (clamped to at most 5s) is then the only thing left to wait for.
+            // This is the proof that the cleanup routine fires at all; the test below pins the threshold
+            // itself being hardcoded rather than driven by the setting named after it.
             SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = true;
             AudioEntity entity = NewAddressableEntity("AddrCleanup", TestAudioLibrary.AddressableClipGuids[0]);
             SoundID id = IdOf(entity);
@@ -153,6 +155,43 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitUntilOrTimeout(() => !SoundManager.Instance.IsLoaded(id),
                 "the cleanup routine to release the idle entity", 12f);
+        }
+
+        [UnityTest]
+        public IEnumerator CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_KeepsTheEntityLoadedAnyway()
+        {
+            // TEST_FINDINGS #14, hard pin. AutomaticallyUnloadUnusedAddressableAudioClipsAfter is not the
+            // unload delay its name promises: the routine feeds it to Mathf.Clamp(setting, 1f, 5f) as its
+            // *tick interval* only, and measures staleness against the hardcoded literal 60.0. So an entity
+            // idle for 30 seconds outlives a 5-second setting. The test above cannot show that - the
+            // setting's factory default is 60 as well, so its 61-second back-date is past either threshold.
+            //
+            // The setting written here is ignored twice over: _addressableCleanupInterval is built once,
+            // guarded by `if (_addressableCleanupInterval == null)`, on the coroutine's first iteration back
+            // at SoundManager start-up, so a mid-run write cannot move the tick rate either. The interval is
+            // therefore still the clamped default - and the clamp caps any value at 5s - which is what makes
+            // the wait below a positive result rather than a vacuous one: 12s spans at least two ticks, so
+            // the routine did run, did look at this entity, and did choose to leave it loaded.
+            //
+            // The day the setting is wired to the threshold, 30s > 5s, the entity is released and this test
+            // fails. BroAudioTestFixture restores the whole RuntimeSetting from a JSON snapshot in teardown,
+            // so the write neither leaks into the next test nor dirties the asset on disk.
+            SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = true;
+            SoundManager.Instance.Setting.AutomaticallyUnloadUnusedAddressableAudioClipsAfter = 5f;
+            AudioEntity entity = NewAddressableEntity("AddrCleanupDelay", TestAudioLibrary.AddressableClipGuids[0]);
+            SoundID id = IdOf(entity);
+
+            AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
+            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
+            Assert.IsTrue(SoundManager.Instance.IsLoaded(id));
+
+            BackDateLastPlayedTime(id, 30d);
+
+            yield return new WaitForSecondsRealtime(12f);
+
+            Assert.IsTrue(SoundManager.Instance.IsLoaded(id),
+                "Characterizes TEST_FINDINGS #14: 30s of idling is far past the 5s unload delay this test " +
+                "asked for, but the routine compares against its own hardcoded 60s and keeps the assets.");
         }
 
         [UnityTest]
@@ -189,6 +228,11 @@ namespace Ami.BroAudio.Tests
 
         /// <summary>
         /// Rewinds the cleanup routine's record of when this entity last played, so it reads as stale now.
+        /// <para>
+        /// The indexer write is also what *creates* that record: <c>UpdateLoadedEntityLastPlayedTime</c> is
+        /// guarded by <c>ContainsKey</c> and nothing else ever adds to the dictionary, so in a real player
+        /// it stays empty and the routine has nothing to iterate. Both cleanup tests depend on this write.
+        /// </para>
         /// </summary>
         private static void BackDateLastPlayedTime(SoundID id, double secondsAgo)
         {
