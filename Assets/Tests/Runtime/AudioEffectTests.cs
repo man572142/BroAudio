@@ -248,9 +248,11 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float freq));
             Assert.AreEqual(800f, freq, FrequencyTolerance, "SetEffect(Effect.LowPass) should move the exposed mixer parameter to the requested frequency.");
 
-            // SetEffect only updates the per-type pref that's read when a NEW player starts
-            // (AudioPlayer.Playback.cs: SetTrackEffect(audioTypePref.EffectType, Add)) - it does not
-            // retroactively re-route a player that was already playing before SetEffect was called.
+            // SetEffect does two things: it updates the per-type pref that's read when a NEW player
+            // starts (AudioPlayer.Playback.cs: SetTrackEffect(audioTypePref.EffectType, Add)), and
+            // SoundManager.SetPlayerEffect re-routes every player of the target type that is already
+            // playing. This test pins the future-player half; the live re-route and the type scoping
+            // are covered by SetEffect_ScopedToMusic_ReroutesLivePlayerOfThatTypeOnly below.
             SoundID id = NewSound("EffectSendFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
@@ -258,6 +260,46 @@ namespace Ami.BroAudio.Tests
             AudioPlayer concrete = Underlying(player);
             Assert.IsTrue(concrete.IsUsingTrackEffect, "A player started after SetEffect(LowPass) should route through the effect send channel.");
             Assert.AreNotEqual(EffectType.None, concrete.CurrentActiveTrackEffects & EffectType.LowPass, "LowPass should be part of the player's active track effects.");
+        }
+
+        [UnityTest]
+        public IEnumerator SetEffect_ScopedToMusic_ReroutesLivePlayerOfThatTypeOnly()
+        {
+            SoundID musicId = NewSound("ScopedBgm", BroAudioType.Music, NewClip(4f));
+            SoundID sfxId = NewSound("ScopedSfx", BroAudioType.SFX, NewClip(4f));
+            IAudioPlayer musicPlayer = BroAudio.Play(musicId);
+            IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
+            yield return WaitForPlaybackStart(musicPlayer, "the Music playback to start");
+            yield return WaitForPlaybackStart(sfxPlayer, "the SFX playback to start");
+
+            AudioPlayer music = Underlying(musicPlayer);
+            AudioPlayer sfx = Underlying(sfxPlayer);
+            Assert.IsFalse(music.IsUsingTrackEffect, "Precondition: the Music player should start on its plain track.");
+            Assert.IsFalse(sfx.IsUsingTrackEffect, "Precondition: the SFX player should start on its plain track.");
+
+            // characterizes: SoundManager.SetPlayerEffect walks GetCurrentAudioPlayers() and calls
+            // player.SetTrackEffect(effectType, mode) on every active non-Dominator player whose audio
+            // type the target type contains - so a player that was ALREADY playing gets re-routed too,
+            // and a player of any other type is left alone.
+            BroAudio.SetEffect(Effect.LowPass(800f), BroAudioType.Music);
+            yield return WaitUntilOrTimeout(() => music.IsUsingTrackEffect,
+                "the already-playing Music player to be re-routed through the effect send", 2f);
+
+            Assert.AreNotEqual(EffectType.None, music.CurrentActiveTrackEffects & EffectType.LowPass,
+                "LowPass should be part of the live Music player's active track effects.");
+            Assert.AreEqual(EffectType.None, sfx.CurrentActiveTrackEffects,
+                "An effect scoped to Music must not re-route a live SFX player.");
+
+            // The facade has no Reset* verb of its own (BroAudio.cs exposes only the two SetEffect
+            // overloads) - resetting means handing SetEffect a default-valued Effect. Effect.ResetLowPass()
+            // is default, so SoundManager picks SetEffectMode.Remove, and that mode defers SetPlayerEffect
+            // to the automation helper's onReset callback rather than running it inline; hence the poll.
+            yield return ResetLowPassEffect();
+            yield return WaitUntilOrTimeout(() => !music.IsUsingTrackEffect,
+                "the reset to remove the Music player's track effect", 2f);
+
+            Assert.AreEqual(EffectType.None, music.CurrentActiveTrackEffects, "The reset should leave the Music player with no active track effect.");
+            Assert.AreEqual(EffectType.None, sfx.CurrentActiveTrackEffects, "The reset should leave the untouched SFX player clear as well.");
         }
 
         [UnityTest]
