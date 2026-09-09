@@ -64,8 +64,14 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithClipFadeOut_RampsVolumeDownBeforeNaturalEnd()
         {
-            const float clipLength = 1.6f;
-            const float fadeOut = 0.5f;
+            // 3s clip with a 1.5s fade-out (was 1.6s / 0.5s). The default fade-out ease is OutSine
+            // (RuntimeSetting.FactorySettings.DefaultFadeOutEase - no BroRuntimeSetting asset ships in this
+            // project, so the factory values apply), i.e. volume = 1 - sin(t/T * pi/2), which crosses the 0.5
+            // poll threshold below a third of the way in. At 1.5s that is 0.5s into the ramp with a full
+            // second of audio still to play when the assertions below run; at the old 0.5s fade only 0.17s
+            // remained - less than one capped hitch frame (Time.maximumDeltaTime ~0.333s).
+            const float clipLength = 3f;
+            const float fadeOut = 1.5f;
             AudioClip clip = NewClip(clipLength);
             AudioEntity entity = NewEntity("FadeOutSfx", BroAudioType.SFX, clip);
             entity.Clips[0].FadeOut = fadeOut;
@@ -79,8 +85,16 @@ namespace Ami.BroAudio.Tests
 
             // The wait-to-start-fading gate (dspTime < end - fadeOut) is DSP-clocked; the ramp itself runs on
             // the frame clock. Poll for the drop rather than computing the exact DSP gate boundary.
-            yield return WaitUntilOrTimeout(() => player.GetVolume() < 0.5f,
-                "the natural-end fade-out to begin ramping the volume down", clipLength + 0.3f);
+            // IsActive is part of the condition because AudioPlayerInstanceWrapper's IAudioPlayer.GetVolume()
+            // returns 0f for a recycled instance: without it the poll is satisfied by the natural end itself,
+            // which is the one outcome this test must not accept as evidence of a ramp. IsActive and
+            // IsPlaying both resolve through IsAvailable(false), so neither logs the recycled-player warning.
+            yield return WaitUntilOrTimeout(() => player.IsActive && player.GetVolume() < 0.5f,
+                "the natural-end fade-out to ramp a still-live player below half volume (timing out here means no such drop was ever seen while the player was active, which includes playback simply ending with no ramp at all)",
+                clipLength + 1f);
+            Assert.IsTrue(player.IsPlaying,
+                "The drop below half volume must be observed while the player is still playing, not after playback has already ended.");
+
             yield return WaitUntilOrTimeout(() => !player.IsActive,
                 "playback to end once the fade-out completes", fadeOut + 1f);
         }
@@ -88,9 +102,14 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithExplicitFadeInOverride_IsConsumedOnceThenFallsBackToClipSetting()
         {
+            // A 4s override on a 5s clip (was 0.6s on 1.2s), with both halves decided at observationTime.
+            // The default fade-in ease is InCubic (RuntimeSetting.FactorySettings.DefaultFadeInEase), i.e.
+            // volume = t^3, so a fade only crosses NearTargetThreshold at ~98% of its length: the override
+            // cannot reach target before ~3.93s, while the clip's own 0.15s fade is there in a frame or two.
             const float clipFadeIn = 0.15f;
-            const float overrideFadeIn = 0.6f;
-            AudioClip clip = NewClip(1.2f);
+            const float overrideFadeIn = 4f;
+            const float observationTime = 1.2f;
+            AudioClip clip = NewClip(5f);
             AudioEntity entity = NewEntity("FadeOverrideSfx", BroAudioType.SFX, clip);
             entity.Clips[0].FadeIn = clipFadeIn;
             SoundID id = IdOf(entity);
@@ -98,8 +117,12 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer firstPlayer = BroAudio.Play(id, overrideFadeIn);
             yield return WaitForPlaybackStart(firstPlayer, "first playback to start");
 
-            // By now the clip's own 0.15s fade would already be done; the 0.6s explicit override should not be.
-            yield return new WaitForSeconds(clipFadeIn + 0.1f);
+            // By now the clip's own 0.15s fade would long be done; the 4s explicit override needs ~3.93s, so
+            // this read sits 2.7s clear of the point where it could start failing on a correct build (was
+            // 0.25s against a 0.6s override - 0.10s of slack). A hitch only ever makes WaitForSeconds
+            // overshoot, and overshoot is the safe direction for the other side of the window: the further
+            // past 0.15s this lands, the more certain a regression that used the clip setting reads at target.
+            yield return new WaitForSeconds(observationTime);
             Assert.Less(firstPlayer.GetVolume(), NearTargetThreshold,
                 "The explicit fadeIn override should still be ramping well past the clip's own (shorter) FadeIn duration - FadeData.cs's one-shot Next override should have taken priority over the clip setting.");
 
@@ -110,10 +133,14 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(secondPlayer, "second playback to start");
 
             // The override was consumed by TryGetOrConsumeOverride during the first play (FadeData.cs); this
-            // play should fall back to only the clip's own short FadeIn.
-            yield return new WaitForSeconds(clipFadeIn + 0.1f);
-            Assert.GreaterOrEqual(secondPlayer.GetVolume(), NearTargetThreshold,
-                "Without a fresh override, the second play should already be at target using the clip's own short FadeIn - the one-shot override must not leak into a later play.");
+            // play should fall back to only the clip's own short FadeIn. Poll for the target instead of
+            // sampling at a fixed instant (was a bare 0.25s wait then an assert - 0.10s of slack over a 0.15s
+            // frame-clock fade): the clip's own fade is at target within a frame or two, so observationTime
+            // leaves ~1s for frame-clock lag, while a leaked 4s override would not get there for ~3.93s and
+            // so still times out by 2.7s.
+            yield return WaitUntilOrTimeout(() => secondPlayer.GetVolume() >= NearTargetThreshold,
+                "the second play to reach target volume on the clip's own short FadeIn - timing out here means the one-shot override leaked into a later play",
+                observationTime);
         }
 
         [UnityTest]
@@ -167,8 +194,10 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithClipEndPosition_EndsPlaybackBeforeClipLength()
         {
-            const float clipLength = 2f;
-            const float endPosition = 0.8f;
+            // 4s clip trimmed by 1.5s (was 2s trimmed by 0.8s), so the measured duration is 2.5s and the
+            // widened tolerance below is a fifth of it rather than a quarter.
+            const float clipLength = 4f;
+            const float endPosition = 1.5f;
             AudioClip clip = NewClip(clipLength);
             AudioEntity entity = NewEntity("EndPosSfx", BroAudioType.SFX, clip);
             entity.Clips[0].EndPosition = endPosition;
@@ -183,18 +212,22 @@ namespace Ami.BroAudio.Tests
             double elapsed = AudioSettings.dspTime - dspStart;
             const float expectedDuration = clipLength - endPosition;
 
-            Assert.Less(elapsed, clipLength - 0.3, "EndPosition should make playback end well before the clip's full length.");
-            // 0.3s tolerance: the DSP-scheduled end (Utility.GetPlayableDuration, computed once at play start)
-            // is exact, but our own dspStart sample and the !IsActive poll both land a frame or two off the
-            // true boundary.
-            Assert.AreEqual(expectedDuration, elapsed, 0.3,
+            Assert.Less(elapsed, clipLength - 0.5, "EndPosition should make playback end well before the clip's full length.");
+            // 0.5s tolerance (was 0.3s, under a single capped hitch frame at Time.maximumDeltaTime ~0.333s):
+            // the DSP-scheduled end (Utility.GetPlayableDuration, computed once at play start) is exact, but
+            // our own dspStart sample and the per-frame !IsActive poll both land a frame or two off the true
+            // boundary, and one hitch frame makes each of those a third of a second. Still decisive: a
+            // regression that ignored EndPosition entirely would measure 4s - three whole tolerances past
+            // the 2.5s expected here.
+            Assert.AreEqual(expectedDuration, elapsed, 0.5,
                 "Measured playback duration should match clip length minus EndPosition.");
         }
 
         [UnityTest]
         public IEnumerator Stop_SecondNonImmediateCall_WhileFadeOutInFlight_IsIgnored()
         {
-            SoundID id = NewSound("StopGuardSfx", BroAudioType.SFX, NewClip(3f));
+            // 6s clip so the voice outlasts both outcomes below, including the regressed one at ~4.05s.
+            SoundID id = NewSound("StopGuardSfx", BroAudioType.SFX, NewClip(6f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
@@ -205,37 +238,47 @@ namespace Ami.BroAudio.Tests
             // AudioPlayer.Playback.cs's Stop() guard: `if (IsStopping && !Mathf.Approximately(overrideFade,
             // FadeData.Immediate)) return;`. While a fade-out is already in flight, a second non-immediate
             // Stop is silently dropped rather than restarting RestartCoroutine on a fresh ramp. If this ever
-            // regresses, a fresh 2s fade would begin here and the wait below would time out.
-            player.Stop(2f);
+            // regresses, a fresh 4s fade would begin here and the wait below would time out.
+            player.Stop(4f);
 
-            // 1.8s deadline (was 1.3s, thin enough that a single capped hitch frame plus the 3 frames
-            // already burned above could outrun the ~0.7s of fade actually remaining). Still well short
-            // of the ~2s a genuinely un-ignored Stop(2f) would take to ramp down from here, so a timeout
-            // here means either the original fade stalled or the guard regressed - not proof of either on
-            // its own, unlike the old message which asserted the guard specifically.
+            // A 4s second fade and a 2.2s deadline (was 2s and 1.8s, which left only 0.2s between the
+            // deadline and where a regressed ramp lands). The two outcomes are now more than a second clear
+            // of the deadline in both directions: the original 0.8s fade ends ~0.85s after it started,
+            // leaving ~1.35s for hitch frames and frame-clock lag, while an un-ignored 4s ramp would not end
+            // until ~4.05s, 1.85s past the deadline. A timeout still means either the original fade stalled
+            // or the guard regressed - not proof of either on its own, hence the hedged message.
+            // Sampling the ramp mid-flight instead was considered and rejected: a restarted fade inherits
+            // the volume already reached (~0.9) rather than starting from 1, and with the OutSine ease a
+            // fresh 2s ramp would cross 0.5 only ~0.09s after a 0.5s-in sample point - no window at all.
             yield return WaitUntilOrTimeout(() => !player.IsActive,
-                "the original 0.8s fade-out to finish (a timeout here does not by itself prove the second Stop(2f) call went through)", 1.8f);
+                "the original 0.8s fade-out to finish (a timeout here does not by itself prove the second Stop(4f) call went through)", 2.2f);
         }
 
         [UnityTest]
         public IEnumerator Stop_WithImmediateFade_PassesGuardAndEndsPromptly()
         {
-            SoundID id = NewSound("StopImmediateSfx", BroAudioType.SFX, NewClip(3f));
+            // 5s clip so the voice outlasts the 3s ramp a regression would run to completion.
+            SoundID id = NewSound("StopImmediateSfx", BroAudioType.SFX, NewClip(5f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            player.Stop(1f); // Starts a 1s fade-out.
+            player.Stop(3f); // Starts a 3s fade-out.
             yield return WaitFrames(3);
-            Assert.IsTrue(player.IsActive, "The 1s fade-out should still be in flight.");
+            Assert.IsTrue(player.IsActive, "The 3s fade-out should still be in flight.");
 
             // Unlike a second non-immediate Stop, an explicit FadeData.Immediate (0f) passes the IsStopping
             // guard (`!Mathf.Approximately(overrideFade, FadeData.Immediate)` is false for 0f), so
             // RestartCoroutine cancels the in-flight fade and StopControl ends playback with no fade instead
-            // of waiting out the original 1s ramp.
+            // of waiting out the original 3s ramp.
             player.Stop(FadeData.Immediate);
 
+            // A 3s original fade and a 1.2s deadline (was 1s and 0.3s - under one capped hitch frame at
+            // Time.maximumDeltaTime ~0.333s). A zero-length fade makes PlaybackPreference.TryGetFadeOut
+            // return false, so StopControl skips the fade block entirely and reaches EndPlaying before
+            // StartCoroutine even returns; the whole deadline is slack. The ramp it pre-empted would not
+            // have finished until ~3.05s, so the two outcomes sit 1.85s apart around the deadline.
             yield return WaitUntilOrTimeout(() => !player.IsActive,
-                "the immediate Stop to end playback promptly, well before the original 1s fade-out would have finished", 0.3f);
+                "the immediate Stop to end playback promptly, well before the original 3s fade-out would have finished", 1.2f);
         }
     }
 }
