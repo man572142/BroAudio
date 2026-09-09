@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
+using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -18,6 +19,10 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class SelectionStateAndDecoratorTests : BroAudioTestFixture
     {
+        // dB values make a round trip through the mixer, so they need a looser tolerance than a linear
+        // comparison would - the same split VolumePitchMixerTests documents.
+        private const float DecibelTolerance = 0.1f;
+
         #region 3.5 Clip-selection state lives on the AudioEntity, not the player
 
         [UnityTest]
@@ -251,6 +256,87 @@ namespace Ami.BroAudio.Tests
             LogAssert.Expect(LogType.Warning, new Regex("othersVol should be less than 1 and greater than 0"));
             dominator.QuietOthers(0f, 0f);
             yield return WaitFrames(2);
+        }
+
+        // AudioPlayer.SetupAudioTrack (AudioPlayer.Playback.cs:255-262) is the only place TrackType becomes
+        // Dominator, and it reads IsDominator - i.e. whether a DominatorPlayer decorator is already attached -
+        // at play time, when SoundManager.LateUpdate drains the queue. AsDominator() must therefore be chained
+        // in the same frame as Play() to reach the dominator track at all. Every other dominator test in this
+        // file decorates *after* WaitForPlaybackStart, so none of them exercises this routing; see
+        // Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack below for what those tests actually run.
+        [UnityTest]
+        public IEnumerator Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack()
+        {
+            const float othersVolume = 0.2f;
+            SoundID dominatorId = NewSound("SameFrameDominatorSfx", BroAudioType.SFX, NewClip(4f));
+
+            // Chained before the queue drains, so IsDominator is true by the time SetupAudioTrack runs.
+            IAudioPlayer dominatorPlayer = BroAudio.Play(dominatorId);
+            IPlayerEffect dominator = dominatorPlayer.AsDominator();
+            yield return WaitForPlaybackStart(dominatorPlayer, "the dominator to start playing");
+
+            StringAssert.StartsWith(BroName.DominatorTrackName, dominatorPlayer.AudioSource.outputAudioMixerGroup.name,
+                "A player decorated as a dominator before the queue drained must be routed to a pooled Dominator track, " +
+                "not to a generic Track* group under Main - otherwise it is filtered by its own QuietOthers/LowPassOthers.");
+
+            // QuietOthers writes through EffectAutomationHelper, whose GetEffectParameterName maps a
+            // dominator Volume effect to Main_Dominated (:315-329) - never to Main. Main is muted outright:
+            // SwitchMainTrackMode(true) does ChangeChannel(Main -> Main_Dominated), and ChangeChannel
+            // (AudioExtension.cs:148-152) sets the "from" parameter to MinDecibelVolume and the "to"
+            // parameter to the passed target. So the ducked level lands on Main_Dominated, and it is
+            // Effect.Value that converts it: for EffectType.Volume the setter stores value.ToDecibel()
+            // (Effect.cs:78), so 0.2 becomes ~-13.98dB.
+            //
+            // A non-zero fade is deliberate. With fadeTime 0 the tween drains synchronously inside
+            // StartCoroutine (the finding #17 regression documented in AudioEffectTests), which lands the
+            // ducked value *before* SetEffectTrackParameter's own SwitchMainTrackMode(true) overwrites
+            // Main_Dominated with FullDecibelVolume - see Docs/TEST_FINDINGS.md #43.
+            dominator.QuietOthers(othersVolume, 0.1f);
+
+            yield return WaitUntilOrTimeout(() =>
+            {
+                SoundManager.Instance.AudioMixer.GetFloat(BroName.MainDominatedTrackName, out float v);
+                return Mathf.Abs(v - othersVolume.ToDecibel()) < DecibelTolerance;
+            }, "Main_Dominated to reach the requested others-volume in decibels", 2f);
+
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float mainWhileDominating));
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, mainWhileDominating, DecibelTolerance,
+                "While a dominator is active the plain Main channel is muted outright and everything audible is " +
+                "routed through Main_Dominated, which carries the ducked level.");
+
+            // The restore is not teardown's job: TweakTrackParameter calls SwitchMainTrackMode(false) once its
+            // .While(PlayerIsPlaying) waitable finishes, which is what returns Main to full volume. Asserting it
+            // here also keeps this test from leaving a muted Main behind for every later test in the run.
+            dominatorPlayer.Stop(0f);
+            yield return WaitUntilOrTimeout(() =>
+            {
+                SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float v);
+                return Mathf.Abs(v - AudioConstant.FullDecibelVolume) < DecibelTolerance;
+            }, "Main to return to full volume once the dominator stops", 3f);
+        }
+
+        // characterizes: AsDominator() after playback has started attaches the decorator but cannot move the
+        // player - SetupAudioTrack already ran and already took a generic track from the pool. The player stays
+        // under Main, which means it filters and ducks *itself* along with everything else. This is the
+        // configuration LowPassOthers_MovesDominatorLowPassParameter_* and its HighPass twin above actually run:
+        // they pass in both configurations because they only watch the Main_LowPass/Main_HighPass parameter move,
+        // which is true either way. See Docs/TEST_FINDINGS.md #42.
+        [UnityTest]
+        public IEnumerator Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack()
+        {
+            SoundID lateId = NewSound("LateDominatorSfx", BroAudioType.SFX, NewClip(3f));
+            IAudioPlayer latePlayer = BroAudio.Play(lateId);
+            yield return WaitForPlaybackStart(latePlayer, "the player to start playing");
+
+            StringAssert.StartsWith(BroName.GenericTrackName, latePlayer.AudioSource.outputAudioMixerGroup.name,
+                "Precondition: an undecorated player starts on a pooled generic track.");
+
+            latePlayer.AsDominator();
+            yield return WaitFrames(2);
+
+            StringAssert.StartsWith(BroName.GenericTrackName, latePlayer.AudioSource.outputAudioMixerGroup.name,
+                "Decorating after play started must leave the player on its generic track - TrackType is only " +
+                "consulted by SetupAudioTrack, which has already run. Nothing re-routes it.");
         }
 
         #endregion
