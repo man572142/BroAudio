@@ -108,7 +108,17 @@ behaviors with no observer at all, rather than thin ones:
 - `SpatialAndPriorityTests.cs` covers the spatial settings and `entity.Priority`, and pins what a pooled
   player carries into its next sound. It found TEST_FINDINGS #46.
 
-**None of these four files were executed when they were written**, for the same reason as the tiers above.
+Unlike every tier above, **these four were executed before being handed back.** Workflow run 21 on
+`c31ee3a` is green on both legs: PlayMode reports **156 tests across 19 fixtures** (142 + the 14 added
+here) with `check_test_suites.py` confirming all 19 required suites ran, and EditMode is green with the
+defect fixes that landed alongside them.
+
+Run 20, the first attempt, is worth keeping in view: 154 of 156 passed, and the two failures were one leak
+with a production cause — `UpdateModeClockTests` deliberately freezes a master fade, and a frozen fade
+cannot be cancelled by the zero-fade reset `BroAudioTearDown` uses, so it survived teardown and moved the
+Master parameter while the *next* fixture asserted on it. That took down
+`VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixer`, a test which predates this work. Recorded
+as finding #51; the fixture now drains the fade instead of trusting the reset, and production is untouched.
 
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
