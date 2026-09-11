@@ -25,6 +25,7 @@
       "AddressablesTests",
       "AudioClockProbeTests",
       "AudioEffectTests",
+      "AuthoredVolumeTests",
       "FadeAndTrimTests",
       "LoopHandoverTests",
       "OptionalPackageTests",
@@ -35,7 +36,10 @@
       "SelectionStateAndDecoratorTests",
       "SoundSourceTests",
       "SoundVolumeTests",
+      "SpatialAndPriorityTests",
       "SpectrumAnalyzerTests",
+      "TeardownTests",
+      "UpdateModeClockTests",
       "VolumePitchMixerTests"
     ]
   }

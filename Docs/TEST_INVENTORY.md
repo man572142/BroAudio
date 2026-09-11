@@ -24,6 +24,7 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 | 6 — MonoComponents | **covered** | `SoundSourceTests.cs`, `SoundVolumeTests.cs`, `SpectrumAnalyzerTests.cs` |
+| 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `SpatialAndPriorityTests.cs` |
 
 Tier status is the summary; the **per-behavior** ledger required by the plan's Definition of Done lives at
 the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverage-ledger),
@@ -89,6 +90,26 @@ itself when the spectrum never leaves zero. Every test that needs playback to la
 they were authored in an environment with no Unity Editor, so the counts above are arithmetic rather than a
 run. Compile and run both files before trusting them.
 
+Four files were added on 2026-09-11 to close the structural blind spots a review of this suite found —
+behaviors with no observer at all, rather than thin ones:
+
+- `TeardownTests.cs` covers the `SoundManager.Instance` / `BroAudio.Manager` asymmetry that CLAUDE.md calls
+  load-bearing and that nothing exercised: the facade's release verbs as silent no-ops with the manager
+  destroyed, the play verbs throwing by contrast, and a player handle held across the manager's destruction.
+  It found TEST_FINDINGS #48, #49 and #50 — the contract is real for the facade's release verbs and **not**
+  real for `SetEffect` or for handle-level release verbs, both of which throw.
+- `UpdateModeClockTests.cs` covers `RuntimeSetting.UpdateMode` and `Utility.GetDeltaTime` — the clock behind
+  every fade, pitch tween and scheduled start, previously named in three comments and zero assertions. The
+  two tests are a deliberate pair: under `Time.timeScale == 0` a fade must progress in `UnscaledTime` and
+  freeze in `Normal`, and neither half alone proves the branch. It found TEST_FINDINGS #47.
+- `AuthoredVolumeTests.cs` covers `clip.Volume * entity.MasterVolume` (`AudioPlayer.Playback.cs:276`). Both
+  factors defaulted to 1 everywhere in the suite, so the product could have been deleted outright with
+  everything still green — which is what **1.6's "covered" claim actually meant** until now.
+- `SpatialAndPriorityTests.cs` covers the spatial settings and `entity.Priority`, and pins what a pooled
+  player carries into its next sound. It found TEST_FINDINGS #46.
+
+**None of these four files were executed when they were written**, for the same reason as the tiers above.
+
 `RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
 which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
 
@@ -97,6 +118,14 @@ referencing `BroAudio` does not bring Localization types into scope. Phase 4 nee
 `UnityEngine.UI` reference for the same reason when tier 6 reached `SoundVolume`: that component holds a
 `UnityEngine.UI.Slider` directly and ungated, but `BroAudio.asmdef`'s own reference to uGUI does not carry
 into the test assembly, so half of `SoundVolume`'s contract was unreachable without it.
+
+Both test asmdefs reference the **optional** packages by GUID rather than by name, matching the shipped
+`BroAudio.asmdef`. A by-name reference that does not resolve makes Unity refuse to build the entire
+assembly, so with Addressables or Localization absent the whole suite compiled to nothing and every
+`#if PACKAGE_*` inside it was moot; a GUID reference is dropped quietly instead and the `versionDefines`
+do their job. The GUIDs are `Unity.Addressables` `9e24947d…`, `Unity.ResourceManager` `84651a37…`,
+`Unity.Localization` `eec0964c…` and `Unity.Addressables.Editor` `69448af7…`. Non-optional references
+(`BroAudio`, the test runners, `UnityEngine.UI`) stay by name — they always resolve.
 
 ---
 
