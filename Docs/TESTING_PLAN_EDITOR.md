@@ -87,9 +87,12 @@ The mirror of the runtime plan's singleton problem. Solve it once in a base fixt
 - **`EditorPrefs`**, keyed by `PlayerSettings.productGUID` — `EditorSetting.LastEditAudioAsset`.
 - **`EditorGUIUtility.systemCopyBuffer`** — `PropertyClipboard` writes the user's actual system
   clipboard. Any test touching it restores the previous contents.
-- **Temp assets.** Write them to one folder, `Assets/BroAudioEditorTests_Temp/`, created in `SetUp` and
+- **Temp assets.** Write them to one folder, `Assets/EditorTestsScratch_Temp/`, created in `SetUp` and
   `AssetDatabase.DeleteAsset`-ed in `TearDown`. **Never write into `Assets/BroAudio/`** — that subtree
-  *is* the shipped package.
+  *is* the shipped package. The name deliberately contains no `BroAudio`: `AssetPostprocessorEditor`
+  matches every imported path against `BroAudio` / `Bro_Audio` / `com.ami.broaudio` to decide whether to
+  run `BroUserDataGenerator`, so a temp folder carrying the package name fires user-data generation into
+  the shipped package on the first import of a run.
 
 ### Three things that will kill a run
 

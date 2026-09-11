@@ -65,7 +65,12 @@ namespace Ami.BroAudio.Tests
         {
             float result = 2f.ToDecibel(allowBoost: true);
 
-            Assert.That(result, Is.EqualTo(Mathf.Log10(2f) * DefaultDecibelVolumeScale).Within(0.001f));
+            // Hardcoded literal, not Mathf.Log10(2f) * DefaultDecibelVolumeScale: that expression is
+            // production's own formula, so it would still pass if DefaultDecibelVolumeScale silently
+            // regressed from 20 to 10 (an audible defect) - both sides would shrink together. 20 * log10(2)
+            // = 6.0206 is computed independently here so a scale regression is caught. Do not "simplify"
+            // this back into the formula.
+            Assert.That(result, Is.EqualTo(6.0206f).Within(0.001f));
             Assert.That(result, Is.GreaterThan(FullDecibelVolume));
         }
 
@@ -163,7 +168,10 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void ToDecibel_DefaultAllowBoost_IsTrue_UnlikeClampNormalizesDefaultOfFalse()
         {
-            Assert.That(5f.ToDecibel(), Is.EqualTo(Mathf.Log10(5f) * DefaultDecibelVolumeScale).Within(0.001f),
+            // Hardcoded literal (see ToDecibel_AboveOne_WithAllowBoostTrue_ComputesBoostedDecibelAboveZero
+            // for why): Mathf.Log10(5f) * DefaultDecibelVolumeScale is production's own formula and would
+            // stay green through a DefaultDecibelVolumeScale regression. 20 * log10(5) = 13.9794.
+            Assert.That(5f.ToDecibel(), Is.EqualTo(13.9794f).Within(0.001f),
                 "ToDecibel() with no args must let an above-unity volume through boosted (allowBoost defaults true).");
         }
 
@@ -278,7 +286,12 @@ namespace Ami.BroAudio.Tests
         public void Value_Volume_IsStoredPreConvertedToDecibelAtConstruction()
         {
             Effect effect = CreateEffect(EffectType.Volume, 0.5f);
-            Assert.That(effect.Value, Is.EqualTo(0.5f.ToDecibel()).Within(0.001f));
+
+            // Hardcoded literal, not 0.5f.ToDecibel(): that would make the function under test its own
+            // oracle, so it would still pass if the dB conversion regressed (e.g. DefaultDecibelVolumeScale
+            // 20 -> 10) since both sides would move together. 20 * log10(0.5) = -6.0206, computed
+            // independently here so such a regression is caught. Do not "simplify" this back to .ToDecibel().
+            Assert.That(effect.Value, Is.EqualTo(-6.0206f).Within(0.001f));
         }
 
         [Test]
