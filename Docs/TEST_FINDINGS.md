@@ -40,6 +40,7 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 48 | Teardown | `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs, so it throws once the manager is gone | Open, characterized |
 | 49 | Teardown | Release verbs on an `IAudioPlayer` handle that outlived the manager throw instead of no-op'ing | Open, characterized |
 | 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, suspected |
+| 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, characterized |
 
 ---
 
@@ -1011,3 +1012,51 @@ Status: **Open, suspected — derived from source, not observed.** Not pinned. E
 destroys the `Fader` in the same step and never gives it the chance to call this. Isolating it would mean
 destroying the `SoundManager` component alone and leaving its GameObject and player children orphaned in
 the scene for the rest of the run, which is not worth the leak to a later test.
+
+---
+
+## 51. A zero-fade `SetVolume` cannot cancel an in-flight master fade
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs:234-263`
+
+```csharp
+targetVol = targetVol.ToDecibel();
+if (_broAudioMixer.SafeGetFloat(MasterTrackName, out float currentVol))
+{
+    if (currentVol == targetVol)
+    {
+        return;
+    }
+
+    if (fadeTime != 0f)
+    {
+        this.RestartCoroutine(SetMasterVolume(currentVol, targetVol, fadeTime), ref _masterVolumeCoroutine);
+    }
+    else
+    {
+        _broAudioMixer.SafeSetFloat(MasterTrackName, targetVol);
+    }
+}
+```
+
+`RestartCoroutine` is the only thing that stops the previous ramp (`CoroutineExtension.cs:19-28` calls
+`SafeStopCoroutine` before starting the new one), and it is reached only on the `fadeTime != 0f` branch.
+`BroAudio.SetVolume(vol, 0f)` — the documented way to set master volume instantly — takes the other
+branch: it writes the parameter once and leaves any running fade alive, which then overwrites that value
+on its very next frame. The instant set is silently undone.
+
+The `currentVol == targetVol` early return compounds it: a caller who asks for the value the parameter
+already holds gets no write *and* no cancellation, so a fade running toward some other target continues
+uninterrupted.
+
+Both halves are reachable from a paused game. A master fade started while `Time.timeScale == 0` under
+`AudioMixerUpdateMode.Normal` has `GetDeltaTime() == 0`, so its loop rewrites Master with the *starting*
+value every frame — the parameter never moves, every `SetVolume(thatValue, 0f)` early-returns, and the
+fade resumes against the caller's wishes as soon as the game unpauses.
+
+Status: **Open, characterized by its consequence rather than by a dedicated test.** Found when
+`UpdateModeClockTests` left a deliberately frozen master fade behind and it turned
+`VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct` red one fixture
+later (CI run 20). `UpdateModeClockTests.RestoreTimeScaleAndDrainTheMasterFade` now drains the fade rather
+than relying on the reset, so the suite no longer depends on the broken cancellation. A fix would stop the
+stored coroutine on both the zero-fade branch and the early return.
