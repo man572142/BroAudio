@@ -141,7 +141,7 @@ Per-file counts, each also verified passing in isolation: `IsolationContractTest
 The isolation contract lives in `BroEditorTestFixture`
 (`Assets/Tests/Editor/BroEditorTestFixture.cs`): JSON snapshot/restore of the on-disk `EditorSetting` and
 `RuntimeSetting` plus `EditorUtility.ClearDirty`, restore of the `LastEditAudioAsset` EditorPref and
-`EditorGUIUtility.systemCopyBuffer`, and an `Assets/BroAudioEditorTests_Temp/` folder deleted in
+`EditorGUIUtility.systemCopyBuffer`, and an `Assets/EditorTestsScratch_Temp/` folder deleted in
 TearDown. `IsolationContractTests` guards the fixture itself. `git status` is clean after a run; nothing
 under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/` is touched.
 

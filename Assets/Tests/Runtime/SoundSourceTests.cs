@@ -403,6 +403,13 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator OnEnable_WithDelay_HoldsThePlayheadUntilTheDelayElapses()
         {
+            // This test samples the playhead the SoundSource's inspector Delay holds at 0 (scheduled from
+            // OnEnable), partway through the wait via WaitDspSeconds. A machine with no audio output device
+            // runs the DSP clock decoupled from wall time - fast enough that a single WaitDspSeconds frame
+            // can carry dspTime straight past the whole 1.5s Delay window, so the "still not audible"
+            // assertion below would read the voice as already started rather than being skipped as intended.
+            yield return RequireRealtimeAudioClock();
+
             // 1.5s delay (was 0.5s): the old "2 frames + 0.15s" check point left only ~0.32s of margin
             // before the delay's own boundary - thinner than a single capped hitch frame
             // (Time.maximumDeltaTime ~0.333s). The wider delay below leaves a full ~1s of margin instead.

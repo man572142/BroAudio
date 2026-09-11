@@ -24,8 +24,14 @@ namespace Ami.BroAudio.Editor.Tests
         protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
         /// <summary>The only folder a test may write into. Never write into Assets/BroAudio/ — that subtree is the shipped package.</summary>
-        protected const string TempFolder = "Assets/BroAudioEditorTests_Temp";
-        private const string TempFolderName = "BroAudioEditorTests_Temp";
+        // Must not contain "BroAudio", "Bro_Audio", or "com.ami.broaudio": AssetPostprocessorEditor.
+        // OnPostprocessAllAssets (Assets/BroAudio/Editor/UnityCalls/AssetPostprocessorEditor.cs) matches
+        // every imported asset path against those substrings to decide whether to run BroUserDataGenerator
+        // against the shipped package's own Resources folders. A temp folder whose name matches would fire
+        // that generator for every asset this fixture creates here, guarded only by a static bool latch -
+        // do not rename this back to something containing the package name.
+        protected const string TempFolder = "Assets/EditorTestsScratch_Temp";
+        private const string TempFolderName = "EditorTestsScratch_Temp";
 
         private readonly List<Object> _createdObjects = new List<Object>();
         private string _editorSettingSnapshot;
