@@ -65,6 +65,17 @@ namespace Ami.BroAudio.Tests
         // volume) established below - nowhere near mixer round-trip noise.
         private const float MasterFadeTargetVolume = 0.1f;
 
+        // Drain budget for a master fade left in flight by these tests (see the teardown below). The
+        // longest one this file can leave is FadeDuration, and it only has to run down once timeScale is
+        // restored, so 5s is several times the worst case - wide enough that a slow frame cannot trip it,
+        // tight enough to fail loudly rather than hang the run if a fade never stops.
+        private const float MasterDrainTimeout = 5f;
+
+        // Consecutive identical readings that count as "no coroutine is writing this any more". One frame
+        // is not enough: a fade's own ease can land two adjacent frames on the same float near the end of
+        // its curve, which would read as settled while the ramp is still going.
+        private const int SteadyFrameCount = 5;
+
         /// <summary>
         /// Time.timeScale is global process state BroAudioTestFixture does not touch (its JSON
         /// snapshot/restore only covers the RuntimeSetting asset, which does include UpdateMode - a plain
@@ -76,10 +87,49 @@ namespace Ami.BroAudio.Tests
         /// unconditionally - a failed assertion above cannot skip it.
         /// </summary>
         [UnityTearDown]
-        public IEnumerator RestoreTimeScale()
+        public IEnumerator RestoreTimeScaleAndDrainTheMasterFade()
         {
             Time.timeScale = 1f;
             yield return null;
+
+            // Restoring timeScale is not enough on its own: a master fade this fixture froze outlives the
+            // fixture's own reset and resumes the moment the line above unpauses it.
+            //
+            // BroAudioTearDown resets with BroAudio.SetVolume(FullVolume, 0f), and that cannot cancel a
+            // running master fade. SetMasterVolume (SoundManager.cs:234-250) only calls RestartCoroutine -
+            // the one path that stops the previous coroutine - on its `fadeTime != 0f` branch; the zero
+            // branch just writes the parameter once and leaves the coroutine running. And a fade frozen at
+            // timeScale 0 never even gets that far: with GetDeltaTime pinned at 0 the coroutine rewrites
+            // Master with its *starting* value every frame, so Master still reads exactly full volume and
+            // the `currentVol == targetVol` early return (:238) skips the write entirely.
+            //
+            // The stale coroutine therefore survived into the next fixture and kept moving Master while
+            // that fixture asserted on it - which is exactly how this file first turned
+            // VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct red
+            // (recorded as finding #51). Draining it here is the fixture's own mess to clean up.
+            //
+            // Waiting for the reading to stop moving, rather than for a particular value, is deliberate: a
+            // live fade rewrites Master every frame (:253-263), so a steady reading is the observable end
+            // of the coroutine whether it completed, was never started, or is still mid-ramp - and no
+            // branch of this file has to predict which.
+            float deadline = Time.realtimeSinceStartup + MasterDrainTimeout;
+            float lastDb = float.MinValue;
+            int steadyFrames = 0;
+            while (steadyFrames < SteadyFrameCount)
+            {
+                Assert.Less(Time.realtimeSinceStartup, deadline,
+                    "Timed out waiting for the master volume to stop being written by an in-flight fade. " +
+                    "Something is still ramping it, and leaving it running would corrupt every later fixture.");
+
+                yield return null;
+                if (!SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db))
+                {
+                    continue;
+                }
+
+                steadyFrames = Mathf.Approximately(db, lastDb) ? steadyFrames + 1 : 0;
+                lastDb = db;
+            }
         }
 
         [UnityTest]
