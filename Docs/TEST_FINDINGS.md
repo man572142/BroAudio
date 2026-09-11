@@ -35,6 +35,11 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 43 | Decorators / Dominator | `QuietOthers` with a zero fade time is overwritten by `SwitchMainTrackMode`, so nothing ducks | Open, suspected |
 | 44 | Decorators / Dominator | A looping dominator's incoming player takes a generic track at the first seam, so it ducks itself | Open, characterized |
 | 45 | Playback / Handover | `TransferAddedEffectComponents` runs once per decorator plus once, duplicating added effects every seam | Open, suspected |
+| 46 | Spatial / Recycling | `ResetSpatial` resets `rolloffMode` but never clears the `CustomRolloff` curve data underneath it | Open, characterized |
+| 47 | Extension / Easing | `EaseExtension.SetEase` discards its own `Mathf.Clamp01` result, so the clamp is a no-op | Open, characterized |
+| 48 | Teardown | `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs, so it throws once the manager is gone | Open, characterized |
+| 49 | Teardown | Release verbs on an `IAudioPlayer` handle that outlived the manager throw instead of no-op'ing | Open, characterized |
+| 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, suspected |
 
 ---
 
@@ -850,3 +855,159 @@ looping Music entity, where `RuntimeSetting.AlwaysPlayMusicAsBGM` attaches `Musi
 Status: **Open, suspected — derived from source, not observed.** Unity was unavailable, and this was found
 while investigating #44 rather than by running anything. Not pinned: confirming it means counting components
 on the incoming player across a seam, which is worth doing before writing an assertion about the count.
+
+---
+
+## 46. `ResetSpatial` resets `rolloffMode` but leaves the `CustomRolloff` curve data behind
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.cs:172-184`, called from
+`AudioPlayer.Playback.cs:567` (`EndPlaying`, i.e. at the end of *every* playback, before `Recycle()`).
+
+```csharp
+private void ResetSpatial()
+{
+    AudioSource.spatialBlend = AudioConstant.SpatialBlend_2D;
+    transform.position = Vector3.zero;
+
+    AudioSource.panStereo = AudioConstant.DefaultPanStereo;
+    AudioSource.dopplerLevel = AudioConstant.DefaultDoppler;
+    AudioSource.minDistance = AudioConstant.AttenuationMinDistance;
+    AudioSource.maxDistance = AudioConstant.AttenuationMaxDistance;
+    AudioSource.reverbZoneMix = AudioConstant.DefaultReverZoneMix;
+    AudioSource.spread = AudioConstant.DefaultSpread;
+    AudioSource.rolloffMode = AudioConstant.DefaultRolloffMode;
+}
+```
+
+Every scalar it names is genuinely reset, and the pooled player hands the next sound a clean source for
+all of them. `CustomRolloff` is the exception: the mode is reset away from `AudioRolloffMode.Custom`, but
+nothing ever calls `SetCustomCurve(AudioSourceCurveType.CustomRolloff, ...)` to clear the keyframes, and
+there is no scalar shortcut for it — `Utility.SetCustomCurveOrResetDefault` (`Utility.cs:78-84`) refuses
+that curve type outright and logs an error telling the caller to use `RolloffMode` to detect default
+instead. So an `AudioSource` that once played an entity with a custom rolloff curve carries that entity's
+raw keyframes for the rest of the run, across every later borrower of that pooled player.
+
+Inert today: `SetSpatial` only ever selects `Custom` together with a fresh `SetCustomCurve` call
+(`AudioPlayer.cs:127-131`), so nothing currently reads the stale curve. It becomes audible the moment any
+path sets `rolloffMode = Custom` without supplying a curve — the sound would inherit a previous,
+unrelated sound's attenuation shape.
+
+Status: **Open, characterized.** Pinned by
+`SpatialAndPriorityTests.Recycle_AfterA3DSound_ResetsScalarSpatialStateButLeavesTheCustomRolloffCurveBehind`,
+which asserts both halves: the scalars that *are* reset, and the curve that is not. Fixing this means
+clearing the curve in `ResetSpatial` and updating that test's final assertion.
+
+---
+
+## 47. `EaseExtension.SetEase` discards its own `Mathf.Clamp01` result
+
+**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs:7-11`
+
+```csharp
+public static float SetEase(this float value, Ease ease)
+{
+    Mathf.Clamp01(value);
+
+    return ease switch { ... };
+}
+```
+
+`Mathf.Clamp01` is pure — it returns the clamped value and cannot mutate its argument. The result is
+never assigned back to `value`, so the statement does nothing and every ease expression below runs on the
+unclamped input. The line reads as a guard and is not one.
+
+It matters wherever a caller can hand in a `t` outside `[0, 1]`. The `while (currentTime < fadeTime)`
+ramps in `SoundManager.SetMasterVolume` (`SoundManager.cs:253-264`) and `AudioPlayer.Pitch`
+(`AudioPlayer.Pitch.cs:84`) increment `currentTime` by `Utility.GetDeltaTime()` and then use it in the
+same iteration, so the final pass before the condition is re-checked can evaluate an ease at `t > 1`.
+For the monotonic curves the overshoot is a small one-frame error rather than a visible artifact, which
+is why nothing has surfaced it; for a curve that is non-monotonic outside the unit interval it would not
+stay small.
+
+Status: **Open, characterized.** Found by reading, while establishing what `UpdateModeClockTests` could
+safely assert about a frozen fade. Not pinned by a dedicated test — the observable effect at the call
+sites above is sub-frame, so a test asserting it would be pinning float noise rather than behavior; the
+defect is in the guard's absence, which is legible in the source itself.
+
+---
+
+## 48. `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs
+
+**Where:** `Assets/BroAudio/Runtime/BroAudio.cs:295-302`
+
+```csharp
+public static IAutoResetWaitable SetEffect(Effect effect)
+    => SoundManager.Instance.SetEffect(effect);
+
+public static IAutoResetWaitable SetEffect(Effect effect, BroAudioType audioType)
+    => SoundManager.Instance.SetEffect(audioType, effect);
+```
+
+Every other non-play verb on the facade goes through the null-safe `BroAudio.Manager` (`BroAudio.cs:31`),
+which returns null when there is no instance, so `Stop`, `Pause`, `UnPause`, `SetVolume` and `SetPitch` all
+degrade to a silent no-op during teardown. `SetEffect` reads the throwing `SoundManager.Instance` instead
+and so behaves like a play verb, throwing `BroAudioException` once the manager is gone.
+
+Whether that is wrong depends on which list `SetEffect` belongs to, and the codebase does not say. It reads
+as a release-side verb — it is the one you would call from `OnDisable` to clear a filter — and it returns
+a waitable rather than a player, so the play-verb rationale ("you asked for a sound, you must get one or an
+error") does not obviously apply.
+
+Status: **Open, characterized.** Pinned by
+`TeardownTests.SetEffect_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException`, which asserts the
+actual throwing behavior. If this is later moved onto `Manager?.`, that test fails and is the prompt to
+update it.
+
+---
+
+## 49. Release verbs on a player handle that outlived the manager throw instead of no-op'ing
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:19-26`, reached from
+`Assets/BroAudio/Runtime/Utility/InstanceWrapper.cs:8-27`
+
+```csharp
+protected T Instance => IsAvailable() ? _instance : null;   // logWarning defaults to true
+
+protected override void LogInstanceIsNull()
+{
+    if (SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning)   // throwing accessor
+    { ... }
+}
+```
+
+`IsAvailable()` defaults to `logWarning: true`, so any access to a wrapper whose backing `AudioPlayer` is
+gone calls `LogInstanceIsNull()` — which reaches `SoundManager.Instance`, the accessor that throws
+`BroAudioException` when there is no instance, rather than the null-safe `BroAudio.Manager` used everywhere
+else on this path.
+
+Pooled players are instantiated as children of the manager's own transform
+(`AudioPlayerObjectPool.CreateObject`), so the manager's destruction destroys every `AudioPlayer` with it.
+Both conditions therefore arrive together, and a caller holding an `IAudioPlayer` across that moment —
+exactly what a script does when it caches the handle it got from `Play` — gets a throw from `Stop`,
+`Pause`, `UnPause`, `SetVolume` and `SetPitch`.
+
+This contradicts the teardown-asymmetry contract as documented: the null-safe route exists so release verbs
+survive `OnDestroy`/`OnApplicationQuit` ordering, and here the handle-level release verbs do not. The
+contrast that localizes it: `IsActive` and `IsPlaying` call `IsAvailable(false)` and stay safe.
+
+Status: **Open, characterized.** Pinned by
+`TeardownTests.StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsThrowInsteadOfSilentlyNoOp`, which
+asserts the throw *and* the safe `IsActive`/`IsPlaying` contrast, so a fix flips the test rather than
+quietly widening it. The fix is one line — `LogInstanceIsNull` consulting `SoundManager.HasInstance` (or
+`BroAudio.Manager`) before dereferencing.
+
+---
+
+## 50. `Fader.StopCoroutine`'s defensive no-op reaches the throwing accessor
+
+**Where:** `Assets/BroAudio/Runtime/Player/FaderModule.cs:30`
+
+`Fader`'s coroutine executor is `SoundManager.Instance`. The guard is described as defensively no-op'ing
+when the manager is gone during teardown, but as written it dereferences the throwing accessor and would
+raise `BroAudioException` on that path — the same root cause as #49.
+
+Status: **Open, suspected — derived from source, not observed.** Not pinned. Every `Fader` lives inside an
+`AudioPlayer`, and every `AudioPlayer` is a child of the manager's transform, so destroying the manager
+destroys the `Fader` in the same step and never gives it the chance to call this. Isolating it would mean
+destroying the `SoundManager` component alone and leaving its GameObject and player children orphaned in
+the scene for the rest of the run, which is not worth the leak to a later test.

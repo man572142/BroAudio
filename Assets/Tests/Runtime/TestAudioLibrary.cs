@@ -57,6 +57,31 @@ namespace Ami.BroAudio.Tests
             return entity;
         }
 
+        /// <summary>
+        /// Creates a playable entity exactly like <see cref="CreateEntity"/>, but with the per-clip
+        /// <see cref="BroAudioClip.Volume"/> and entity <see cref="AudioEntity.MasterVolume"/> authored away
+        /// from their shared default of 1f (AudioConstant.FullVolume). Neither factor can be moved off 1
+        /// by any other factory here, which leaves AudioPlayer.Playback.cs's `_clip.Volume *
+        /// _pref.Entity.GetMasterVolume()` product (AudioPlayer.Playback.cs:276, SetupClipVolume) unable to
+        /// ever read as anything but 1 * 1 in the suite - this is the smallest addition that fixes that.
+        /// <para>
+        /// <see cref="BroAudioClip.Volume"/> is a plain public field, so it's written directly; MasterVolume
+        /// is `private set` like most of <see cref="AudioEntity"/>, so it goes through <see cref="SetPrivateField"/>
+        /// against the auto-property's backing field, the same way every other authored AudioEntity field in
+        /// this suite (RandomFlags, VolumeRandomRange, Loop, ...) is written.
+        /// </para>
+        /// </summary>
+        public static AudioEntity CreateEntityWithVolume(string name, BroAudioType audioType, float clipVolume, float masterVolume, params AudioClip[] clips)
+        {
+            AudioEntity entity = CreateEntity(name, audioType, clips);
+            foreach (BroAudioClip clip in entity.Clips)
+            {
+                clip.Volume = clipVolume;
+            }
+            SetPrivateField(entity, nameof(AudioEntity.MasterVolume), masterVolume);
+            return entity;
+        }
+
 #if PACKAGE_ADDRESSABLES
         /// <summary>
         /// GUIDs of the suite's own addressable fixtures — <c>Assets/Tests/Fixtures/AddressableTone{A,B}.wav</c>,
