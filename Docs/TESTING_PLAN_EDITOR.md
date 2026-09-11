@@ -394,9 +394,11 @@ Relay the artifact URL to the user; a subagent's final report is not shown to th
 - No production code changed. If a test is impossible without a seam, **propose the seam, stop, ask.**
 
 > **Amendment (2026-08-30).** The "do not fix" rule above governed the suite while it was being
-> built, and it held: every finding was characterized first and logged before anything changed. Once
-> both suites were green the maintainer reviewed the findings and approved fixing a subset of them, so
-> the repository now contains production changes this plan originally forbade. Fixed findings move to
+> built, and it held: every finding was characterized first and logged before anything changed. The
+> maintainer then reviewed the findings and approved fixing a subset of them, so the repository now
+> contains production changes this plan originally forbade. Not all of those approvals waited for
+> both suites: eight of the sixteen (#1–#7 and #17) were approved once the runtime suite was green,
+> before the EditMode harness existed; the other eight came after it. Fixed findings move to
 > [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; the rest stay open in
 > [TEST_FINDINGS.md](TEST_FINDINGS.md). New characterization work still follows the original rule —
 > find it, pin it, log it, and ask before fixing.
