@@ -37,7 +37,6 @@ namespace Ami.BroAudio.Tests
         // GetVolume() is a live fade read, so "still at full volume" / "already ramping" are thresholds,
         // not equalities. Matches FadeAndTrimTests' NearTargetThreshold.
         private const float NearTargetVolume = 0.95f;
-        private const float LinearTolerance = 0.01f;
 
         // SoundSource.NameOf is compiled only under UNITY_EDITOR, but Tests.asmdef targets every platform,
         // so the field names are spelled out here the same way the other fixtures spell out AudioEntity's.
@@ -49,15 +48,6 @@ namespace Ami.BroAudio.Tests
         private const string OverrideFadeOutField = "_overrideFadeOut";
         private const string DelayField = "_delay";
         private const string OverrideGroupField = "_overrideGroup";
-
-        /// <summary>
-        /// The pooled AudioPlayer behind a handle, via the wrapper's own explicit conversion (the same one
-        /// SoundSourceEditor uses to draw the Current Player field). Needed because position mode is only
-        /// observable on the player's Transform - IAudioSourceProxy exposes no transform or gameObject.
-        /// Returns null for Empty.AudioPlayer and for a recycled handle.
-        /// </summary>
-        private static AudioPlayer PlayerBehind(IAudioPlayer player)
-            => player is AudioPlayerInstanceWrapper wrapper ? (AudioPlayer)wrapper : null;
 
         private static void AssertPosition(Vector3 expected, Vector3 actual, string message)
             => Assert.Less(Vector3.Distance(expected, actual), PositionTolerance, $"{message} (expected {expected}, was {actual})");
@@ -97,18 +87,6 @@ namespace Ami.BroAudio.Tests
             return source;
         }
 
-        /// <summary>A group that rejects any play beyond the first, with every other rule disabled.</summary>
-        private DefaultPlaybackGroup NewSingleVoiceGroup()
-        {
-            DefaultPlaybackGroup group = Track(ScriptableObject.CreateInstance<DefaultPlaybackGroup>());
-            TestAudioLibrary.SetPrivateField(group, "_maxPlayableCount", (MaxPlayableCountRule)1);
-            TestAudioLibrary.SetPrivateField(group, "_combFilteringTime", (CombFilteringRule)0f);
-            TestAudioLibrary.SetPrivateField(group, "_ignoreCombFilteringIfSameFrame", false);
-            TestAudioLibrary.SetPrivateField(group, "_ignoreIfDistanceIsGreaterThan", 0f);
-            TestAudioLibrary.SetPrivateField(group, "_logCombFilteringWarning", false);
-            return group;
-        }
-
         #region Position modes
         // PositionMode.Global must reach BroAudio.Play(id) - the 2D overload - no matter where the host
         // sits. The position sentinel (negativeInfinity) is what makes SetSpatial skip its SetTo3D branch.
@@ -121,7 +99,7 @@ namespace Ami.BroAudio.Tests
             source.Play();
             yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
 
-            AudioPlayer player = PlayerBehind(source.CurrentPlayer);
+            AudioPlayer player = InstanceOf(source.CurrentPlayer);
             Assert.IsNotNull(player, "CurrentPlayer should wrap a real pooled AudioPlayer.");
             Assert.IsTrue(Utility.IsPlayedGlobally(player.PlayingPosition),
                 "PositionMode.Global must route to the global Play overload, so the playback position stays the sentinel rather than the host's transform.");
@@ -141,7 +119,7 @@ namespace Ami.BroAudio.Tests
             source.Play();
             yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
 
-            AudioPlayer player = PlayerBehind(source.CurrentPlayer);
+            AudioPlayer player = InstanceOf(source.CurrentPlayer);
             AssertPosition(origin, player.PlayingPosition, "StayHere must play at the host's position");
             AssertPosition(origin, player.transform.position, "The pooled player should have been moved to the play position");
             Assert.AreEqual(AudioConstant.SpatialBlend_3D, source.CurrentPlayer.AudioSource.spatialBlend, PositionTolerance,
@@ -167,7 +145,7 @@ namespace Ami.BroAudio.Tests
             source.Play();
             yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
 
-            AudioPlayer player = PlayerBehind(source.CurrentPlayer);
+            AudioPlayer player = InstanceOf(source.CurrentPlayer);
             AssertPosition(start, player.transform.position, "A follow-target play should start on the target");
             Assert.AreEqual(AudioConstant.SpatialBlend_3D, source.CurrentPlayer.AudioSource.spatialBlend, PositionTolerance,
                 "Playing with a follow target forces the voice to 3D.");
@@ -274,7 +252,7 @@ namespace Ami.BroAudio.Tests
             // The ramp itself runs on the frame clock and starts immediately (a Stop fade has no DSP wait
             // gate), so poll for the drop rather than assuming an ease shape.
             yield return WaitUntilOrTimeout(() => player.GetVolume() < 0.5f, "the override fade-out to ramp the volume down", fadeOut + 0.5f);
-            yield return WaitUntilOrTimeout(() => !player.IsActive, "the override fade-out to finish and recycle the player", fadeOut + 1f);
+            yield return WaitForRecycle(player, "the override fade-out to finish and recycle the player", fadeOut + 1f);
         }
 
         // characterizes: Stop On Disable is skipped entirely when the object is disabled in the same frame it
@@ -456,7 +434,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithOverrideGroup_LetsTheGroupRejectTheSecondSource()
         {
-            DefaultPlaybackGroup group = NewSingleVoiceGroup();
+            DefaultPlaybackGroup group = NewGroup(maxPlayableCount: 1);
             SoundID firstId = NewSound("GroupedSourceA", BroAudioType.SFX, NewClip(3f));
             SoundID secondId = NewSound("GroupedSourceB", BroAudioType.SFX, NewClip(3f));
             SoundSource first = NewSource(firstId, overrideGroup: group);

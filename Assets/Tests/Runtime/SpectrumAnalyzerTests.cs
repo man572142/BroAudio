@@ -34,7 +34,6 @@ namespace Ami.BroAudio.Tests
     public class SpectrumAnalyzerTests : BroAudioTestFixture
     {
         private const int DefaultResolutionScale = 10;
-        private const float DecibelTolerance = 0.1f;
 
         // SoundSource.NameOf is compiled only under UNITY_EDITOR, but Tests.asmdef targets every platform,
         // so the field names are spelled out here the same way SoundSourceTests spells them out.

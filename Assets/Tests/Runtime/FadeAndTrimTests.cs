@@ -102,7 +102,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(player.IsPlaying,
                 "The drop below half volume must be observed while the player is still playing, not after playback has already ended.");
 
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "playback to end once the fade-out completes", fadeOut + 1f);
         }
 
@@ -172,7 +172,7 @@ namespace Ami.BroAudio.Tests
 
             player.SetFadeOutEase(Ease.InCubic);
             player.Stop(0.4f);
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "a fade-out with a custom ease to still complete", 1.5f);
         }
 
@@ -222,7 +222,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player);
             double dspStart = AudioSettings.dspTime;
 
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "playback to end before the clip's full length because of the EndPosition trim", clipLength + 1f);
             double elapsed = AudioSettings.dspTime - dspStart;
             const float expectedDuration = clipLength - endPosition;
@@ -267,7 +267,7 @@ namespace Ami.BroAudio.Tests
             // Current, ~0.9 after the three frames above) rather than starting from 1, so a mid-flight
             // threshold has to be derived from that moving origin and read on a particular frame, while
             // !IsActive is a one-way transition with more than a second of margin on either side.
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "the original 0.8s fade-out to finish (a timeout here does not by itself prove the second Stop(4f) call went through)", 2.2f);
         }
 
@@ -295,7 +295,7 @@ namespace Ami.BroAudio.Tests
             // return false, so StopControl skips the fade block entirely and reaches EndPlaying before
             // StartCoroutine even returns; the whole deadline is slack. The ramp it pre-empted would not
             // have finished until ~3.05s, which is 1.85s past the deadline.
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "the immediate Stop to end playback promptly, well before the original 3s fade-out would have finished", 1.2f);
         }
     }

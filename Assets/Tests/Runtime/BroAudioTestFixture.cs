@@ -23,6 +23,15 @@ namespace Ami.BroAudio.Tests
         /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
         protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
+        /// <summary>
+        /// Linear volume products are exact float multiplication (fadeTime 0 uses Fader.Complete), so a
+        /// tight tolerance is fine.
+        /// </summary>
+        protected const float LinearTolerance = 0.01f;
+
+        /// <summary>dB values go through a log conversion plus a mixer round-trip, so they need a looser tolerance.</summary>
+        protected const float DecibelTolerance = 0.1f;
+
         private static AudioListener _listener;
 
         private readonly List<UnityEngine.Object> _createdObjects = new List<UnityEngine.Object>();
@@ -126,12 +135,40 @@ namespace Ami.BroAudio.Tests
             _bgmSubscriptions.Add(handler);
         }
 
+        /// <summary>
+        /// Builds a fresh, tracked DefaultPlaybackGroup with only the rule(s) a test cares about enabled.
+        /// _logCombFilteringWarning is always off - the warning is log noise, not the behavior under test.
+        /// </summary>
+        protected DefaultPlaybackGroup NewGroup(int maxPlayableCount = -1, float combFilteringTime = 0f,
+            bool ignoreSameFrame = false, float ignoreDistanceGreaterThan = 0f)
+        {
+            DefaultPlaybackGroup group = Track(ScriptableObject.CreateInstance<DefaultPlaybackGroup>());
+            TestAudioLibrary.SetPrivateField(group, "_maxPlayableCount", (MaxPlayableCountRule)maxPlayableCount);
+            TestAudioLibrary.SetPrivateField(group, "_combFilteringTime", (CombFilteringRule)combFilteringTime);
+            TestAudioLibrary.SetPrivateField(group, "_ignoreCombFilteringIfSameFrame", ignoreSameFrame);
+            TestAudioLibrary.SetPrivateField(group, "_ignoreIfDistanceIsGreaterThan", ignoreDistanceGreaterThan);
+            TestAudioLibrary.SetPrivateField(group, "_logCombFilteringWarning", false);
+            return group;
+        }
+
         /// <summary>Registers an object for destruction in TearDown.</summary>
         protected T Track<T>(T obj) where T : UnityEngine.Object
         {
             _createdObjects.Add(obj);
             return obj;
         }
+
+        /// <summary>
+        /// The concrete <see cref="AudioPlayer"/> a caller's handle currently resolves to, or null once it
+        /// has been recycled. Reaches through the <see cref="AudioPlayerInstanceWrapper"/> that
+        /// BroAudio.Play() returns, for the cases where the public surface genuinely cannot observe the
+        /// result — GetComponent() on the player's MonoBehaviour, or its Transform.
+        /// <para>
+        /// A looping handle changes what this returns at every seam — that is what UpdateInstance does.
+        /// </para>
+        /// </summary>
+        protected static AudioPlayer InstanceOf(IAudioPlayer player)
+            => player is AudioPlayerInstanceWrapper wrapper ? (AudioPlayer)wrapper : null;
         #endregion
 
         #region Waiting

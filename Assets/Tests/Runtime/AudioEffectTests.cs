@@ -26,11 +26,6 @@ namespace Ami.BroAudio.Tests
         private volatile int _capturedChannels = -1;
         private volatile int _capturedBufferLength = -1;
 
-        /// <summary>Reaches through the wrapper BroAudio.Play() returns to the concrete MonoBehaviour, so
-        /// tests can GetComponent() on it. Safe because SoundManager.Playback always hands back exactly a
-        /// new AudioPlayerInstanceWrapper(player) for a plain (non-BGM) SFX play.</summary>
-        private static AudioPlayer Underlying(IAudioPlayer player) => (AudioPlayer)(AudioPlayerInstanceWrapper)player;
-
         /// <summary>
         /// SetEffect's Add/Override modes for a non-default value permanently flip a bit in the SFX-type's
         /// stored EffectType pref (read by every future Play() via AudioPlayer.Playback.cs's SetTrackEffect)
@@ -77,7 +72,7 @@ namespace Ami.BroAudio.Tests
             player.AddLowPassEffect(proxy => proxy.cutoffFrequency = 3000f);
             yield return WaitFrames(1);
 
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
             AudioLowPassFilter filter = concrete.GetComponent<AudioLowPassFilter>();
             Assert.IsTrue(filter, "AddLowPassEffect should attach a real AudioLowPassFilter component to the player's GameObject.");
             Assert.AreEqual(3000f, filter.cutoffFrequency, 0.01f, "The proxy's onSet callback should write straight through to the attached component.");
@@ -89,7 +84,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("AllEffectsFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
 
             (Action<IAudioPlayer> AddEffect, Type ComponentType)[] verbs =
             {
@@ -116,7 +111,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("DuplicateFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
 
             player.AddLowPassEffect();
             yield return WaitFrames(1);
@@ -134,7 +129,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("RemoveFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
 
             player.AddLowPassEffect();
             yield return WaitFrames(1);
@@ -155,7 +150,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("RecycleFx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
 
             player.AddLowPassEffect();
             player.AddChorusEffect();
@@ -180,7 +175,7 @@ namespace Ami.BroAudio.Tests
             SoundID id2 = NewSound("RecycleFx2", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player2 = BroAudio.Play(id2);
             yield return WaitForPlaybackStart(player2, "second playback to start");
-            AudioPlayer concrete2 = Underlying(player2);
+            AudioPlayer concrete2 = InstanceOf(player2);
 
             Assert.AreSame(concrete, concrete2, "The pool should hand the just-recycled player back on the very next Play().");
             Assert.IsFalse(concrete2.GetComponent<AudioLowPassFilter>(), "A recycled-and-reused player must come back with zero leaked filter components.");
@@ -194,7 +189,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("InactiveFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
 
             BroAudio.Stop(id, 0f);
             yield return WaitForRecycle(concrete, "the player to recycle after Stop");
@@ -257,7 +252,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            AudioPlayer concrete = Underlying(player);
+            AudioPlayer concrete = InstanceOf(player);
             Assert.IsTrue(concrete.IsUsingTrackEffect, "A player started after SetEffect(LowPass) should route through the effect send channel.");
             Assert.AreNotEqual(EffectType.None, concrete.CurrentActiveTrackEffects & EffectType.LowPass, "LowPass should be part of the player's active track effects.");
         }
@@ -272,8 +267,8 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(musicPlayer, "the Music playback to start");
             yield return WaitForPlaybackStart(sfxPlayer, "the SFX playback to start");
 
-            AudioPlayer music = Underlying(musicPlayer);
-            AudioPlayer sfx = Underlying(sfxPlayer);
+            AudioPlayer music = InstanceOf(musicPlayer);
+            AudioPlayer sfx = InstanceOf(sfxPlayer);
             Assert.IsFalse(music.IsUsingTrackEffect, "Precondition: the Music player should start on its plain track.");
             Assert.IsFalse(sfx.IsUsingTrackEffect, "Precondition: the SFX player should start on its plain track.");
 

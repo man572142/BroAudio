@@ -25,22 +25,6 @@ namespace Ami.BroAudio.Tests
             public void OnGetPlayer(IAudioPlayer player) { }
         }
 
-        /// <summary>
-        /// Builds a fresh, tracked DefaultPlaybackGroup with only the rule(s) a test cares about enabled.
-        /// _logCombFilteringWarning is always off - the warning is log noise, not the behavior under test.
-        /// </summary>
-        private DefaultPlaybackGroup NewGroup(int maxPlayableCount = -1, float combFilteringTime = 0f,
-            bool ignoreSameFrame = false, float ignoreDistanceGreaterThan = 0f)
-        {
-            DefaultPlaybackGroup group = Track(ScriptableObject.CreateInstance<DefaultPlaybackGroup>());
-            TestAudioLibrary.SetPrivateField(group, "_maxPlayableCount", (MaxPlayableCountRule)maxPlayableCount);
-            TestAudioLibrary.SetPrivateField(group, "_combFilteringTime", (CombFilteringRule)combFilteringTime);
-            TestAudioLibrary.SetPrivateField(group, "_ignoreCombFilteringIfSameFrame", ignoreSameFrame);
-            TestAudioLibrary.SetPrivateField(group, "_ignoreIfDistanceIsGreaterThan", ignoreDistanceGreaterThan);
-            TestAudioLibrary.SetPrivateField(group, "_logCombFilteringWarning", false);
-            return group;
-        }
-
         /// <summary>Creates a tracked entity wired to the given group and returns its SoundID.</summary>
         private SoundID NewGroupedSound(DefaultPlaybackGroup group, string name, float clipSeconds = 2f)
         {
@@ -73,7 +57,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(2);
 
             player1.Stop(0f);
-            yield return WaitUntilOrTimeout(() => !player1.IsActive, "the stopped player to recycle and free its slot", 3f);
+            yield return WaitForRecycle(player1, "the stopped player to recycle and free its slot", 3f);
 
             IAudioPlayer player4 = BroAudio.Play(id4);
             Assert.IsTrue(player4.IsActive, "Once a slot frees (OnEnd decrements the group's count), a new play must succeed again.");

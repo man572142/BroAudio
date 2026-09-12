@@ -28,13 +28,10 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class AuthoredVolumeTests : BroAudioTestFixture
     {
-        // Same tolerance VolumePitchMixerTests/SoundVolumeTests use for this same linear product: fadeTime 0
-        // resolves through Fader.Complete, which is exact float multiplication, so a tight tolerance is fine.
-        // Every dropped-factor value computed in the comments below misses its assertion's expected value by
-        // several times this tolerance (worst case 0.056, in SetVolume_.../after both extra layers are
-        // applied) - tight enough to fail loudly rather than slip through a loose band.
-        private const float LinearTolerance = 0.01f;
-        private const float DecibelTolerance = 0.1f;
+        // Uses the fixture's shared LinearTolerance/DecibelTolerance. Every dropped-factor value computed
+        // in the comments below misses its assertion's expected value by several times LinearTolerance
+        // (worst case 0.056, in SetVolume_.../after both extra layers are applied) - tight enough to fail
+        // loudly rather than slip through a loose band.
 
         [UnityTest]
         public IEnumerator Play_WithAuthoredClipAndMasterVolume_AppliesTheirProductNotEitherFactorAlone()

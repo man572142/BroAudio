@@ -31,13 +31,6 @@ namespace Ami.BroAudio.Tests
         // AnimationCurve keyframes compared key-by-key (AnimationCurve has no value-equality of its own).
         private const float CurveTolerance = 0.001f;
 
-        /// <summary>Reaches through the wrapper BroAudio.Play() returns to the concrete MonoBehaviour, exactly
-        /// like AudioEffectTests' own Underlying() - duplicated here rather than shared, since this file may
-        /// only touch its own contents. Safe for the same reason: SoundManager.Playback always hands back a
-        /// fresh AudioPlayerInstanceWrapper(player) for a plain (non-BGM) play, and AsBGM() decorates the same
-        /// underlying instance rather than replacing it.</summary>
-        private static AudioPlayer Underlying(IAudioPlayer player) => (AudioPlayer)(AudioPlayerInstanceWrapper)player;
-
         /// <summary>Key-by-key AnimationCurve comparison - Trap noted in the task brief: AnimationCurve has no
         /// usable Equals, and GetCustomCurve() hands back a copy, not the original reference.</summary>
         private static void AssertCurveEquals(AnimationCurve expected, AnimationCurve actual, string message)
@@ -75,7 +68,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id, new Vector3(10f, 2f, -5f));
             yield return WaitForPlaybackStart(player);
 
-            AudioSource source = Underlying(player).GetComponent<AudioSource>();
+            AudioSource source = InstanceOf(player).GetComponent<AudioSource>();
             Assert.AreEqual(setting.StereoPan, source.panStereo, FloatTolerance, "SetSpatial should write StereoPan straight to AudioSource.panStereo.");
             Assert.AreEqual(setting.DopplerLevel, source.dopplerLevel, FloatTolerance, "SetSpatial should write DopplerLevel straight to AudioSource.dopplerLevel.");
             Assert.AreEqual(setting.MinDistance, source.minDistance, FloatTolerance, "SetSpatial should write MinDistance straight to AudioSource.minDistance.");
@@ -105,7 +98,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id); // No position, no follow target.
             yield return WaitForPlaybackStart(player);
 
-            AudioSource source = Underlying(player).GetComponent<AudioSource>();
+            AudioSource source = InstanceOf(player).GetComponent<AudioSource>();
             Assert.AreEqual(AudioConstant.SpatialBlend_2D, source.spatialBlend, FloatTolerance,
                 "Without a position or follow target, SetSpatial must leave the source 2D even though the entity authored a fully-3D SpatialBlend curve.");
         }
@@ -135,7 +128,7 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer playerA = BroAudio.Play(idA, new Vector3(3f, 0f, 4f));
             yield return WaitForPlaybackStart(playerA, "the 3D player to start");
-            AudioPlayer concreteA = Underlying(playerA);
+            AudioPlayer concreteA = InstanceOf(playerA);
             AudioSource sourceA = concreteA.GetComponent<AudioSource>();
 
             // Precondition, not the point of the test: confirm the 3D configuration actually landed, so a
@@ -157,7 +150,7 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer playerB = BroAudio.Play(idB); // No position.
             yield return WaitForPlaybackStart(playerB, "the reused player's second playback to start");
-            AudioPlayer concreteB = Underlying(playerB);
+            AudioPlayer concreteB = InstanceOf(playerB);
             Assert.AreSame(concreteA, concreteB, "The pool should hand the just-recycled player back on the very next Play().");
             AudioSource sourceB = concreteB.GetComponent<AudioSource>();
 
@@ -205,7 +198,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            AudioSource source = Underlying(player).GetComponent<AudioSource>();
+            AudioSource source = InstanceOf(player).GetComponent<AudioSource>();
             Assert.AreEqual(NonDefaultPriority, source.priority, "entity.Priority should reach AudioSource.priority on play (AudioPlayer.Playback.cs:114).");
         }
 
@@ -230,7 +223,7 @@ namespace Ami.BroAudio.Tests
             player.AsBGM();
             yield return WaitForPlaybackStart(player);
 
-            AudioSource source = Underlying(player).GetComponent<AudioSource>();
+            AudioSource source = InstanceOf(player).GetComponent<AudioSource>();
             Assert.AreEqual(AudioConstant.HighestPriority, source.priority,
                 "A BGM player must always play at HighestPriority, overriding whatever the entity itself authored.");
         }

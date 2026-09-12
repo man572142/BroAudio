@@ -127,6 +127,24 @@ namespace Ami.BroAudio.Tests
 
         #endregion
 
+        #region TempoToTime
+
+        // SeamlessType.Tempo is purely an Editor-authoring convenience: AudioEntityEditor writes
+        // TempoToTime(bpm, beats) into the entity's ordinary TransitionTime float, and playback then
+        // treats it identically to a Time-authored seamless loop - there is no separate runtime path.
+        // So the conversion is the only thing a Tempo loop adds, and it is pinned here rather than by a
+        // second PlayMode crossfade test that would re-run an existing scenario.
+        [TestCase(120f, 2, 1f)]        // 60/120 * 2
+        [TestCase(60f, 1, 1f)]
+        [TestCase(120f, 4, 2f)]
+        [TestCase(0f, 4, 0f)]          // guards the bpm == 0 early-out rather than dividing by zero
+        public void TempoToTime_ConvertsBpmAndBeatsToSeconds(float bpm, int beats, float expected)
+        {
+            Assert.That(AudioExtension.TempoToTime(bpm, beats), Is.EqualTo(expected).Within(0.0001f));
+        }
+
+        #endregion
+
         #region ClampNormalize / ClampDecibel (0.3)
 
         [TestCase(-5f, false, MinVolume)]
