@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
@@ -19,10 +18,6 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class SelectionStateAndDecoratorTests : BroAudioTestFixture
     {
-        // dB values make a round trip through the mixer, so they need a looser tolerance than a linear
-        // comparison would - the same split VolumePitchMixerTests documents.
-        private const float DecibelTolerance = 0.1f;
-
         #region 3.5 Clip-selection state lives on the AudioEntity, not the player
 
         [UnityTest]
@@ -370,7 +365,7 @@ namespace Ami.BroAudio.Tests
             const float ClipSeconds = 1f;
             const float OthersVolume = 0.2f;
             AudioEntity entity = NewEntity("LoopingDominatorSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, "Loop", true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
             SoundID id = IdOf(entity);
 
             // Chained in the same frame as Play, as in Play_AsDominatorInTheSameFrame_* above - the only way
@@ -501,19 +496,7 @@ namespace Ami.BroAudio.Tests
 
         #endregion
 
-        /// <summary>
-        /// The AudioPlayer a caller's handle currently resolves to, or null once it has been recycled.
-        /// A looping handle changes what this returns at every seam - that is what UpdateInstance does.
-        /// </summary>
-        private static AudioPlayer InstanceOf(IAudioPlayer player) => (AudioPlayer)(AudioPlayerInstanceWrapper)player;
-
         private static List<AudioPlayerDecorator> GetDecorators(IAudioPlayer player)
-        {
-            AudioPlayer instance = InstanceOf(player);
-            FieldInfo field = typeof(AudioPlayer).GetField("_decorators", BindingFlags.NonPublic | BindingFlags.Instance);
-            Assert.IsNotNull(field, "Reflection: AudioPlayer._decorators not found - renamed? " +
-                "Update SelectionStateAndDecoratorTests.cs.GetDecorators (also guarded by the canary in SerializedTransportTests.cs).");
-            return (List<AudioPlayerDecorator>)field.GetValue(instance);
-        }
+            => TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(InstanceOf(player), "_decorators");
     }
 }

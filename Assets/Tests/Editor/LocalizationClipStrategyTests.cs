@@ -1,5 +1,6 @@
 #if PACKAGE_LOCALIZATION
 using Ami.BroAudio.Data;
+using Ami.BroAudio.Editor.Tests;
 using Ami.BroAudio.Runtime;
 using NUnit.Framework;
 using UnityEngine;
@@ -17,15 +18,11 @@ namespace Ami.BroAudio.Tests
     /// and supplying a cached clip means <c>LoadAssetAsync</c> is never reached.
     /// </para>
     /// </summary>
-    public class LocalizationClipStrategyTests
+    public class LocalizationClipStrategyTests : BroEditorTestFixture
     {
         private AudioClip _clip;
 
-        [SetUp]
-        public void SetUp() => _clip = TestAudioLibrary.CreateClip(0.1f, "LocalizedClip");
-
-        [TearDown]
-        public void TearDown() => Object.DestroyImmediate(_clip);
+        protected override void OnSetUp() => _clip = Track(TestAudioLibrary.CreateClip(0.1f, "LocalizedClip"));
 
         private static LocalizationClipStrategy CreateStrategy(LocalizedAudioClip localizedAudio, AudioClip cached)
         {

@@ -89,11 +89,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreNotSame(clip, result);
             float[] actual = ReadAllSamples(result);
             float[] expected = { 0.2f, 0.3f, 0.4f, 0.5f, 0.6f };
-            Assert.AreEqual(expected.Length, actual.Length);
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
 
         [Test]
@@ -132,10 +128,7 @@ namespace Ami.BroAudio.Editor.Tests
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             Assert.AreEqual(5, actual.Length, "The read must stop at the end of the clip, not wrap around it.");
             float[] expected = { 0f, 0.2f, 0.4f, 0.6f, 0.8f };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         #endregion
 
@@ -152,11 +145,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.IsTrue(helper.HasEdited);
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             float[] expected = { 0f, 0f, 0f, 0f, 0.25f, 0.5f, 0.75f };
-            Assert.AreEqual(expected.Length, actual.Length);
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         [Test]
         public void AddSlient_PadLengthTruncatesInsteadOfRounding()
@@ -187,10 +176,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.IsTrue(helper.HasEdited);
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             float[] expected = { 0f, 0.125f, 0.25f, 0.375f };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         #endregion
 
@@ -205,10 +191,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             float[] expected = { 0.8f, 0.6f, 0.4f, 0.2f, 0f };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
 
         [Test]
@@ -225,10 +208,7 @@ namespace Ami.BroAudio.Editor.Tests
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             // Original interleaved (L0,R0,L1,R1,L2,R2) = (0, 1/3, 2/3, 1, 4/3, 5/3).
             float[] expected = { 5f / 3f, 4f / 3f, 1f, 2f / 3f, 1f / 3f, 0f };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
             // Left channel (even indices) post-reverse is the original right channel, reversed - the transpose.
             Assert.AreEqual(5f / 3f, actual[0], Tolerance, "index 0 (now 'left') should hold the old last-right sample.");
         }
@@ -247,10 +227,7 @@ namespace Ami.BroAudio.Editor.Tests
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             // i=0: *0; i=1: *(1/3); i=2: *(2/3); i=3,4 untouched.
             float[] expected = { 0f, 0.2f / 3f, 0.4f * (2f / 3f), 0.6f, 0.8f };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
 
         [Test]
@@ -268,10 +245,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreSame(clip, result, "With no edit, GetResultClip hands back the original instance.");
             float[] actual = ReadAllSamples(result);
             float[] expected = { 0f, 1f / 3f, 2f / 3f };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i} must be untouched");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance), "the untouched range must be untouched");
         }
 
         [Test]
@@ -286,10 +260,7 @@ namespace Ami.BroAudio.Editor.Tests
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             // i=2: *1; i=3: *(2/3); i=4: *(1/3). indices 0,1 untouched.
             float[] expected = { 0f, 0.2f, 0.4f, 0.6f * (2f / 3f), 0.8f * (1f / 3f) };
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         #endregion
 
@@ -311,10 +282,7 @@ namespace Ami.BroAudio.Editor.Tests
             // (0+1/3)/2, (2/3+1)/2 - the third pair (4/3+5/3)/2 is dropped entirely.
             float[] expected = { 1f / 6f, 5f / 6f };
             Assert.AreEqual(2, actual.Length, "6 interleaved samples / 2 channels - 1 dropped group = 2.");
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
 
         [Test]
@@ -362,11 +330,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(1, result.channels);
             float[] actual = ReadAllSamples(result);
             float[] expected = { 0f, 0.25f, 1f, 1.5f }; // index0 *0, index1 *(1/2); index2,3 untouched
-            Assert.AreEqual(expected.Length, actual.Length);
-            for (int i = 0; i < expected.Length; i++)
-            {
-                Assert.AreEqual(expected[i], actual[i], Tolerance, $"index {i}");
-            }
+            Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         #endregion
     }

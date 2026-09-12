@@ -50,10 +50,6 @@ namespace Ami.BroAudio.Tests
         private const float NearSilenceThreshold = 0.15f;
         private const float NearTargetThreshold = 0.95f;
 
-        // Master dB carries a log conversion plus a mixer round-trip (VolumePitchMixerTests.DecibelTolerance
-        // uses the same figure for the same reason), so it needs a looser tolerance than the linear checks.
-        private const float DecibelTolerance = 0.1f;
-
         // One duration shared by the clip's FadeIn and the master-volume fade so a single wait window
         // below covers both ramps. A 6s clip comfortably outlasts every window used in this file (the
         // widest is the frozen test's 3s realtime wait), so natural playback end never intervenes and

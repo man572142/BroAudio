@@ -32,9 +32,6 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class SoundVolumeTests : BroAudioTestFixture
     {
-        private const float LinearTolerance = 0.01f;
-        private const float DecibelTolerance = 0.1f;
-
         // SetVolumeToSlider rounds to SoundVolume.RoundingDigits (3), which can only ever move a slider
         // value by up to 5e-4. Asserting the rounded expectation this tightly is what separates "rounded"
         // from "not rounded" - a looser tolerance would accept both.

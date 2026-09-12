@@ -14,12 +14,6 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class VolumePitchMixerTests : BroAudioTestFixture
     {
-        // Linear volume products are exact float multiplication (fadeTime 0 uses Fader.Complete), so a
-        // tight tolerance is fine. dB values go through a log conversion plus mixer round-trip, so they
-        // need a looser tolerance.
-        private const float LinearTolerance = 0.01f;
-        private const float DecibelTolerance = 0.1f;
-
         [UnityTest]
         public IEnumerator SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct()
         {

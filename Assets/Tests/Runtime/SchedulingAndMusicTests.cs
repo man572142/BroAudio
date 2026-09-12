@@ -200,7 +200,7 @@ namespace Ami.BroAudio.Tests
 
             // 2s past the sample point is 1s past the 2s target - three capped hitch frames of slack - and still
             // ~1s short of the clip's natural 4s end, so an ignored explicit end still times out here.
-            yield return WaitUntilOrTimeout(() => !player.IsActive, "playback to end at the explicit scheduled end time, not the clip's natural 4s length", 2f);
+            yield return WaitForRecycle(player, "playback to end at the explicit scheduled end time, not the clip's natural 4s length", 2f);
         }
 
         // 2.9 - SetPitch mid-play recomputes the *derived* end time from the actual playhead
@@ -220,7 +220,7 @@ namespace Ami.BroAudio.Tests
             // Doubling pitch near the start of a 3s clip should finish it in well under 3s (~1.5s of
             // remaining audio at 2x speed). 2.3s is a generous upper bound - well short of the
             // un-accelerated 3s, so this fails loudly if the rescale regresses to a no-op.
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "pitch-doubled playback to end well before the clip's natural 3s length", 2.3f);
         }
 
@@ -257,7 +257,7 @@ namespace Ami.BroAudio.Tests
 
             // 2s past the sample point is 1s past the 2s target, and still ~1s short of the ~4s end a pitch-driven
             // recalculation would have produced - decisive by a full second in both directions.
-            yield return WaitUntilOrTimeout(() => !player.IsActive,
+            yield return WaitForRecycle(player,
                 "playback to end at the still-unmoved explicit end time (~2s), not at the pitch-rescaled ~4s", 2f);
         }
 
@@ -334,7 +334,7 @@ namespace Ami.BroAudio.Tests
 
             // 3s is well under the 9s clip length, so this stays discriminating; the transition itself is
             // Immediate, so 3s is a generous CI-safe margin rather than a tight bound on the transition.
-            yield return WaitUntilOrTimeout(() => !first.IsActive,
+            yield return WaitForRecycle(first,
                 "the first Music player to be auto-transitioned off by SoundManager's implicit AsBGM()+SetTransition", 3f);
             yield return WaitForPlaybackStart(second, "the second Music player to take over as BGM");
         }

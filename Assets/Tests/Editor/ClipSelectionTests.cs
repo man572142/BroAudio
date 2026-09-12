@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
+using Ami.BroAudio.Editor.Tests;
 using Ami.BroAudio.Runtime;
 using Ami.Extension;
 using NUnit.Framework;
@@ -12,32 +13,11 @@ namespace Ami.BroAudio.Tests
     /// Characterization tests for the clip selection strategies and their supporting
     /// <see cref="AudioEntity"/> helpers. No SoundManager, no Play Mode: strategies and clip arrays
     /// are constructed directly, so this lives in the EditMode assembly (<c>EditorTests.asmdef</c>)
-    /// and runs without entering Play Mode. Deliberately does not derive from BroAudioTestFixture —
-    /// that fixture forces Play Mode setup, which nothing here needs.
+    /// and runs without entering Play Mode. It derives from the EditMode fixture (not the PlayMode
+    /// BroAudioTestFixture, which would force Play Mode setup) for the suite-wide isolation contract.
     /// </summary>
-    public class ClipSelectionTests
+    public class ClipSelectionTests : BroEditorTestFixture
     {
-        private readonly System.Collections.Generic.List<Object> _createdObjects = new System.Collections.Generic.List<Object>();
-
-        [TearDown]
-        public void TearDown()
-        {
-            foreach (Object obj in _createdObjects)
-            {
-                if (obj)
-                {
-                    Object.DestroyImmediate(obj);
-                }
-            }
-            _createdObjects.Clear();
-        }
-
-        private T Track<T>(T obj) where T : Object
-        {
-            _createdObjects.Add(obj);
-            return obj;
-        }
-
         private AudioClip NewClip(string name = "Clip") => Track(TestAudioLibrary.CreateClip(name: name));
 
         /// <summary>Builds <paramref name="count"/> clips, all with a real AudioClip assigned (IsSet == true).</summary>

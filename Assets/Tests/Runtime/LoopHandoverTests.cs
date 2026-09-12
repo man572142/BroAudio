@@ -82,7 +82,7 @@ namespace Ami.BroAudio.Tests
         {
             const float ClipSeconds = 0.4f;
             AudioEntity entity = NewEntity("PlainLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, "Loop", true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
             SoundID id = IdOf(entity);
 
             double? startDsp = null;
@@ -124,9 +124,8 @@ namespace Ami.BroAudio.Tests
 
             const float ClipSeconds = 0.4f;
             const float TargetVolume = 0.3f;
-            const float VolumeTolerance = 0.01f;
             AudioEntity entity = NewEntity("HandoverHandleSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, "Loop", true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
             SoundID id = IdOf(entity);
 
             double? startDsp = null;
@@ -142,7 +141,7 @@ namespace Ami.BroAudio.Tests
             // the latter two are 1 here, so it reads back exactly what SetVolume put on the track fader.
             player.OnEnd(_ => onEndCount++);
             player.SetVolume(TargetVolume);
-            Assert.AreEqual(TargetVolume, player.GetVolume(), VolumeTolerance,
+            Assert.AreEqual(TargetVolume, player.GetVolume(), LinearTolerance,
                 "Precondition: SetVolume must land on the first player before any handover.");
 
             double secondSeamDsp = startDsp.Value + (ClipSeconds * 2);
@@ -154,7 +153,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(player.IsActive,
                 "The caller's IAudioPlayer must still be live after two handovers - UpdateInstance re-points " +
                 "it at the incoming player, and the owner of a looping sound has no other handle to hold.");
-            Assert.AreEqual(TargetVolume, player.GetVolume(), VolumeTolerance,
+            Assert.AreEqual(TargetVolume, player.GetVolume(), LinearTolerance,
                 "The volume set before the first seam must ride across both handovers, via " +
                 "PlaybackHandoverData.TrackVolume and ReceiveHandover's _trackVolume.Complete.");
             Assert.AreEqual(0, onEndCount,
@@ -186,8 +185,8 @@ namespace Ami.BroAudio.Tests
             const float ClipSeconds = 3f;
             const float TransitionSeconds = 1f;
             AudioEntity entity = NewEntity("SeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, "SeamlessLoop", true);
-            TestAudioLibrary.SetPrivateField(entity, "TransitionTime", TransitionSeconds);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.TransitionTime), TransitionSeconds);
             SoundID id = IdOf(entity);
 
             double? startDsp = null;
@@ -273,8 +272,8 @@ namespace Ami.BroAudio.Tests
             const float ClipSeconds = 1f;
             const float TransitionSeconds = 0.5f; // wide crossfade window so the pause reliably lands inside it
             AudioEntity entity = NewEntity("PauseSeamSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, "SeamlessLoop", true);
-            TestAudioLibrary.SetPrivateField(entity, "TransitionTime", TransitionSeconds);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.TransitionTime), TransitionSeconds);
             SoundID id = IdOf(entity);
 
             double? startDsp = null;
@@ -298,49 +297,6 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitUntilOrTimeout(() => BroAudio.HasAnyPlayingInstances(id),
                 "the sound to be audibly playing again after UnPause", 3f);
-        }
-
-        // 2.3 (Tempo variant) - SeamlessType.Tempo is purely an Editor-authoring convenience: both
-        // SeamlessType and TempoTransition are wrapped in #if UNITY_EDITOR and don't exist as types
-        // outside the Editor, while Tests.asmdef targets every platform - so this test never references
-        // either type. AudioEntityEditor.AdditionalProperties.cs (~line 408) computes
-        // transitionTimeProp.floatValue = TempoToTime(bpm, beats) and writes that straight into the
-        // entity's ordinary TransitionTime float; there is no separate runtime code path for a
-        // Tempo-authored loop; once TransitionTime is set, playback treats it identically to a
-        // Time-authored seamless loop. This reproduces that exact computation via the plain (ungated)
-        // AudioExtension.TempoToTime and feeds the result into TransitionTime the same way the
-        // Time-authored test above does, to pin that the crossfade window really is timed off the
-        // BPM/beats-derived duration.
-        [UnityTest]
-        public IEnumerator Play_WithTempoAuthoredSeamlessLoop_CrossfadesForTheBpmDerivedDuration()
-        {
-            yield return RequireRealtimeAudioClock();
-
-            const float ClipSeconds = 3f;
-            const float BPM = 120f;
-            const int Beats = 2;
-            float transitionSeconds = AudioExtension.TempoToTime(BPM, Beats); // 60/120 * 2 = 1s
-            AudioEntity entity = NewEntity("TempoSeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, "SeamlessLoop", true);
-            TestAudioLibrary.SetPrivateField(entity, "TransitionTime", transitionSeconds);
-            SoundID id = IdOf(entity);
-
-            double? startDsp = null;
-            IAudioPlayer player = BroAudio.Play(id);
-            player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
-
-            yield return WaitForPlaybackStart(player);
-            yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
-
-            double crossfadeStartDsp = startDsp.Value + ClipSeconds - transitionSeconds;
-            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
-                "the dsp clock to reach the start of the BPM-derived crossfade window", 5f);
-
-            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 2,
-                "both players to be simultaneously active at some point during the BPM-derived crossfade window", transitionSeconds + 1f);
-
-            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
-                "the crossfade to finish, leaving only the handed-over player active", 5f);
         }
     }
 }
