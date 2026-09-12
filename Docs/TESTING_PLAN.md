@@ -207,10 +207,10 @@ Work in order. Do not start phase 2 until phase 1's harness is proven by a green
 > **Amendment (2026-08-30).** The "do not fix" rule above governed the suite while it was being
 > built, and it held: every finding was characterized first and logged before anything changed. The
 > maintainer then reviewed the findings and approved fixing a subset of them, so the repository now
-> contains production changes this plan originally forbade. Not all of those approvals waited for
-> both suites: eight of the sixteen (#1–#7 and #17) were approved once the runtime suite was green,
-> before the EditMode harness existed; the other eight came after it. Fixed findings move to
-> [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; the rest stay open in
+> contains production changes this plan originally forbade. Not every approval waited for both
+> suites either — half the fix list was approved on the runtime suite alone, before the EditMode
+> harness existed — so read the rule above as the standard, not as a description of the log. Fixed
+> findings move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; the rest stay open in
 > [TEST_FINDINGS.md](TEST_FINDINGS.md). New characterization work still follows the original rule —
 > find it, pin it, log it, and ask before fixing.
 
