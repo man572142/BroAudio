@@ -24,6 +24,7 @@ jobs:
       contents: read
       checks: write
       packages: write
+      actions: write # the rotation step below removes this branch's superseded Library caches
     strategy:
       fail-fast: false
       matrix:
@@ -109,11 +110,39 @@ jobs:
 
       # Saved separately from the restore so a failing test run still warms the
       # Library for the next one - actions/cache skips its own save on failure.
+      #
+      # Push runs only. A cache written during a pull_request run is scoped to refs/pull/N/merge, so
+      # nothing but a re-run of that same PR can ever read it - not this branch, not another PR - yet
+      # it occupies the repository's 10 GB allowance all the same, and goes on occupying it after the
+      # PR merges. PRs restore from their base branch instead, which is what actually warms them
+      # today. workflow_dispatch on a feature branch is the same bargain: what it saved would only be
+      # readable by another dispatch on that same branch, so it restores from the default branch and
+      # writes nothing.
       - uses: actions/cache/save@v4
-        if: always() && steps.library-cache.outputs.cache-hit != 'true'
+        if: always() && github.event_name == 'push' && steps.library-cache.outputs.cache-hit != 'true'
         with:
           path: Library
           key: ${{ steps.library-cache.outputs.cache-primary-key }}
+
+      # Cache keys are immutable, so the save above can never replace an entry - only add one. Its key
+      # hashes Assets/**, which is the whole product, so all but the rarest push lands on a key nobody
+      # has used and writes another ~870 MB, leaving the previous run's copy parked in the allowance
+      # with nothing left to read it: the restore-keys prefix will only ever match the newest. Two
+      # test modes make that ~1.75 GB per push, which fills 10 GB in a handful of pushes and then
+      # starts evicting, by least-recent use, the very entry the next run wanted. Deleting the
+      # superseded entries leaves the branch holding exactly one Library per test mode.
+      #
+      # It runs after the save rather than before, so a failed upload leaves the older cache in place
+      # instead of nothing at all, and it only ever considers this branch's own keys for this one test
+      # mode - never main's, never the other leg's, which is what lets the two legs run in parallel.
+      - name: Drop the superseded Library caches on this branch
+        if: always() && github.event_name == 'push'
+        continue-on-error: true # housekeeping that cannot run is no reason to fail a green test run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CACHE_PREFIX: Library-${{ matrix.testMode }}-
+          KEEP_KEY: ${{ steps.library-cache.outputs.cache-primary-key }}
+        run: python3 .github/scripts/prune_library_caches.py
 
       - uses: actions/upload-artifact@v4
         if: always()
