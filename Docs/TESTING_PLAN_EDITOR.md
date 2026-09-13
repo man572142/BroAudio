@@ -2,8 +2,8 @@
 
 Handoff doc for the session that builds BroAudio's **Editor-assembly** regression suite.
 
-Companion to [TESTING_PLAN.md](TESTING_PLAN.md), which covers the runtime and is **done** — 179 PlayMode tests
-across `Assets/Tests/Runtime/`, ledger in `docs/TEST_INVENTORY.md`. Read that doc's *Principles* and
+Companion to [TESTING_PLAN.md](TESTING_PLAN.md), which covers the runtime and is **done**, ledger in
+`docs/TEST_INVENTORY.md`. Read that doc's *Principles* and
 *Anti-goals* sections; they apply verbatim here and are not restated. Delegation is **not** inherited —
 this suite has its own agent and model allocation, below. Everything else in this doc covers what is
 different about testing `BroAudioEditor`.
@@ -29,7 +29,7 @@ are the IMGUI wall, the domain reload, and the disk footprint. All three are cov
 
 ---
 
-## Ground truth (verified 2026-08-29, branch `test`)
+## Ground truth
 
 ### The assembly: a new one is required
 
@@ -393,15 +393,12 @@ Relay the artifact URL to the user; a subagent's final report is not shown to th
 - `docs/TEST_FINDINGS.md` carries the missing-450 and stale-15 findings, un-"fixed".
 - No production code changed. If a test is impossible without a seam, **propose the seam, stop, ask.**
 
-> **Amendment (2026-08-30).** The "do not fix" rule above governed the suite while it was being
-> built, and it held: every finding was characterized first and logged before anything changed. The
-> maintainer then reviewed the findings and approved fixing a subset of them, so the repository now
-> contains production changes this plan originally forbade. Not every approval waited for both
-> suites either — half the fix list was approved on the runtime suite alone, before the EditMode
-> harness existed — so read the rule above as the standard, not as a description of the log. Fixed
-> findings move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; the rest stay open in
-> [TEST_FINDINGS.md](TEST_FINDINGS.md). New characterization work still follows the original rule —
-> find it, pin it, log it, and ask before fixing.
+> **Note.** The "do not fix" rule above is the standard the suite is held to, not a literal
+> description of the log — a maintainer-approved fix can land on production code the rule otherwise
+> forbids, and approval does not require waiting for both suites to be green first. Fixed findings
+> move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; open findings stay in
+> [TEST_FINDINGS.md](TEST_FINDINGS.md). Characterization work still follows the original rule — find
+> it, pin it, log it, and ask before fixing.
 
 - The Opus 5 review has run and every item is either fixed or explicitly dismissed in writing.
 - The Opus 5 HTML report is published and its URL handed to the user.

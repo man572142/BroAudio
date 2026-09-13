@@ -23,7 +23,7 @@ namespace Ami.BroAudio.Tests
 
             float baselineLinear = player.GetVolume();
 
-            BroAudio.SetVolume(0.25f, 0f); // no id/type => master, per BroAudio.cs:159-160
+            BroAudio.SetVolume(0.25f, 0f); // no id/type => master, per BroAudio.SetVolume(vol, fadeTime) forwarding to BroAudioType.All
             yield return WaitFrames(1);
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db));
@@ -55,19 +55,19 @@ namespace Ami.BroAudio.Tests
 
             // Everything above reads the library's own bookkeeping - the *inputs* to the mixer write - so a
             // broken UpdateVolume would still pass. What the listener hears is
-            // AudioPlayer.UpdateVolume (AudioPlayer.Volume.cs:99-103): it writes
+            // AudioPlayer.UpdateVolume: it writes
             // (_clipVolume * _trackVolume * _audioTypeVolume).ToDecibel() through TrySetMixerDecibelVolume
             // to VolumeParaName, and only falls back to AudioSource.volume when there is no mixer/track.
             // Read the mixer back so the composition rule is proven at the output, not just at the input.
             //
-            // VolumeParaName (AudioPlayer.cs:72) is GetSendParaName() while the player is routed through a
+            // VolumeParaName is GetSendParaName() while the player is routed through a
             // track effect, and GetCurrentTrackName() - the output group's own name - otherwise. This is a
             // plain SFX with no effect set, so the group's name is the right parameter here; it would NOT be
             // for a player under SetEffect, which writes to "<track>_Effect" instead.
             Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must still hold a pooled track for its volume parameter to be exposed.");
 
             // A fixed frame wait is enough: TrySetMixerDecibelVolume only defers through DelaySetMixerVolume
-            // while Mixer.WaitForAudioMixerInitialization is non-null, and SoundManager.Start (SoundManager.cs:126)
+            // while Mixer.WaitForAudioMixerInitialization is non-null, and SoundManager.Start
             // nulls it on the first Play Mode frame - long before the fixture hands a test a live manager - so
             // SetVolume writes to the mixer synchronously.
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
@@ -166,7 +166,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(2f, player.AudioSource.pitch, LinearTolerance);
         }
 
-        // SoundManager.SetPitch(float, BroAudioType, float) (~SoundManager.cs:349) mirrors
+        // SoundManager.SetPitch(float, BroAudioType, float) mirrors
         // SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers above: it both pushes the new
         // pitch to every live player of the matching type and stores it into AudioTypePlaybackPreference,
         // so a player that hasn't been played yet also picks it up via SetInitialPitch. BroAudio.SetPitch

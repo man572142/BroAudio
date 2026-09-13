@@ -133,7 +133,7 @@ namespace Ami.BroAudio.Tests
         }
 
         // 2.7 - the documented quirk: SetScheduledStartTime on an already-playing source pauses it
-        // until the new dspTime, and this is invisible in IAudioPlayer state (Scheduling.cs:172-173).
+        // until the new dspTime, and this is invisible in IAudioPlayer state.
         [UnityTest]
         public IEnumerator SetScheduledStartTime_OnAlreadyPlayingSource_StallsPlayheadWithoutChangingIsPlaying()
         {

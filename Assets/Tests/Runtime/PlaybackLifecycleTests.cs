@@ -343,9 +343,9 @@ namespace Ami.BroAudio.Tests
         }
 
         // Stop(onFinished) - "fade the music out, then load the next scene" - and the one handle shape that
-        // breaks that promise. AudioPlayer.Playback.cs:544 invokes onFinished at the very tail of StopControl,
-        // after the fade-out has run to completion and after EndPlaying() (:531) has already recycled the
-        // player; only the no-fade early-out (:465) fires it synchronously. Fade progress runs on capped
+        // breaks that promise. StopControl invokes onFinished at its very tail,
+        // after the fade-out has run to completion and after EndPlaying() has already recycled the
+        // player; only the no-fade early-out fires it synchronously. Fade progress runs on capped
         // Time.deltaTime, so the fade is kept wide (2s) and the "not yet" half polls across a whole second
         // rather than sampling at one instant - Unity caps a hitch frame at ~0.333s, which is enough to
         // swallow a single sample taken shortly after the call.
@@ -379,16 +379,16 @@ namespace Ami.BroAudio.Tests
                 "EndPlaying() runs before onFinished, so the player is already recycled by the time the callback fires.");
 
             // characterizes: the same call on a handle whose player has already been recycled drops the
-            // callback silently. AudioPlayerInstanceWrapper.cs:45 forwards it as `Instance?.Stop(onFinished)`,
-            // and InstanceWrapper.Instance (Extension/Tools/InstanceWrapper.cs:8) resolves to null once
+            // callback silently. AudioPlayerInstanceWrapper.Stop forwards it as `Instance?.Stop(onFinished)`,
+            // and InstanceWrapper.Instance resolves to null once
             // Recycle() has cleared the backing field, so the null-conditional swallows the entire call -
             // onFinished is never stored anywhere and never runs. Empty.AudioPlayer's Stop(Action)
-            // (EmptyInstance.cs:49) is an empty body and drops it the same way, so a rejected Play behaves
+            // is an empty body and drops it the same way, so a rejected Play behaves
             // identically. This is the defect being pinned, not the contract we want: "fade out, then load
             // the next scene" never loads the scene. See Docs/TEST_FINDINGS.md #41.
             //
             // Reading Instance on a recycled wrapper logs through LogInstanceIsNull (gated by
-            // AudioPlayerInstanceWrapper.cs:21), so the warning is silenced exactly as
+            // Setting.LogAccessRecycledPlayerWarning), so the warning is silenced exactly as
             // StaleHandle_AfterRecycle_IsInertNotFatal does - log suppression, not the behavior under test.
             // The fixture restores RuntimeSetting in TearDown.
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = false;

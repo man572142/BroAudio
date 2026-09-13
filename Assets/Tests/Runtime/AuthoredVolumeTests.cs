@@ -11,11 +11,11 @@ namespace Ami.BroAudio.Tests
     /// <summary>
     /// TEST_INVENTORY 1.6 claims the per-sound volume a designer authors in the Library Manager - the
     /// product of <see cref="BroAudioClip.Volume"/> and <see cref="AudioEntity.MasterVolume"/> computed in
-    /// AudioPlayer.Playback.cs:276's <c>SetupClipVolume</c> (<c>_clip.Volume * _pref.Entity.GetMasterVolume()</c>)
+    /// AudioPlayer.Playback.cs's <c>SetupClipVolume</c> (<c>_clip.Volume * _pref.Entity.GetMasterVolume()</c>)
     /// - is covered. It isn't: every entity built by <see cref="TestAudioLibrary.CreateEntity"/> defaults both
     /// factors to 1, so nothing in the suite would notice if that multiplication were deleted entirely. These
     /// tests use <see cref="TestAudioLibrary.CreateEntityWithVolume"/> to move both factors off 1 at once, in
-    /// a fixture chosen so the three ways line 276 could break (drop the clip factor, drop the master factor,
+    /// a fixture chosen so the three ways SetupClipVolume could break (drop the clip factor, drop the master factor,
     /// drop the whole expression) each read back as a different, wrong number.
     /// <para>
     /// Observable: <c>player.GetVolume()</c> (<c>_clipVolume.Current * _trackVolume.Current *
@@ -36,7 +36,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithAuthoredClipAndMasterVolume_AppliesTheirProductNotEitherFactorAlone()
         {
-            // 0.5 * 0.5 = 0.25. Equal factors, as suggested: dropping *either* single factor from line 276
+            // 0.5 * 0.5 = 0.25. Equal factors, as suggested: dropping *either* single factor from SetupClipVolume
             // reads back as 0.5 (the other factor alone), and dropping the whole expression - defaulting to
             // AudioConstant.FullVolume/DefaultTrackVolume like every other volume test's "freshly played
             // default entity" - reads back as 1. So the three ways this line can break collapse to two wrong
@@ -54,7 +54,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // Would this pass if `* _pref.Entity.GetMasterVolume()` were deleted from line 276? No - the
+            // Would this pass if `* _pref.Entity.GetMasterVolume()` were deleted from SetupClipVolume? No - the
             // player would read 0.5 (ClipVolume alone), not 0.25. That is the whole point of this test.
             Assert.AreEqual(ExpectedProduct, player.GetVolume(), LinearTolerance,
                 "A freshly played entity with a non-default authored clip volume and MasterVolume should read their product, not either factor alone or full volume.");
@@ -83,7 +83,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // Baseline, before any layer above it is touched: would this pass if line 276 dropped either
+            // Baseline, before any layer above it is touched: would this pass if SetupClipVolume dropped either
             // factor? No - it would read 0.6 or 0.5 instead of 0.3.
             Assert.AreEqual(AuthoredProduct, player.GetVolume(), LinearTolerance,
                 "The authored product must already be in the linear product before any SetVolume call.");
@@ -126,8 +126,8 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // No RequireRealtimeAudioClock: SetupClipVolume's fade-in branch (AudioPlayer.Playback.cs:277)
-            // makes PlayControl block on `while (_clipVolume.IsFading) yield return null;` (:179) *before* it
+            // No RequireRealtimeAudioClock: SetupClipVolume's fade-in branch
+            // makes PlayControl block on `while (_clipVolume.IsFading) yield return null;` *before* it
             // ever reaches the DSP-time-gated end-of-clip loop, and Fader.Update (FaderModule.cs) advances
             // purely on Utility.GetDeltaTime() (Time.deltaTime/unscaledDeltaTime) - never AudioSettings.dspTime.
             // So a decoupled/fast DSP clock on a device-less CI runner cannot race this player to EndPlaying
@@ -142,7 +142,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => Mathf.Abs(player.GetVolume() - AuthoredProduct) < LinearTolerance,
                 "the clip-volume fade-in to reach the authored target", 2f);
 
-            // Would this pass if line 276 were deleted, leaving SetupClipVolume's target at full volume (1)
+            // Would this pass if SetupClipVolume's multiplication were deleted, leaving its target at full volume (1)
             // or at a single dropped factor (0.5 or 0.6)? No - only the real product (0.3) satisfies both
             // this assertion and the WaitUntilOrTimeout above.
             Assert.AreEqual(AuthoredProduct, player.GetVolume(), LinearTolerance,

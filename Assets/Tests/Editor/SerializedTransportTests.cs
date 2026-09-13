@@ -80,7 +80,7 @@ namespace Ami.BroAudio.Editor.Tests
         public void SetValue_AppliesImmediately_WithoutTheCallerCallingApplyModifiedProperties()
         {
             // Contract check: SerializedTransport.SetValue calls ApplyModifiedProperties itself
-            // (SerializedTransport.cs line 50) — a caller that also calls it is redundant, not required.
+            // — a caller that also calls it is redundant, not required.
             AudioEntity entity = Track(TestAudioLibrary.CreateEntity("SelfApplies", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(10f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);

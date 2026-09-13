@@ -14,9 +14,9 @@ namespace Ami.BroAudio.Tests
     /// Three contracts, straight from CLAUDE.md's "Runtime architecture" notes:
     /// (1) every release verb on the static <see cref="BroAudio"/> facade (Stop/Pause/UnPause/SetVolume/
     /// SetPitch, including the <see cref="BroAudioType"/> overloads) goes through the null-safe
-    /// <c>BroAudio.Manager</c> (BroAudio.cs:31), so a destroyed manager makes them silent no-ops;
+    /// <c>BroAudio.Manager</c>, so a destroyed manager makes them silent no-ops;
     /// (2) <c>BroAudio.Play</c> is the deliberate opposite - it goes through the throwing
-    /// <c>SoundManager.Instance</c> (BroAudio.cs:44,56,68), so it must throw <see cref="BroAudioException"/>
+    /// <c>SoundManager.Instance</c>, so it must throw <see cref="BroAudioException"/>
     /// instead; (3) a caller that kept an <see cref="IAudioPlayer"/> handle from before the manager died
     /// must not get a crash out of touching it afterward - this file pins what that handle's own release
     /// verbs actually do, which (see the finding on
@@ -25,22 +25,22 @@ namespace Ami.BroAudio.Tests
     /// </para>
     /// <para>
     /// <b>What SoundManager does NOT have:</b> there is no <c>OnApplicationQuit</c> and no "is quitting"
-    /// flag anywhere in the Runtime assembly (grepped) - the only teardown hook is <c>OnDestroy</c>
-    /// (SoundManager.cs:144-160). Every test below reaches it by destroying the manager directly rather
+    /// flag anywhere in the Runtime assembly (grepped) - the only teardown hook is <c>OnDestroy</c>.
+    /// Every test below reaches it by destroying the manager directly rather
     /// than by simulating application quit, which Unity's Test Framework has no hook for anyway.
     /// </para>
     /// <para>
     /// <b>Destroy/restore strategy:</b> SoundManager is a DontDestroyOnLoad singleton bootstrapped once per
-    /// PlayMode run (SoundManager.cs:16-19 <c>[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]</c>); every
+    /// PlayMode run (<c>[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]</c>); every
     /// later PlayMode test depends on it being alive. <see cref="DestroyManagerImmediate"/> destroys the
     /// whole GameObject (not just the component) so the pooled/active <see cref="AudioPlayer"/> children
-    /// parented under its transform (AudioPlayerObjectPool.cs:34) die in the same synchronous call rather
+    /// parented under its transform die in the same synchronous call rather
     /// than being left behind as an orphaned, half-alive hierarchy that would outlive the test. <see
     /// cref="RestoreSoundManagerAfterTest"/> is a <c>[UnityTearDown]</c> on this class specifically so it
     /// runs before the base <see cref="BroAudioTestFixture.BroAudioTearDown"/> - NUnit/UTF run TearDown
     /// methods most-derived-class-first - which matters because that base teardown dereferences
     /// <c>SoundManager.Instance.Setting</c> unconditionally and would itself throw on a manager this file
-    /// left destroyed. <c>SoundManager.Setting</c> (SoundManager.Setting.cs:17) lazily resolves via
+    /// left destroyed. <c>SoundManager.Setting</c> lazily resolves via
     /// <c>Resources.Load&lt;RuntimeSetting&gt;</c>, which Unity caches by path, so the freshly re-Init'd
     /// manager's Setting is the exact same on-disk asset the base fixture already snapshotted - nothing
     /// extra to reconcile there.
@@ -51,7 +51,7 @@ namespace Ami.BroAudio.Tests
         /// <summary>
         /// Destroys the live SoundManager's whole GameObject and asserts the destruction actually took.
         /// <para>
-        /// <see cref="SoundManager.HasInstance"/> (SoundManager.cs:59) is a bare <c>_instance != null</c>
+        /// <see cref="SoundManager.HasInstance"/> is a bare <c>_instance != null</c>
         /// check with no explicit nulling anywhere in <c>OnDestroy</c> - it only reports the destruction
         /// correctly because <see cref="UnityEngine.Object"/> overloads <c>==</c>/<c>!=</c> to treat a
         /// destroyed native object as "null" (Unity's fake-null). <c>DestroyImmediate</c>,
@@ -83,7 +83,7 @@ namespace Ami.BroAudio.Tests
         {
             if (!SoundManager.HasInstance)
             {
-                // Init() (SoundManager.cs:19) unconditionally Instantiates a new prefab instance and
+                // Init() unconditionally Instantiates a new prefab instance and
                 // overwrites the static _instance - it has no "already have one" guard - so this must only
                 // ever run when HasInstance is false, or it would leak a second manager into the scene.
                 SoundManager.Init();
@@ -101,14 +101,14 @@ namespace Ami.BroAudio.Tests
 
         // Item 1 (CLAUDE.md's teardown-asymmetry note) and the single most important behavior in this
         // file: every Stop/Pause/UnPause/SetVolume/SetPitch overload on the static BroAudio facade goes
-        // through the null-safe `Manager?.` (BroAudio.cs:76-246), so once SoundManager is destroyed each
+        // through the null-safe `Manager?.`, so once SoundManager is destroyed each
         // one is a silent no-op instead of a throw or NullReferenceException. "Quitting the game must not
         // throw" is one user-meaningful behavior, so looping over the verbs here is one test, not
         // one-per-method (the suite's own anti-goal).
         //
         // Regression this catches: swap any one `Manager?.X(...)` back to `SoundManager.Instance.X(...)`
         // - the exact mistake CLAUDE.md calls out by name - and that verb's SoundManager.Instance getter
-        // (SoundManager.cs:55) throws BroAudioException here instead of no-op'ing, failing this test on
+        // throws BroAudioException here instead of no-op'ing, failing this test on
         // that specific verb.
         [UnityTest]
         public IEnumerator ReleaseVerbs_OnBroAudioFacade_WithManagerDestroyed_AreSilentNoOps()
@@ -153,8 +153,8 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // Item 2: Play is deliberately NOT Manager?.-gated (BroAudio.cs:44,56,68 all read
-        // `SoundManager.Instance.Play(...)`), so a destroyed manager must surface as a real
+        // Item 2: Play is deliberately NOT Manager?.-gated (it reads
+        // `SoundManager.Instance.Play(...)` directly), so a destroyed manager must surface as a real
         // BroAudioException instead of returning null/Empty - callers that never call BroAudio.Init()
         // in manual-init mode need that exception to know playback isn't available yet. Asserting the
         // exception TYPE only (never message text) per the suite's own anti-goals.
@@ -177,7 +177,7 @@ namespace Ami.BroAudio.Tests
         }
 
 #if !UNITY_WEBGL
-        // Finding, not part of the task's original item list: BroAudio.SetEffect (BroAudio.cs:296,301,
+        // Finding, not part of the task's original item list: BroAudio.SetEffect (guarded by
         // #if !UNITY_WEBGL) is grouped with Stop/Pause/SetVolume/SetPitch as a "release verb" by
         // CLAUDE.md's teardown note, but the source does not treat it that way - both overloads read
         // `SoundManager.Instance.SetEffect(...)` directly, the same throwing accessor Play uses, not
@@ -202,13 +202,13 @@ namespace Ami.BroAudio.Tests
         // pins that shape for a merely-*recycled* handle, with SoundManager still alive). That is NOT what
         // happens here, where SoundManager itself is also gone:
         // <para>
-        // AudioPlayerInstanceWrapper.Stop/Pause/UnPause/SetVolume/SetPitch (AudioPlayerInstanceWrapper.cs:
-        // 38,39,44,48,50) all read the base class's `Instance` property (InstanceWrapper.cs:8), which calls
-        // `IsAvailable()` with its default `logWarning: true` (InstanceWrapper.cs:15). Because the pooled
-        // AudioPlayer behind this handle is parented under the SoundManager's own transform
-        // (AudioPlayerObjectPool.cs:34), destroying the manager destroys that AudioPlayer in the same call,
+        // AudioPlayerInstanceWrapper.Stop/Pause/UnPause/SetVolume/SetPitch all read the base class's
+        // `Instance` property, which calls
+        // `IsAvailable()` with its default `logWarning: true`. Because the pooled
+        // AudioPlayer behind this handle is parented under the SoundManager's own transform,
+        // destroying the manager destroys that AudioPlayer in the same call,
         // so `_instance != null` is false and `IsAvailable()` calls `LogInstanceIsNull()`. AudioPlayerInstance
-        // Wrapper overrides that hook (AudioPlayerInstanceWrapper.cs:19-26) to read
+        // Wrapper overrides that hook to read
         // `SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning` - the *throwing* static accessor,
         // not the null-safe `BroAudio.Manager` the facade itself uses - and evaluating `SoundManager.Instance`
         // there throws BroAudioException before the log's own condition is even checked. So every release
@@ -218,7 +218,7 @@ namespace Ami.BroAudio.Tests
         // </para>
         // <para>
         // IsActive/IsPlaying are the contrast: they call `IsAvailable(false)` (no logging) and short-circuit
-        // via `&&` before ever touching `Instance` again (AudioPlayerInstanceWrapper.cs:31,32), so they stay
+        // via `&&` before ever touching `Instance` again, so they stay
         // safe. That precise split - some members safe, most not - is what makes this a real defect rather
         // than a uniformly-broken feature.
         // </para>

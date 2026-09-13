@@ -3,11 +3,7 @@
 
 A suite that compiles to nothing - an optional package that did not resolve, an assembly
 that failed to build - does not appear in the NUnit results at all. It does not fail; it
-is simply not there, and the leg reports every test it did run as green. Workflow run 11
-passed that way twice over: PlayMode ran 124 tests instead of 132 with the whole
-AddressablesTests suite gone, and EditMode ran 209 instead of 214 with
-LocalizationClipStrategyTests gone. Both legs were green, and the Addressables failure
-they were hiding reappeared on the next push.
+is simply not there, and the leg reports every test it did run as green.
 
 Usage: check_test_suites.py <testMode> <results-dir> <manifest.json>
 """

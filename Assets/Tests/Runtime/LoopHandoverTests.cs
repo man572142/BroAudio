@@ -16,7 +16,7 @@ namespace Ami.BroAudio.Tests
     /// "Plain looping", "Seamless looping", "Chained playback", "Pause across a handover seam".
     /// <para>
     /// This file takes it as contract that the IAudioPlayer handle a caller kept keeps driving the sound
-    /// across a handover seam. AudioPlayerInstanceWrapper.UpdateInstance (AudioPlayerInstanceWrapper.cs:112-156)
+    /// across a handover seam. AudioPlayerInstanceWrapper.UpdateInstance
     /// exists for no other reason - it re-points the wrapper at the incoming player and carries the
     /// registered callbacks, decorators and added effect components over - and looping BGM, the default use
     /// of this library, leaves its owner with no handle other than the one Play returned. So the survival of
@@ -109,11 +109,11 @@ namespace Ami.BroAudio.Tests
 
         // 2.2 (handle continuity) - the other half of the same handover: what the caller is left holding.
         // ScheduleNextPlayback bakes the outgoing player's _trackVolume.Target into
-        // PlaybackHandoverData.TrackVolume (AudioPlayer.Playback.cs:354) and ReceiveHandover completes the
-        // incoming player's fader on it (line 399), while UpdateInstance moves the registered onEnd
+        // PlaybackHandoverData.TrackVolume and ReceiveHandover completes the
+        // incoming player's fader on it, while UpdateInstance moves the registered onEnd
         // delegates to the incoming player and leaves the outgoing player's _onEnd null
-        // (AudioPlayerInstanceWrapper.cs:128-134 via AudioPlayer.TransferOnEnds, AudioPlayer.cs:341-350) -
-        // so EndPlaying's _onEnd?.Invoke (AudioPlayer.Playback.cs:570) is a no-op at a seam and fires once,
+        // (via AudioPlayer.TransferOnEnds) -
+        // so EndPlaying's _onEnd?.Invoke is a no-op at a seam and fires once,
         // at the real end. None of that is observable except through the handle the caller kept.
         // A plain loop rather than a seamless one on purpose: with no crossfade, _clipVolume sits completed
         // at its target the whole time, so GetVolume() reads back the track volume alone.
@@ -137,7 +137,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
 
             // Both are registered on the first player, well before the first seam. GetVolume() is
-            // _clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current (AudioPlayer.Volume.cs:113-116);
+            // _clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current;
             // the latter two are 1 here, so it reads back exactly what SetVolume put on the track fader.
             player.OnEnd(_ => onEndCount++);
             player.SetVolume(TargetVolume);
@@ -149,7 +149,7 @@ namespace Ami.BroAudio.Tests
                 "the dsp clock to pass two loop seams", 5f);
 
             // If the handle had been left behind on the first player, the wrapper would have been recycled
-            // with it (AudioPlayer.Recycling.cs:64) and IsActive would read false.
+            // with it (via AudioPlayer.Recycle()) and IsActive would read false.
             Assert.IsTrue(player.IsActive,
                 "The caller's IAudioPlayer must still be live after two handovers - UpdateInstance re-points " +
                 "it at the incoming player, and the owner of a looping sound has no other handle to hold.");

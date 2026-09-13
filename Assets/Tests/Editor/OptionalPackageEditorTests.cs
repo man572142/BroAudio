@@ -4,9 +4,8 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// The EditMode half of <see cref="OptionalPackageTests"/>. Defines are per-assembly, so the runtime probe
-    /// says nothing about what <c>EditorTests</c> compiled — and EditMode lost tests the same way PlayMode did:
-    /// workflow run 11 ran 209 EditMode tests instead of 214, with <c>LocalizationClipStrategyTests</c> silently
-    /// compiled out, and still reported green.
+    /// says nothing about what <c>EditorTests</c> compiled — and an EditMode suite such as
+    /// <c>LocalizationClipStrategyTests</c> can compile out silently the same way and still report green.
     /// </summary>
     public class OptionalPackageEditorTests
     {

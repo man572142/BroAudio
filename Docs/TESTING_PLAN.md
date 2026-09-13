@@ -6,7 +6,7 @@ Handoff doc for a `/goal` session that builds BroAudio's regression suite.
 
 ---
 
-## Ground truth (verified 2026-08-23, branch `DEV_Unity6`)
+## Ground truth
 
 Read this before planning. It is the part a fresh session cannot guess, and several of these facts decide the test architecture.
 
@@ -50,7 +50,7 @@ What the factory does *not* do, and a test helper still must:
 
 Do not invent a timing convention before reading these.
 
-1. **`Play()` does not start playback.** `SoundManager.Play` enqueues into `_playbackQueue`; `SoundManager.LateUpdate` drains it and calls `IPlayable.Play()` (`Runtime/SoundManager/SoundManager.Playback.cs:141`). A test **must yield at least one frame** after calling `BroAudio.Play(...)` before asserting on `AudioSource` state. Asserting immediately is the most likely first bug in a new test.
+1. **`Play()` does not start playback.** `SoundManager.Play` enqueues into `_playbackQueue`; `SoundManager.LateUpdate` drains it and calls `IPlayable.Play()` (`Runtime/SoundManager/SoundManager.Playback.cs`). A test **must yield at least one frame** after calling `BroAudio.Play(...)` before asserting on `AudioSource` state. Asserting immediately is the most likely first bug in a new test.
 2. **`AudioMixer.SetFloat` silently fails on the first Play Mode frame** (`Awake`/`OnEnable`). `SoundManager` works around this with `WaitForEndOfFrame`. Any test asserting mixer parameters must clear that frame first.
 3. **Frame time is not DSP time.** Scheduling (`PlayScheduled`), seamless loops and handovers run on `AudioSettings.dspTime`; fades run on coroutines/frames. Pick per behavior, and prefer polling-with-timeout helpers (`yield return WaitUntil(cond)` plus a deadline) over `WaitForSeconds`.
 
@@ -204,15 +204,12 @@ Work in order. Do not start phase 2 until phase 1's harness is proven by a green
 - `Docs/TEST_FINDINGS.md` lists every behavior/doc conflict found, unresolved and un-"fixed".
 - No production code changed. If a test is impossible without a seam, **propose the seam, stop, ask.**
 
-> **Amendment (2026-08-30).** The "do not fix" rule above governed the suite while it was being
-> built, and it held: every finding was characterized first and logged before anything changed. The
-> maintainer then reviewed the findings and approved fixing a subset of them, so the repository now
-> contains production changes this plan originally forbade. Not every approval waited for both
-> suites either — half the fix list was approved on the runtime suite alone, before the EditMode
-> harness existed — so read the rule above as the standard, not as a description of the log. Fixed
-> findings move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; the rest stay open in
-> [TEST_FINDINGS.md](TEST_FINDINGS.md). New characterization work still follows the original rule —
-> find it, pin it, log it, and ask before fixing.
+> **Note.** The "do not fix" rule above is the standard the suite is held to, not a literal
+> description of the log — a maintainer-approved fix can land on production code the rule otherwise
+> forbids, and approval does not require waiting for both suites to be green first. Fixed findings
+> move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; open findings stay in
+> [TEST_FINDINGS.md](TEST_FINDINGS.md). Characterization work still follows the original rule — find
+> it, pin it, log it, and ask before fixing.
 
 
 ## Anti-goals

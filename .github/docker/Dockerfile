@@ -2,8 +2,8 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 # The stock unityci/editor image installs no audio libraries at all, so FMOD finds no output
-# device and falls back to a non-realtime null sink pumped by the frame loop - measured at
-# 747.94x wall time on a GitHub runner. At that ratio a voice starts and finishes between two
+# device and falls back to a non-realtime null sink pumped by the frame loop, far faster
+# than wall time. A short voice can start and finish between two
 # frames, which makes every PlayMode timing test a coin flip.
 #
 # A PulseAudio null sink is timer-paced at realtime, which is the clock those tests need. We are
