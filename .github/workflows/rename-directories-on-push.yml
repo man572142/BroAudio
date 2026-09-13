@@ -4,6 +4,13 @@ permissions:
 
 on:
   push:
+    branches: [main]
+    paths:
+      - 'Assets/BroAudio/Resources/**'
+      - 'Assets/BroAudio/Samples/**'
+      - 'Assets/BroAudio/Documentation/**'
+      - 'Assets/BroAudio/Editor/Resources/**'
+  workflow_dispatch:
 
 jobs:
   rename:
@@ -22,18 +29,33 @@ jobs:
 
       - name: Detect, rename directories and push
         env:
+          EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
           BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
-          echo "Push range: $BEFORE -> $AFTER on $BRANCH"
           git fetch origin "$BRANCH"
 
-          CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
-          echo "Changed files in push:"
-          printf '%s\n' "$CHANGED"
+          # A push carries a range to narrow the work to directories it actually touched.
+          # A manual run has none (and neither does a branch's first push, where BEFORE is
+          # all zeros), so fall back to renaming whatever is still missing its ~.
+          CHANGED=""
+          FILTER_BY_PUSH=0
+          if [ "$EVENT" = "push" ] && [ -n "${BEFORE:-}" ] \
+             && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            if CHANGED=$(git diff --name-only "$BEFORE" "$AFTER"); then
+              FILTER_BY_PUSH=1
+              echo "Push range: $BEFORE -> $AFTER on $BRANCH"
+              echo "Changed files in push:"
+              printf '%s\n' "$CHANGED"
+            else
+              echo "Could not diff $BEFORE..$AFTER; checking every directory instead."
+            fi
+          else
+            echo "No usable push range ($EVENT on $BRANCH); checking every directory."
+          fi
 
           # Base path for the target directories
           BASE="Assets/BroAudio"
@@ -47,8 +69,9 @@ jobs:
             OLD_FULL="${BASE}/${OLD}"
             NEW="${OLD_FULL}~"
 
-            # Only proceed if the push touched the old directory
-            if ! printf '%s\n' "$CHANGED" | grep -qE "^${OLD_FULL}(/|$)"; then
+            # When the push range is known, only proceed if it touched the old directory
+            if [ "$FILTER_BY_PUSH" -eq 1 ] \
+               && ! printf '%s\n' "$CHANGED" | grep -qE "^${OLD_FULL}(/|$)"; then
               echo "No changes in ${OLD_FULL} for this push; skipping."
               continue
             fi
