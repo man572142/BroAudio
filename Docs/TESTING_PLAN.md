@@ -155,6 +155,8 @@ Commit the green suite at every phase boundary before fanning out again. A phase
 
 **Characterize, do not fix.** Tests capture current behavior as-is. If actual behavior conflicts with the docs, apparent intent, or a cleaner design, characterize the actual behavior and **log the conflict in `Docs/TEST_FINDINGS.md`**. Never change production code to make a test pass. This effort is not a refactor.
 
+**Fixed Findings**: If a commit fixes an issue of the findings, record what was wrong and how it was fixed to `Docs/FIXED_ISSUES.md`.
+
 **Highest reliable boundary.** Prefer, in order: (1) public `BroAudio` / `IAudioPlayer` API, (2) Unity runtime state (`AudioSource`, `AudioMixer` params) as the proxy for what the user hears, (3) internal state — only when no reliable external observation exists, or when the internal value *is* the authoritative result. Never reach inward just because it is easier to assert.
 
 **Scenarios, not methods.** One test may span several internal systems if they implement one user-meaningful behavior. Never write a test because a class, method or branch exists.
