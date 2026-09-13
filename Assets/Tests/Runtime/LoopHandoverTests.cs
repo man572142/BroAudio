@@ -28,16 +28,8 @@ namespace Ami.BroAudio.Tests
     /// which players exist and what each one is playing, not what the caller's handle points at.
     /// </para>
     /// <para>
-    /// Not included: the inventory's "transition time longer than the clip" edge case for SeamlessLoop.
-    /// Static reading of ScheduleNextPlayback (AudioPlayer.Playback.cs) shows that when TransitionTime
-    /// exceeds the clip's playable duration, every handover's DSP wait gate is already satisfied at the
-    /// moment it's evaluated (AudioSettings.dspTime does not advance across a purely synchronous call
-    /// chain), so RestartCoroutine's synchronous-until-first-yield behavior causes each handover to spawn
-    /// the next one immediately, recursively, with no natural terminator - a real risk of unbounded
-    /// recursion / StackOverflowException rather than a one-time "collapses to immediate" quirk. That is
-    /// a genuine finding worth fixing or guarding in production code, but not something to exercise from
-    /// an automated test that would crash the whole Editor process if triggered. See the final report for
-    /// this file.
+    /// Not included: a SeamlessLoop whose TransitionTime exceeds the clip. It may recurse into an uncatchable
+    /// StackOverflowException and kill the Editor - see Docs/TEST_INVENTORY.md before writing it.
     /// </para>
     /// </summary>
     public class LoopHandoverTests : BroAudioTestFixture
@@ -75,8 +67,8 @@ namespace Ami.BroAudio.Tests
         private static AudioClip ClipOf(AudioPlayer player) => ((IAudioPlayer)player).AudioSource.clip;
 
         // 2.2 - a looping entity never sets AudioSource.loop; instead a fresh player is handed over at (or
-        // near) the natural end of each iteration. The original handle is not asserted to keep tracking
-        // across the seam - only BroAudio.HasAnyPlayingInstances is used to confirm the sound survives.
+        // near) the natural end of each iteration. This test confirms survival through
+        // BroAudio.HasAnyPlayingInstances; the handle's own continuity is the next test's subject.
         [UnityTest]
         public IEnumerator Play_WithPlainLoop_NeverSetsAudioSourceLoopAndSurvivesMultipleSeams()
         {

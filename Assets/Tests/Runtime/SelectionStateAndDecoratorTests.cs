@@ -337,26 +337,9 @@ namespace Ami.BroAudio.Tests
                 "consulted by SetupAudioTrack, which has already run. Nothing re-routes it.");
         }
 
-        // 3.6 x 2.2 - the two crossed: a dominator that loops. Looping is implemented by handing the sound
-        // from one player to the next rather than by AudioSource.loop (LoopHandoverTests covers the handover
-        // itself), and AudioPlayerInstanceWrapper.UpdateInstance moves the decorators onto the incoming
-        // player, so IsDominator reads true again
-        // on the far side of a seam and the ducking never lets go. The *track* does not follow, and the
-        // reason is pure ordering:
-        //
-        //   ScheduleNextPlayback's wait gate releases one warm-up time (0.1s) BEFORE the seam
-        //   and calls RequestNextPlayer, which runs
-        //   SoundManager.ScheduleNextPlayback -> ReceiveHandover -> PlayInternal
-        //   synchronously; PlayControl then
-        //   runs straight through SetupAudioTrack with nothing yielding before it. The decorators
-        //   only arrive later, at BeginHandover, so SetupAudioTrack reads IsDominator ==
-        //   false on the incoming player and takes a generic track from the pool.
-        //
-        // The incoming player therefore lands under Main - which its own QuietOthers has just muted, routing
-        // everything audible through Main_Dominated at the ducked level. A looping dominator ducks itself
-        // from the first seam onward, without the caller doing anything wrong. This is finding #42's
-        // self-ducking arriving on its own, on a handle the caller never let go of. See
-        // Docs/TEST_FINDINGS.md #44.
+        // 3.6 x 2.2 - a dominator that loops. characterizes: decorators reach the incoming player at
+        // BeginHandover, after its SetupAudioTrack already took a generic track, so ducking persists across
+        // the seam but the dominator ducks itself. Mechanism in Docs/TEST_FINDINGS.md #44.
         [UnityTest]
         public IEnumerator Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack()
         {
