@@ -171,9 +171,7 @@ namespace Ami.BroAudio.Tests
         {
             yield return RequireRealtimeAudioClock();
 
-            // TransitionSeconds widened to 1s (was 0.3s, ~0.15s slack either side of the sampled midpoint -
-            // thinner than a single capped hitch frame at Time.maximumDeltaTime's ~0.333s). ClipSeconds
-            // grows to match so the whole crossfade window still sits comfortably inside one clip iteration.
+            // ClipSeconds keeps the whole 1s crossfade window comfortably inside one clip iteration.
             const float ClipSeconds = 3f;
             const float TransitionSeconds = 1f;
             AudioEntity entity = NewEntity("SeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
@@ -190,7 +188,7 @@ namespace Ami.BroAudio.Tests
 
             // Wait to the start of the crossfade window, then poll for the 2-player overlap anywhere inside
             // it, rather than sampling a single dsp-clock instant - with a 1s-wide window any frame that
-            // lands inside it will do, so this is no longer sensitive to one slow frame's overshoot.
+            // lands inside it will do, so one slow frame's overshoot can't miss it.
             double crossfadeStartDsp = startDsp.Value + ClipSeconds - TransitionSeconds;
             yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
                 "the dsp clock to reach the start of the crossfade window", 5f);

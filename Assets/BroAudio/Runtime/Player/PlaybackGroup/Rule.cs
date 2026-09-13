@@ -40,9 +40,6 @@ namespace Ami.BroAudio
         /// <summary>
         /// Sets the rule to be executed based on the override status
         /// </summary>
-        /// <param name="ruleMethod"></param>
-        /// <param name="onGetParentRule"></param>
-        /// <returns></returns>
         internal IRule Initialize(IsPlayableDelegate ruleMethod, Func<Type, IRule> onGetParentRule)
         {
             if (_isOverride)

@@ -240,8 +240,8 @@ namespace Ami.BroAudio.Tests
             source.gameObject.SetActive(false);
 
             // Poll for the fade actually starting (volume dropping below "still full") instead of a fixed
-            // 2-frame wait - two capped hitch frames (Time.maximumDeltaTime ~0.333s each) can already
-            // total more than this 0.5s fade, which would false-fail an IsActive check taken right after.
+            // 2-frame wait - two slow frames can already total more than this 0.5s fade, which would
+            // false-fail an IsActive check taken right after.
             // The default-fade case (contrasted elsewhere in this file) is cut instantly instead of ramping,
             // so seeing the volume decline at all here is already the discriminating signal.
             yield return WaitUntilOrTimeout(() => player.GetVolume() < NearTargetVolume,
@@ -381,16 +381,9 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator OnEnable_WithDelay_HoldsThePlayheadUntilTheDelayElapses()
         {
-            // This test samples the playhead the SoundSource's inspector Delay holds at 0 (scheduled from
-            // OnEnable), partway through the wait via WaitDspSeconds. A machine with no audio output device
-            // runs the DSP clock decoupled from wall time - fast enough that a single WaitDspSeconds frame
-            // can carry dspTime straight past the whole 1.5s Delay window, so the "still not audible"
-            // assertion below would read the voice as already started rather than being skipped as intended.
+            // Samples inside the 1.5s Delay window, which one frame of a decoupled DSP clock would skip past.
             yield return RequireRealtimeAudioClock();
 
-            // 1.5s delay (was 0.5s): the old "2 frames + 0.15s" check point left only ~0.32s of margin
-            // before the delay's own boundary - thinner than a single capped hitch frame
-            // (Time.maximumDeltaTime ~0.333s). The wider delay below leaves a full ~1s of margin instead.
             const float delay = 1.5f;
             SoundID id = NewSound("DelayedSourceSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, delay: delay);
@@ -399,7 +392,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(source.IsActive, "A delayed play is active from the moment OnEnable schedules it.");
             Assert.AreEqual(0, source.CurrentPlayer.AudioSource.timeSamples, "The playhead must not have moved - still inside the Delay.");
 
-            // Still well short of the full delay even counting the two frames above, so this stays a real
+            // Still ~1s short of the full delay even counting the two frames above, so this stays a real
             // assertion rather than a race with the scheduled start.
             yield return WaitDspSeconds(0.5);
             Assert.AreEqual(0, source.CurrentPlayer.AudioSource.timeSamples, "Partway through the Delay, playback must still not have started audibly.");

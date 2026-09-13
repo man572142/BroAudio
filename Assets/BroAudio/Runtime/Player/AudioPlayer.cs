@@ -56,7 +56,8 @@ namespace Ami.BroAudio.Runtime
         }
 
         private AudioTrackType TrackType { get; set; } = AudioTrackType.Generic;
-        private AudioMixerGroup AudioTrack 
+        // Only a null assignment clears the cached track/send names, so assign null before switching to a different track.
+        private AudioMixerGroup AudioTrack
         {
             set
             {
@@ -147,11 +148,7 @@ namespace Ami.BroAudio.Runtime
                     transform.position = position;
                     SetTo3D();
                 }
-                // The log is unnecessary and may cause misunderstandings, as the Play method already provides clear summaries.
-                //else if (setting != null && !setting.SpatialBlend.IsDefaultCurve(AudioConstant.SpatialBlend_2D) && pref.Entity is IEntityIdentity entity)
-                //{
-                //	Debug.LogWarning(Utility.LogTitle + $"You've set a non-2D SpatialBlend for :{entity.Name}, but didn't specify a position or a follow target when playing it");
-                //}
+                // Don't warn about a non-2D SpatialBlend played without a position: the warning misleads, and the Play docs already cover it.
             }
 
             void SetTo3D()

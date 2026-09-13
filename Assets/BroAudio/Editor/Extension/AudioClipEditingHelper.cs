@@ -113,7 +113,7 @@ namespace Ami.Extension
 
 			void Downmix()
 			{
-				// Multi-Channel would require addtional weight calculation, we only 
+				// Averages all channels equally; a true multichannel downmix would need per-channel weights.
 				float sum = 0f;
                 for (int i = 0; i < Samples.Length; i++)
                 {

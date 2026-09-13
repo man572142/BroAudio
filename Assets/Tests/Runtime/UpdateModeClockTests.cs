@@ -99,10 +99,8 @@ namespace Ami.BroAudio.Tests
             // Master with its *starting* value every frame, so Master still reads exactly full volume and
             // the `currentVol == targetVol` early return skips the write entirely.
             //
-            // The stale coroutine therefore survived into the next fixture and kept moving Master while
-            // that fixture asserted on it - which is exactly how this file first turned
-            // VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct red
-            // (recorded as finding #51). Draining it here is the fixture's own mess to clean up.
+            // Left running, the stale coroutine survives into the next fixture and keeps moving Master while
+            // that fixture asserts on it (Docs/TEST_FINDINGS.md #51), so this fixture drains its own fade.
             //
             // Waiting for the reading to stop moving, rather than for a particular value, is deliberate: a
             // live fade rewrites Master every frame, so a steady reading is the observable end

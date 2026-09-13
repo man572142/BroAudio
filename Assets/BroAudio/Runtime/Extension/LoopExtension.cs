@@ -17,6 +17,7 @@ namespace Ami.Extension
 
 		public static void Loop(Func<Statement> method, bool showErrorWhenInfiniteLoopOccurs = true)
 		{
+			// Equivalent to while(true), capped at MaxIterationTimes.
 			Predicate<object> predicate = (obj) => true;
 
 			MainLoopLogic(predicate,method,showErrorWhenInfiniteLoopOccurs);
