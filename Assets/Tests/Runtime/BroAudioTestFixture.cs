@@ -78,11 +78,11 @@ namespace Ami.BroAudio.Tests
             }
 
             // Per-type pitch leaks exactly like per-type volume: SoundManager.SetPitch stores it into
-            // AudioTypePlaybackPreference (SoundManager.cs:358), so every *later* player of that type picks
+            // AudioTypePlaybackPreference, so every *later* player of that type picks
             // it up through SetInitialPitch. Volume only shifts an amplitude, but pitch rescales duration -
             // a leaked 0.5x makes every later clip run twice as long and moves every duration window in the
             // fade, scheduling and loop tests. Mind the argument order: SetPitch(type, pitch, fadeTime) is
-            // the current overload (BroAudio.cs:245); SetPitch(pitch, type, fadeTime) is [Obsolete] (:237).
+            // the current overload; SetPitch(pitch, type, fadeTime) is [Obsolete].
             foreach (BroAudioType audioType in ConcreteAudioTypes)
             {
                 BroAudio.SetPitch(audioType, AudioConstant.DefaultPitch, 0f);

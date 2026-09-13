@@ -8,7 +8,7 @@ One-page summary of what the regression suite is for and the rules it is held to
 
 ## The core idea: characterize, don't fix
 
-Before this work there were zero tests and no independent record of how the library actually behaves. So the suite was built as a **characterization pass**: every test pins current behavior as-is, even where it contradicts the docs or the apparent intent.
+The suite is a **characterization pass**: every test pins current behavior as-is, even where it contradicts the docs or the apparent intent.
 
 - Where behavior looked wrong, the test asserts the *actual* behavior and the conflict is logged in [TEST_FINDINGS.md](TEST_FINDINGS.md).
 - A test never earns a production change. If a behavior cannot be pinned without a seam, propose the seam, stop, and ask. When production does have to move — an approved fix, a seam, a repair to make the suite runnable at all — it is its own commit with its own [FIXED_ISSUES.md](FIXED_ISSUES.md) entry, never folded into the diff that adds the test.

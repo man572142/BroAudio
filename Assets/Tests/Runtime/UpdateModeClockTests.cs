@@ -11,7 +11,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Utility.GetDeltaTime() (Utility.cs:44-52) is the single clock behind every fade, pitch tween,
+    /// Utility.GetDeltaTime() is the single clock behind every fade, pitch tween,
     /// scheduled start and effect automation in this codebase: it reads RuntimeSetting.UpdateMode and
     /// returns Time.unscaledDeltaTime for AudioMixerUpdateMode.UnscaledTime, Time.deltaTime otherwise.
     /// UnscaledTime exists so a fade can keep running while the game is paused (Time.timeScale == 0);
@@ -20,17 +20,17 @@ namespace Ami.BroAudio.Tests
     /// <para>
     /// The discriminating scenario is Time.timeScale == 0: a fade must still progress under
     /// AudioMixerUpdateMode.UnscaledTime and must NOT progress under the factory-default
-    /// AudioMixerUpdateMode.Normal (RuntimeSetting.FactorySettings.UpdateMode, RuntimeSetting.cs:66).
+    /// AudioMixerUpdateMode.Normal (RuntimeSetting.FactorySettings.UpdateMode).
     /// Neither half proves the branch alone - a GetDeltaTime that always returned unscaled time would
     /// still pass the UnscaledTime half, and one that always returned scaled time would still pass the
     /// Normal half - so both tests below assert their pair of outcomes and must be read together.
     /// </para>
     /// <para>
     /// Both tests exercise two independent call sites so this isn't just pinning FaderModule: the clip's
-    /// own FadeIn (Fader.Update, FaderModule.cs:116, observed through IAudioPlayer.GetVolume() exactly as
+    /// own FadeIn (Fader.Update, observed through IAudioPlayer.GetVolume() exactly as
     /// FadeAndTrimTests does) and SoundManager's master-volume ramp (SetMasterVolume's own local
-    /// coroutine - not the Fader class at all - SoundManager.cs:260, the non-WebGL branch that is the one
-    /// actually compiled into an Editor/PlayMode run; its WebGL-only twin at :216 is `#if UNITY_WEBGL`'d
+    /// coroutine - not the Fader class at all - the non-WebGL branch that is the one
+    /// actually compiled into an Editor/PlayMode run; its WebGL-only twin is `#if UNITY_WEBGL`'d
     /// out here and untested by this file). Observed through the mixer's exposed Master parameter exactly
     /// as VolumePitchMixerTests does. A regression that hardcoded the wrong Time.*deltaTime at only one of
     /// these two call sites would be invisible to a test that checked just the other.
@@ -92,12 +92,12 @@ namespace Ami.BroAudio.Tests
             // fixture's own reset and resumes the moment the line above unpauses it.
             //
             // BroAudioTearDown resets with BroAudio.SetVolume(FullVolume, 0f), and that cannot cancel a
-            // running master fade. SetMasterVolume (SoundManager.cs:234-250) only calls RestartCoroutine -
+            // running master fade. SetMasterVolume only calls RestartCoroutine -
             // the one path that stops the previous coroutine - on its `fadeTime != 0f` branch; the zero
             // branch just writes the parameter once and leaves the coroutine running. And a fade frozen at
             // timeScale 0 never even gets that far: with GetDeltaTime pinned at 0 the coroutine rewrites
             // Master with its *starting* value every frame, so Master still reads exactly full volume and
-            // the `currentVol == targetVol` early return (:238) skips the write entirely.
+            // the `currentVol == targetVol` early return skips the write entirely.
             //
             // The stale coroutine therefore survived into the next fixture and kept moving Master while
             // that fixture asserted on it - which is exactly how this file first turned
@@ -105,7 +105,7 @@ namespace Ami.BroAudio.Tests
             // (recorded as finding #51). Draining it here is the fixture's own mess to clean up.
             //
             // Waiting for the reading to stop moving, rather than for a particular value, is deliberate: a
-            // live fade rewrites Master every frame (:253-263), so a steady reading is the observable end
+            // live fade rewrites Master every frame, so a steady reading is the observable end
             // of the coroutine whether it completed, was never started, or is still mid-ramp - and no
             // branch of this file has to predict which.
             float deadline = Time.realtimeSinceStartup + MasterDrainTimeout;
@@ -135,7 +135,7 @@ namespace Ami.BroAudio.Tests
             Time.timeScale = 0f;
 
             // Known baseline before measuring: fadeTime 0 takes SetMasterVolume's immediate SafeSetFloat
-            // branch (SoundManager.cs:247-249), which isn't gated by GetDeltaTime at all, so this lands
+            // branch, which isn't gated by GetDeltaTime at all, so this lands
             // regardless of the pause above.
             BroAudio.SetVolume(AudioConstant.FullVolume, 0f);
             yield return WaitFrames(1);
@@ -174,15 +174,15 @@ namespace Ami.BroAudio.Tests
                 () => SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db) && db <= targetDb + DecibelTolerance,
                 "SoundManager's master-volume ramp (a separate coroutine from FaderModule) to reach target " +
                 "while paused under UnscaledTime - this call site has its own Utility.GetDeltaTime() call " +
-                "(SoundManager.cs:260) that a fix to FaderModule alone would not touch",
+                "that a fix to FaderModule alone would not touch",
                 fadeTimeout);
         }
 
         [UnityTest]
         public IEnumerator Fade_WithNormalModeAndPausedGame_FreezesAndNeverProgresses()
         {
-            // Explicit even though Normal is RuntimeSetting.FactorySettings.UpdateMode (RuntimeSetting.cs:66,
-            // already the ambient value here) - documents intent rather than relying on that default holding.
+            // Explicit even though Normal is RuntimeSetting.FactorySettings.UpdateMode
+            // (already the ambient value here) - documents intent rather than relying on that default holding.
             SoundManager.Instance.Setting.UpdateMode = AudioMixerUpdateMode.Normal;
             Time.timeScale = 0f;
 
@@ -226,7 +226,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float masterDbAfterWait));
             Assert.AreEqual(masterDbAtStart, masterDbAfterWait, DecibelTolerance,
                 "SoundManager's master-volume ramp should not have progressed either while paused under " +
-                "Normal UpdateMode - this call site has its own Utility.GetDeltaTime() call (SoundManager.cs:260) " +
+                "Normal UpdateMode - this call site has its own Utility.GetDeltaTime() call " +
                 "that a fix to FaderModule alone would not touch.");
 
             // Non-vacuity, read together with Fade_WithUnscaledTimeModeAndPausedGame_StillProgressesToCompletion

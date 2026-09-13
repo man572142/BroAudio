@@ -62,7 +62,7 @@ namespace Ami.BroAudio.Tests
         /// <see cref="BroAudioClip.Volume"/> and entity <see cref="AudioEntity.MasterVolume"/> authored away
         /// from their shared default of 1f (AudioConstant.FullVolume). Neither factor can be moved off 1
         /// by any other factory here, which leaves AudioPlayer.Playback.cs's `_clip.Volume *
-        /// _pref.Entity.GetMasterVolume()` product (AudioPlayer.Playback.cs:276, SetupClipVolume) unable to
+        /// _pref.Entity.GetMasterVolume()` product (SetupClipVolume) unable to
         /// ever read as anything but 1 * 1 in the suite - this is the smallest addition that fixes that.
         /// <para>
         /// <see cref="BroAudioClip.Volume"/> is a plain public field, so it's written directly; MasterVolume

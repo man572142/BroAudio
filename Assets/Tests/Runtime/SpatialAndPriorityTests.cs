@@ -78,7 +78,7 @@ namespace Ami.BroAudio.Tests
                 "A non-default ReverbZoneMix curve should reach the AudioSource via SetCustomCurve rather than being resolved to a flat default.");
         }
 
-        // characterizes: SetSpatial's local SetSpatialBlend() (AudioPlayer.cs:138-155) is an if/else-if with
+        // characterizes: SetSpatial's local SetSpatialBlend() is an if/else-if with
         // no else - it only calls SetTo3D() when the play specified a position or a follow target. A fully
         // non-default SpatialBlend curve authored on the entity is simply never consulted otherwise, so the
         // source stays 2D no matter how "3D" the entity's own curve looks.
@@ -154,11 +154,11 @@ namespace Ami.BroAudio.Tests
             Assert.AreSame(concreteA, concreteB, "The pool should hand the just-recycled player back on the very next Play().");
             AudioSource sourceB = concreteB.GetComponent<AudioSource>();
 
-            // ResetSpatial() (AudioPlayer.cs:172-184) runs at the end of every playback, before Recycle(). It
+            // ResetSpatial() runs at the end of every playback, before Recycle(). It
             // resets every property it touches back to AudioConstant's own defaults, which mirror Unity's own
             // AudioSource defaults. entityB carries no SpatialSetting of its own, and it was played without a
             // position, so SetSpatial() for entityB returns immediately after its position-less
-            // SetSpatialBlend() no-op (AudioPlayer.cs:110-116) - nothing about entityB's own play could have
+            // SetSpatialBlend() no-op - nothing about entityB's own play could have
             // written any of these. Whatever they read as here is purely ResetSpatial's residue (or its
             // absence) from entityA's teardown.
             Assert.AreEqual(AudioConstant.DefaultPanStereo, sourceB.panStereo, FloatTolerance, "panStereo should have been reset by ResetSpatial.");
@@ -173,13 +173,13 @@ namespace Ami.BroAudio.Tests
             // The actual finding. ResetSpatial resets AudioSource.rolloffMode away from Custom (asserted
             // above as passing), but it never calls SetCustomCurve(CustomRolloff, ...) to clear the curve
             // DATA underneath, and there is no scalar shortcut for it: Utility.SetCustomCurveOrResetDefault
-            // (Utility.cs:80-84) explicitly refuses to touch AudioSourceCurveType.CustomRolloff and says to
+            // explicitly refuses to touch AudioSourceCurveType.CustomRolloff and says to
             // use RolloffMode to detect "is default" instead. So entityA's raw CustomRolloff keyframes are
             // still sitting on the AudioSource entityB now plays through - inert today only because
             // rolloffMode itself no longer reads Custom. This is pinning the actual (leaky) behavior, not the
             // intended one; flagged in the report as a finding for TEST_FINDINGS.md.
             AssertCurveEquals(setting3D.CustomRolloff, sourceB.GetCustomCurve(AudioSourceCurveType.CustomRolloff),
-                "characterizes a defect: CustomRolloff curve DATA survives recycling untouched even though rolloffMode itself was correctly reset - see AudioPlayer.cs:172-184's ResetSpatial().");
+                "characterizes a defect: CustomRolloff curve DATA survives recycling untouched even though rolloffMode itself was correctly reset - see AudioPlayer.ResetSpatial().");
         }
         #endregion
 
@@ -189,7 +189,7 @@ namespace Ami.BroAudio.Tests
         {
             // 40 is neither AudioConstant.DefaultPriority (128, also Unity's own AudioSource component
             // default) nor AudioConstant.HighestPriority (0, the BGM override exercised below) - so this
-            // fails if AudioPlayer.Playback.cs:114's assignment were deleted, leaving the source at 128.
+            // fails if PlayControl's plain `AudioSource.priority = _pref.Entity.Priority` assignment were deleted, leaving the source at 128.
             const int NonDefaultPriority = 40;
             AudioEntity entity = NewEntity("PrioritySfx", BroAudioType.SFX, NewClip(2f));
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Priority), NonDefaultPriority);
@@ -199,7 +199,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player);
 
             AudioSource source = InstanceOf(player).GetComponent<AudioSource>();
-            Assert.AreEqual(NonDefaultPriority, source.priority, "entity.Priority should reach AudioSource.priority on play (AudioPlayer.Playback.cs:114).");
+            Assert.AreEqual(NonDefaultPriority, source.priority, "entity.Priority should reach AudioSource.priority on play, via PlayControl's assignment.");
         }
 
         [UnityTest]
@@ -207,8 +207,8 @@ namespace Ami.BroAudio.Tests
         {
             // 200 sits far from both AudioConstant.HighestPriority (0, the value under test) and
             // AudioConstant.DefaultPriority (128), so this only passes if the BGM-only override at
-            // AudioPlayer.Playback.cs:142 actually runs - deleting it would leave the source at 200, the
-            // value the plain (non-BGM) assignment on :114 already wrote moments earlier.
+            // PlayControl's BGM-only override actually runs - deleting it would leave the source at 200, the
+            // value the plain (non-BGM) assignment already wrote moments earlier.
             const int EntityOwnPriority = 200;
             AudioEntity entity = NewEntity("PriorityBgm", BroAudioType.Music, NewClip(3f));
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Priority), EntityOwnPriority);

@@ -42,11 +42,11 @@ jobs:
           restore-keys: Library-${{ matrix.testMode }}-
 
       # The stock unityci/editor image ships no audio libraries, so FMOD finds no output device
-      # and falls back to a non-realtime null sink pumped by the frame loop - measured at 747.94x
-      # wall time, which makes every PlayMode timing test a coin flip. This image adds a
+      # and falls back to a non-realtime null sink pumped by the frame loop - far faster than real time,
+      # which makes every PlayMode timing test a coin flip. This image adds a
       # timer-paced PulseAudio null sink; see .github/docker/Dockerfile. The image also sets
       # BROAUDIO_CI_EXPECTS_AUDIO, which AudioClockProbeTests reads to fail this leg outright if the
-      # sink is not working - the 18 tests that gate on a realtime clock are Assert.Ignore'd when it
+      # sink is not working - the tests that gate on a realtime clock are Assert.Ignore'd when it
       # is not, and an ignored test is not a failure.
       #
       # It has to come from a registry rather than a local tag: unity-test-runner runs an
@@ -97,9 +97,7 @@ jobs:
           githubToken: ${{ secrets.GITHUB_TOKEN }}
 
       # A suite that compiled to nothing does not fail - it is absent from the results, and the leg reports every
-      # test it did run as green. Run 11 passed that way twice over: PlayMode ran 124 tests instead of 132 with
-      # AddressablesTests gone, EditMode 209 instead of 214 with LocalizationClipStrategyTests gone, and the
-      # Addressables failure they were hiding came straight back on the next push.
+      # test it did run as green.
       - name: Check every required test suite ran
         if: ${{ !cancelled() }}
         run: >-

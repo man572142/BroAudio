@@ -8,8 +8,7 @@ namespace Ami.BroAudio.Tests
     /// <see cref="AddressablesTests"/> compiles behind <c>PACKAGE_ADDRESSABLES</c>, which this assembly's
     /// <c>versionDefines</c> raise only while <c>com.unity.addressables</c> is resolved. When it is not, the
     /// whole file compiles to nothing: the suite is absent from the results, every remaining test passes, and
-    /// CI reports green. Workflow run 11 passed exactly that way — 124 tests instead of 132, with the eight
-    /// addressable tests silently gone, on a cold <c>Library</c> whose package resolution came up short.
+    /// CI reports green.
     /// </para>
     /// <para>
     /// These probes are compiled unconditionally, so they cannot vanish the same way. Both packages are pinned
