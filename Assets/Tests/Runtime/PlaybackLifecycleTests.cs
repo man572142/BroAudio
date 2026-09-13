@@ -345,10 +345,9 @@ namespace Ami.BroAudio.Tests
         // Stop(onFinished) - "fade the music out, then load the next scene" - and the one handle shape that
         // breaks that promise. StopControl invokes onFinished at its very tail,
         // after the fade-out has run to completion and after EndPlaying() has already recycled the
-        // player; only the no-fade early-out fires it synchronously. Fade progress runs on capped
-        // Time.deltaTime, so the fade is kept wide (2s) and the "not yet" half polls across a whole second
-        // rather than sampling at one instant - Unity caps a hitch frame at ~0.333s, which is enough to
-        // swallow a single sample taken shortly after the call.
+        // player; only the no-fade early-out fires it synchronously. Per the BroAudioTestFixture timing rule,
+        // the fade is kept wide (2s) and the "not yet" half polls across a whole second rather than sampling
+        // at one instant.
         [UnityTest]
         public IEnumerator Stop_WithOnFinishedCallback_FiresAfterTheFadeButIsDroppedByARecycledHandle()
         {

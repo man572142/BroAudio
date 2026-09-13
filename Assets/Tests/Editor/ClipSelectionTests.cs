@@ -245,8 +245,8 @@ namespace Ami.BroAudio.Tests
             // characterizes: in the fallback scan, the loop keeps advancing `index` while probing for an
             // unused clip, then returns `result` — the clip found at the *earlier* index. So `clips[index]`
             // is not necessarily the clip that was returned. Same class of defect as
-            // SelectClip_AboveEveryThreshold_LeavesOutIndexStale in VelocityClipStrategy.
-            // See Docs/TEST_FINDINGS.md. Only the out-index overload is affected, and its only consumers
+            // SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero in VelocityClipStrategy.
+            // See Docs/TEST_FINDINGS.md #10. Only the out-index overload is affected, and its only consumers
             // are Editor preview/inspector code, so runtime playback picks the right clip regardless.
             BroAudioClip[] clips = NewSetClips(4);
             var strategy = new ShuffleClipStrategy();

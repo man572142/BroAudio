@@ -326,9 +326,9 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(highPassBefore, highPassAfter, FrequencyTolerance, "The unrelated HighPass parameter must be untouched.");
         }
 
-        // regression: Effect.LowPass's fadeTime defaults to 0, so Tweak yields nothing and TweakTrackParameter
-        // drained its WaitableList synchronously inside StartCoroutine - before SetEffect returned - leaving the
-        // chained ForSeconds/Until/While to index WaitableList[-1] and throw.
+        // regression (FIXED_ISSUES #17): Effect.LowPass's fadeTime defaults to 0, so Tweak yields nothing and
+        // TweakTrackParameter drains its WaitableList synchronously inside StartCoroutine, before SetEffect
+        // returns. The chained ForSeconds/Until/While must still work rather than index an empty WaitableList.
         [UnityTest]
         public IEnumerator SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing()
         {

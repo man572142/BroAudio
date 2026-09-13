@@ -169,8 +169,8 @@ namespace Ami.BroAudio.Runtime
             // isPlaying will return true once it's scheduled, even if it's not actually playing
             if (AudioSource.isPlaying)
             {
-                // If this is called after the audio is already playing, it will pause until the given dspTime.
-                // Some might consider this behavior a feature, so it has been left as is.
+                // If this is called after the audio is already playing, it pauses until the given dspTime.
+                // Intentionally kept as a feature.
                 AudioSource.SetScheduledStartTime(dspTime);
             }
             else

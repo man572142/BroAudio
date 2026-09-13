@@ -140,9 +140,8 @@ namespace Ami.BroAudio.Tests
             BroAudio.Stop(idA, 0f);
             yield return WaitForRecycle(concreteA, "the 3D player to recycle after Stop");
 
-            // The player pool (ObjectPool<T>) is a plain List<T> where Extract()/Recycle() both operate on
-            // the last index - LIFO (see AudioEffectTests' own recycle test for the same reasoning) - and
-            // this test is the only thing borrowing/returning a player, so the very next Play() must hand
+            // The player pool is LIFO (see AudioEffectTests.Recycle_AfterAddingEffectsAndFilterReader_DestroysThemAndComesBackClean)
+            // and this test is the only thing borrowing/returning a player, so the very next Play() must hand
             // this exact instance back. Without that guarantee "what does the reused source carry" would not
             // be testable at all.
             AudioEntity entityB = NewEntity("RecycleSpatialB", BroAudioType.SFX, NewClip(2f));
@@ -175,9 +174,9 @@ namespace Ami.BroAudio.Tests
             // DATA underneath, and there is no scalar shortcut for it: Utility.SetCustomCurveOrResetDefault
             // explicitly refuses to touch AudioSourceCurveType.CustomRolloff and says to
             // use RolloffMode to detect "is default" instead. So entityA's raw CustomRolloff keyframes are
-            // still sitting on the AudioSource entityB now plays through - inert today only because
-            // rolloffMode itself no longer reads Custom. This is pinning the actual (leaky) behavior, not the
-            // intended one; flagged in the report as a finding for TEST_FINDINGS.md.
+            // still sitting on the AudioSource entityB now plays through - inert only because rolloffMode
+            // itself no longer reads Custom. This pins the actual (leaky) behavior, not the intended one;
+            // see Docs/TEST_FINDINGS.md #46.
             AssertCurveEquals(setting3D.CustomRolloff, sourceB.GetCustomCurve(AudioSourceCurveType.CustomRolloff),
                 "characterizes a defect: CustomRolloff curve DATA survives recycling untouched even though rolloffMode itself was correctly reset - see AudioPlayer.ResetSpatial().");
         }

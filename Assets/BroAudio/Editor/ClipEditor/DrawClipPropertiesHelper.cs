@@ -130,7 +130,7 @@ namespace Ami.BroAudio.Editor
                     GUI.skin.window.Draw(previewRect, false, false, false, false);
 
                     Rect waveformRect = new Rect(previewRect);
-                    // The following offset is measure by eyes. Idk where they came from, not GUI.skin.window.padding or margin for sure.
+                    // Offset measured by eye; it isn't GUI.skin.window's padding or margin.
                     waveformRect.x += 2f;
                     waveformRect.width -= 2f;
                     if (transport.Delay > transport.StartPosition)

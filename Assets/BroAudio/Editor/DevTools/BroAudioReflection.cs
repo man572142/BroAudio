@@ -40,8 +40,8 @@ namespace Ami.Extension.Reflection
 
         public static AudioMixerGroup DuplicateBroAudioTrack(AudioMixer mixer, AudioMixerGroup parentTrack, AudioMixerGroup sourceTrack, string newTrackName, ExposedParameterType exposedParameterType = ExposedParameterType.All)
         {
-            // Using [DuplicateGroupRecurse] method on AudioMixerController will cause some unexpected result.
-            // Create a new one and copy the setting manually might be better.
+            // Don't use AudioMixerController.DuplicateGroupRecurse: it gives unexpected results. Create a new group
+            // and copy the settings manually instead.
 
             ClassReflectionHelper reflection = new ClassReflectionHelper();
 
@@ -106,8 +106,7 @@ namespace Ami.Extension.Reflection
                     return;
             }
 
-            // don't know why this can't be done, it always returns 0f
-            //object value = ExecuteMethod(getterMethod.ToString(), new object[] { mixer, snapshot }, mixerGroupClass, from);
+            // Don't read the value through the mixer group's reflected getter: it always returns 0f.
 
             if (mixer.SafeGetFloat(getterParaName, out float value))
             {

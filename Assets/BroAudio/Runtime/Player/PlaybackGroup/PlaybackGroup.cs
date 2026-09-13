@@ -69,9 +69,7 @@ namespace Ami.BroAudio
         /// <summary>
         /// Sets the rule to be executed based on the override status.
         /// </summary>
-        /// <param name="playableFunc"></param>
-        /// <param name="onGetParentRule"></param>
-        /// <returns></returns>
+        /// <param name="ruleMethod">Used when <paramref name="rule"/> is overridden; otherwise the parent group's rule of the same type applies.</param>
         protected IRule Initialize<T>(Rule<T> rule, IsPlayableDelegate ruleMethod)
         {
             Func<Type, IRule> onGetParentRule = null;

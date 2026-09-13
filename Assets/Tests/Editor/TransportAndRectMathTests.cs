@@ -104,8 +104,8 @@ namespace Ami.BroAudio.Editor.Tests
 
             // 4th decimal digit is 7 (unambiguous either way a midpoint rule breaks ties) so this
             // pins down "rounds to 3 digits" without depending on a float32 landing exactly on a
-            // .0005 tie — such a tie is not reliably reachable at float precision (verified: values
-            // like 1.2345f / 1.0005f do not round-trip to an exact .5 at the 4th decimal), so the
+            // .0005 tie — such a tie is not reliably reachable at float precision (values like
+            // 1.2345f / 1.0005f do not round-trip to an exact .5 at the 4th decimal), so the
             // AwayFromZero-vs-banker's-rounding distinction specifically could not be pinned down here.
             Assert.AreEqual(3.457f, transport.StartPosition, 0.0001f);
         }
@@ -196,9 +196,9 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(new Rect(30f, 0f, 27f, 40f), rects[1]);
             Assert.AreEqual(new Rect(63f, 0f, 54f, 40f), rects[2]);
 
-            // FINDING: with 3 segments the accounting falls short of origin.xMax by half a gap (117 vs 120)
-            // — unlike the dedicated 2-way ratio overload above, this form does not land exactly on the
-            // origin's far edge except at specific segment counts (verified: N=4 lands exactly; N=2 and
+            // characterizes TEST_FINDINGS #21: with 3 segments the accounting falls short of origin.xMax by half
+            // a gap (117 vs 120) — unlike the dedicated 2-way ratio overload above, this form does not land
+            // exactly on the origin's far edge except at specific segment counts (N=4 lands exactly; N=2 and
             // N=3 fall short; N>=5 would overshoot past origin.xMax by this same formula).
             Assert.AreEqual(117f, rects[2].xMax, 0.0001f);
         }
@@ -269,7 +269,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal()
         {
-            // FINDING: unlike SplitRectHorizontal's params-ratios overload, this one does
+            // characterizes TEST_FINDINGS #22: unlike SplitRectHorizontal's params-ratios overload, this one does
             // `resultRects ??= new Rect[ratios.Length]` instead of logging+returning on null. That
             // reassignment is local to the method (arrays pass by reference-value, no `ref` here), so
             // the caller's own null reference is completely unaffected — the call computes into a
@@ -344,7 +344,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst()
         {
-            // FINDING: the implementation does propertyName.Replace(firstChar, lowerFirstChar) — a
+            // characterizes TEST_FINDINGS #23: the implementation does propertyName.Replace(firstChar, lowerFirstChar) — a
             // global string.Replace(char,char) — not a single-position substitution. Any later
             // occurrence of the same uppercase leading letter elsewhere in the name is lowercased too.
             Assert.AreEqual("_foof", EditorScriptingExtension.GetFieldName("FooF"));

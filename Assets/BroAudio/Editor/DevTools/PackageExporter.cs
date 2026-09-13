@@ -28,10 +28,6 @@ namespace Ami.BroAudio.Editor.DevTool
 
             AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
 
-            // Then wait for unity to update its db
-
-            // THEN export
-
 			List<string> allfilePaths = Directory.GetFiles("Assets/BroAudio", "*.*", SearchOption.AllDirectories)
                 .Select(x => x.Replace("\\", "/"))
                 .ToList();

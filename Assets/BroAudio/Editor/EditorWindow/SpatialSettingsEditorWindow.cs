@@ -150,7 +150,7 @@ namespace Ami.BroAudio.Editor
 				return;
 			}
             
-            // From Source code: [Bug fix: 1018456 Moved the HandleLowPassFilter method before updating the serializedObjects]
+            // HandleLowPassFilter must run before serializedObject.Update(), as in Unity's own AudioSourceInspector.
             var hasLowPassFilterProp = _spatialSO.FindProperty(nameof(SpatialSetting.HasLowPassFilter));
             if (hasLowPassFilterProp.boolValue)
             {

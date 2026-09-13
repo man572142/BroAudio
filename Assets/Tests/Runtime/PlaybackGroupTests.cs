@@ -89,7 +89,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_SameID_WithinCombFilteringWindow_RejectsSecond()
         {
-            // combFilteringTime is generous (10s, was 1s) so the window can't expire from a slow CI runner
+            // combFilteringTime is generous (10s) so the window can't expire from a slow CI runner
             // stalling between the first Play and the second - this test is about the rejection itself,
             // not about timing the window's edge.
             DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f);

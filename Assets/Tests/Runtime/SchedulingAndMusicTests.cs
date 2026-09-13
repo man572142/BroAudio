@@ -21,16 +21,9 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_WithClipDelayOnly_PostponesAudibleStartButNotIsPlaying()
         {
-            // This test samples a voice held by clip.Delay (not an explicit schedule) partway through the
-            // wait via WaitDspSeconds, then asserts the playhead is still 0. A machine with no audio output
-            // device runs the DSP clock decoupled from wall time - fast enough that a single WaitDspSeconds
-            // frame can carry dspTime straight past the whole 1.5s clip.Delay window, so the "still silent"
-            // assertion below would read the voice as already started rather than being skipped as intended.
+            // Samples inside the 1.5s clip.Delay window, which one frame of a decoupled DSP clock would skip past.
             yield return RequireRealtimeAudioClock();
 
-            // 1.5s delay (was 0.6s) with a full 1s cushion before the "still silent" check below - the old
-            // fixed 0.25s offset was thinner than a single capped hitch frame (Time.maximumDeltaTime caps
-            // Utility.GetDeltaTime at ~0.333s), which could push the check past the delay boundary.
             const float delay = 1.5f;
             AudioEntity entity = NewEntity("ClipDelaySfx", BroAudioType.SFX, NewClip(3f));
             entity.Clips[0].Delay = delay;
@@ -48,18 +41,12 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "audible playback to start once clip.Delay elapses", 2f);
         }
 
-        // 2.5 - the priority rule that has already regressed once (project memory, commit 7bdc9431):
-        // an explicit schedule set before the queued Play() drains must win outright over clip.Delay,
+        // 2.5 - an explicit schedule set before the queued Play() drains must win outright over clip.Delay,
         // not add to it. A 5s clip.Delay left un-overridden would blow well past this test's timeout.
         [UnityTest]
         public IEnumerator SetScheduledStartTime_CalledBeforeQueueDrains_OverridesClipDelay()
         {
-            // The held-voice checks below sample the DSP clock at a point inside the schedule. A machine with no
-            // audio output device runs that clock decoupled from wall time - hundreds of times faster - so a single
-            // frame can carry WaitDspSeconds past the whole schedule and the voice would read as started. The
-            // schedule and the observation share the clock, so a uniformly fast clock is harmless; it is the
-            // per-frame jump that breaks it. AudioClockProbeTests is what stops this ignore from hiding a broken
-            // CI image.
+            // Samples inside the 1.5s schedule, which one frame of a decoupled DSP clock would skip past.
             yield return RequireRealtimeAudioClock();
 
             AudioEntity entity = NewEntity("DelayVsScheduleSfx", BroAudioType.SFX, NewClip(2f));
@@ -67,7 +54,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id); // only enqueued - SoundManager.LateUpdate hasn't drained it yet
-            // 1.5s (was 0.3s): long enough to observe the voice being *held*, not merely to observe it starting.
+            // 1.5s: long enough to observe the voice being *held*, not merely to observe it starting.
             double target = AudioSettings.dspTime + 1.5;
             player.SetScheduledStartTime(target); // SetClipDelayIfNotScheduled will see ScheduledStartTime > 0 and skip the 5s clip.Delay
 
@@ -79,9 +66,8 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player, "PlayScheduled to arm the voice immediately");
             Assert.AreEqual(0, player.AudioSource.timeSamples, "The voice must be held by the explicit schedule, not started at once.");
 
-            // Sample 0.5s into the 1.5s schedule: 1s of decisive window remains - three capped hitch frames
-            // (Time.maximumDeltaTime ~0.333s) wide. Without these two checks the test would still pass if the
-            // schedule were dropped entirely and the voice started immediately.
+            // Sample 0.5s into the 1.5s schedule, leaving 1s of decisive window. Without these two checks the
+            // test would still pass if the schedule were dropped entirely and the voice started immediately.
             yield return WaitDspSeconds(0.5);
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Still held 0.5s in - the explicit schedule must not have been ignored.");
 
@@ -97,12 +83,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetDelay_CalledBeforeQueueDrains_OverridesClipDelayRatherThanAddingToIt()
         {
-            // The held-voice checks below sample the DSP clock at a point inside the schedule. A machine with no
-            // audio output device runs that clock decoupled from wall time - hundreds of times faster - so a single
-            // frame can carry WaitDspSeconds past the whole schedule and the voice would read as started. The
-            // schedule and the observation share the clock, so a uniformly fast clock is harmless; it is the
-            // per-frame jump that breaks it. AudioClockProbeTests is what stops this ignore from hiding a broken
-            // CI image.
+            // Samples inside the 1.5s delay, which one frame of a decoupled DSP clock would skip past.
             yield return RequireRealtimeAudioClock();
 
             AudioEntity entity = NewEntity("DelayOverrideSfx", BroAudioType.SFX, NewClip(2f));
@@ -112,7 +93,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id); // only enqueued - SoundManager.LateUpdate hasn't drained it yet
             player.SetDelay(1.5f); // SetClipDelayIfNotScheduled will see ScheduledStartTime > 0 and skip the 5s clip.Delay
 
-            // 1.5s (was 0.3s) so the held voice can be observed, not just its eventual start. SetDelay resolves to
+            // 1.5s so the held voice can be observed, not just its eventual start. SetDelay resolves to
             // SetScheduledStartTime(dspTime + delay), which arms AudioSource.PlayScheduled synchronously and makes
             // isPlaying true right away - so the playhead, not IsPlaying, is the only signal that says "held".
             // PlayControl seeds it with GetSample(audioClip.frequency, _clip.StartPosition) (AudioPlayer.Playback.cs)
@@ -120,9 +101,8 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player, "PlayScheduled to arm the voice immediately");
             Assert.AreEqual(0, player.AudioSource.timeSamples, "The voice must be held by the explicit SetDelay, not started at once.");
 
-            // Sample 0.5s into the 1.5s delay: 1s of decisive window remains - three capped hitch frames
-            // (Time.maximumDeltaTime ~0.333s) wide. Without these two checks the test would still pass if the
-            // delay were dropped entirely and the voice started immediately.
+            // Sample 0.5s into the 1.5s delay, leaving 1s of decisive window. Without these two checks the
+            // test would still pass if the delay were dropped entirely and the voice started immediately.
             yield return WaitDspSeconds(0.5);
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Still held 0.5s in - the explicit SetDelay must not have been ignored.");
 
@@ -140,7 +120,7 @@ namespace Ami.BroAudio.Tests
             yield return RequireRealtimeAudioClock();
 
             int onPauseCount = 0;
-            // 6s clip (was 3s): the stall does not push the end out - _playbackEndDspTime is fixed when PlayControl
+            // 6s clip: the stall does not push the end out - _playbackEndDspTime is fixed when PlayControl
             // resolves the timing and SetScheduledStartTime never recalculates it - so the clip has to outlast the
             // 2s stall plus the resume observation, or the player would end playback while still stalled.
             SoundID id = NewSound("RescheduleWhilePlayingSfx", BroAudioType.SFX, NewClip(6f));
@@ -154,15 +134,14 @@ namespace Ami.BroAudio.Tests
             player.SetScheduledStartTime(now + 2.0); // reschedule while already playing - stalls the source for 2s
 
             // characterizes: IAudioPlayer.IsPlaying/IsActive stay true and OnPause never fires - the
-            // pause is only visible on the raw AudioSource, per the "left as is" comment in Scheduling.cs.
+            // pause is only visible on the raw AudioSource, per ISchedulable.SetScheduledStartTime in AudioPlayer.Scheduling.cs.
             Assert.IsTrue(player.IsPlaying, "IAudioPlayer.IsPlaying must not flip false from a mid-play reschedule.");
             Assert.IsTrue(player.IsActive, "IAudioPlayer.IsActive must not flip false from a mid-play reschedule.");
             Assert.AreEqual(0, onPauseCount, "OnPause must not fire for a reschedule-induced stall - only Pause()/StopMode.Pause does that.");
 
             int stalledSamples = player.AudioSource.timeSamples;
-            // Sample a full second into the 2s stall (was 0.2s into a 0.4s stall - a 0.2s margin, thinner than one
-            // capped hitch frame at Time.maximumDeltaTime ~0.333s): the playhead is now proven frozen across a whole
-            // second, and a whole second of stall still remains, so no hitch can carry this check past the resume.
+            // Sample a full second into the 2s stall: the playhead is proven frozen across a whole second, and a
+            // whole second of stall still remains, so no slow frame can carry this check past the resume.
             yield return WaitDspSeconds(1.0);
             Assert.AreEqual(stalledSamples, player.AudioSource.timeSamples,
                 "characterizes: the AudioSource playhead stalls while paused-for-reschedule, though nothing in IAudioPlayer reflects it.");
@@ -179,27 +158,22 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength()
         {
-            // This test samples the player mid-way through an explicit SetScheduledEndTime window and
-            // asserts it is still active. A machine with no audio output device runs the DSP clock decoupled
-            // from wall time - fast enough that a single WaitDspSeconds frame can carry dspTime straight past
-            // the 2s explicit end time, so the "still active" assertion below would see an already-ended
-            // (recycled) player instead of the mid-schedule state the test means to observe.
+            // Samples inside the 2s explicit end window, which one frame of a decoupled DSP clock would skip past.
             yield return RequireRealtimeAudioClock();
 
             SoundID id = NewSound("ExplicitEndSfx", BroAudioType.SFX, NewClip(4f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // 2s (was 1s) so the "still active" sample below lands a full second short of the end rather than 0.3s,
-            // which was thinner than one capped hitch frame (Time.maximumDeltaTime ~0.333s).
+            // 2s so the "still active" sample below lands a full second short of the end.
             double target = AudioSettings.dspTime + 2.0;
             player.SetScheduledEndTime(target);
 
             yield return WaitDspSeconds(1.0);
             Assert.IsTrue(player.IsActive, "Player must still be active a full second before the explicit end time (clip is 4s long).");
 
-            // 2s past the sample point is 1s past the 2s target - three capped hitch frames of slack - and still
-            // ~1s short of the clip's natural 4s end, so an ignored explicit end still times out here.
+            // 2s past the sample point is 1s past the 2s target and still ~1s short of the clip's natural 4s end,
+            // so an ignored explicit end still times out here.
             yield return WaitForRecycle(player, "playback to end at the explicit scheduled end time, not the clip's natural 4s length", 2f);
         }
 
@@ -230,24 +204,19 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetPitch_AfterExplicitScheduledEndTime_DoesNotRescaleEndTime()
         {
-            // Same DSP-clock sampling risk as SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength,
-            // specific to this test: the WaitDspSeconds sample below has to land inside the still-unmoved ~2s
-            // explicit end time to prove SetPitch did not rescale it. A decoupled, fast DSP clock (no audio
-            // output device) can carry a single WaitDspSeconds frame straight past that 2s boundary, making
-            // the "still active" assertion fail on a player that already ended rather than being skipped.
+            // Samples inside the still-unmoved 2s explicit end window, which one frame of a decoupled DSP clock
+            // would skip past.
             yield return RequireRealtimeAudioClock();
 
-            // 6s clip (was 4s): what this test has to rule out is not the clip's natural end but the *recalculated*
-            // one - if RecalculateScheduledEndTime stopped honouring _isEndTimeDerivedFromClip it would re-derive
-            // the end from the playhead as clipLength / pitch, i.e. ~4s here (later than the explicit end, not
-            // sooner). At 4s the clip put that regression at ~2.7s, too close to a 2s explicit end to separate the
-            // two by a whole second.
+            // 6s clip: what this test has to rule out is not the clip's natural end but the *recalculated* one -
+            // if RecalculateScheduledEndTime stopped honouring _isEndTimeDerivedFromClip it would re-derive the
+            // end from the playhead as clipLength / pitch, i.e. ~4s here (later than the explicit end, not
+            // sooner). The clip must be long enough to keep that regression a whole second past the 2s explicit end.
             SoundID id = NewSound("PitchVsExplicitEndSfx", BroAudioType.SFX, NewClip(6f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // 2s (was 1s) so the "still active" sample below lands a full second short of the end rather than 0.3s,
-            // which was thinner than one capped hitch frame (Time.maximumDeltaTime ~0.333s).
+            // 2s so the "still active" sample below lands a full second short of the end.
             double target = AudioSettings.dspTime + 2.0;
             player.SetScheduledEndTime(target);
             player.SetPitch(1.5f); // must not move the explicit 2s end time (a recalculation would push it out to ~4s)

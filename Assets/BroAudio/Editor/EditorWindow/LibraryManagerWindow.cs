@@ -715,8 +715,8 @@ namespace Ami.BroAudio.Editor
             }
         }
 
-        // The ReorderableList default header background GUIStyle has set fixedHeight to non-0 and stretchHeight to false, which is unreasonable...
-        // Use another style or Draw it manually could solve the problem and accept more customization.
+        // The header background is drawn manually: ReorderableList's default header style has a non-zero
+        // fixedHeight and stretchHeight off, so it can't size to this header.
         private void DrawEntitiesHeader(AudioAssetEditor editor, SerializedObject serializedAsset, Action<string> onAssetNameChanged)
         {
             EditorGUILayout.BeginHorizontal();

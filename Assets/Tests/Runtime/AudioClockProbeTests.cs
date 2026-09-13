@@ -10,12 +10,10 @@ namespace Ami.BroAudio.Tests
     /// Fails the PlayMode run when the editor image's audio device is gone, instead of letting the tests
     /// that need it quietly do nothing.
     /// <para>
-    /// Two dozen and counting open with <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/> — every
-    /// seamless and chained handover, most of the spectrum analyzer suite, the scheduling pins, the dominator
-    /// routing tests, and the only tests that characterize TEST_FINDINGS #38-#40. (Deliberately not an exact
-    /// count: one was written here and went stale within the week. `grep -rc "yield return
-    /// RequireRealtimeAudioClock();" Assets/Tests/Runtime/` is the current number.) It calls <c>Assert.Ignore</c> when the DSP clock is off
-    /// wall time by more than 10%, which is right for a developer machine and silent on CI: an ignored test
+    /// Every seamless and chained handover, most of the spectrum analyzer suite, the scheduling pins, the
+    /// dominator routing tests, and the only tests that characterize TEST_FINDINGS #38-#40 open with
+    /// <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/>. It calls <c>Assert.Ignore</c> when the DSP clock is off
+    /// wall time by more than <see cref="BroAudioTestFixture.RealtimeAudioClockTolerance"/>, which is right for a developer machine and silent on CI: an ignored test
     /// is not a failure, so an image that lost its PulseAudio null sink reports green with the heart of the
     /// suite never executed. <c>check_test_suites.py</c> cannot catch it either — the fixtures are all
     /// present in the results, they simply ran nothing.

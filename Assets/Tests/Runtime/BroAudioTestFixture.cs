@@ -17,6 +17,11 @@ namespace Ami.BroAudio.Tests
     /// here once: stop everything, restore the volumes and the on-disk RuntimeSetting, destroy what the
     /// test created. Do not re-solve it per test file.
     /// </para>
+    /// <para>
+    /// Timing rule: fade progress accumulates capped Time.deltaTime (at most Time.maximumDeltaTime, ~0.333s,
+    /// per frame) while timeouts and the DSP clock run on wall time, so one slow frame can move a sample point
+    /// a third of a second against its boundary. Keep every decisive assertion window at least 1s wide.
+    /// </para>
     /// </summary>
     public abstract class BroAudioTestFixture
     {

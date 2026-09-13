@@ -159,8 +159,7 @@ namespace Ami.BroAudio.Runtime
 
             if (isResuming)
             {
-                // The rebased end time is provisional (slid by the pause duration); now that the source is
-                // un-paused, derive the exact end from the playhead — this also covers SetPitch while paused.
+                // Replace the provisional rebased end (see RebaseScheduleAfterPause) now that the source is un-paused.
                 RecalculateScheduledEndTime();
                 ScheduleEndTime();
             }
@@ -501,8 +500,9 @@ namespace Ami.BroAudio.Runtime
             bool hasExplicitOverride = _pref.HasFadeOutOverride;
             if (_pref.TryGetFadeOut(_clip.FadeOut, out float fadeOut, out var fadeOutEase))
             {
-                // After end-handover, the in-flight Fade captured the old player's _onUpdate before
-                // BeginHandover ran. Restart it with a null callback to keep the ce15a806 invariant.
+                // After end-handover the next player owns onUpdate dispatch, but the in-flight Fade captured this
+                // player's _onUpdate before BeginHandover ran. Restart it with a null callback so subscribers
+                // don't receive updates from both players.
                 if (_clipVolume.IsFadingOut && !hasExplicitOverride && !didHandoverToEnd)
                 {
                     while (_clipVolume.IsFading)

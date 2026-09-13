@@ -145,7 +145,7 @@ namespace Ami.BroAudio
         /// <summary>
         /// Resume all audio that matches the given audio type
         /// </summary>
-        /// <param name="fadeOut">Duration in seconds to fade in. Set this value to override the LibraryManager's setting</param>
+        /// <param name="fadeIn">Duration in seconds to fade in. Set this value to override the LibraryManager's setting</param>
         public static void UnPause(BroAudioType audioType, float fadeIn)
             => Manager?.Pause(audioType, fadeIn, false);
 
