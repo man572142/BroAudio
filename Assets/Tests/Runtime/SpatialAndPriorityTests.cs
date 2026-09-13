@@ -206,8 +206,8 @@ namespace Ami.BroAudio.Tests
         public IEnumerator AsBGM_OverridesEntityPriorityToHighestPriorityRegardlessOfTheEntitysOwnValue()
         {
             // 200 sits far from both AudioConstant.HighestPriority (0, the value under test) and
-            // AudioConstant.DefaultPriority (128), so this only passes if the BGM-only override at
-            // PlayControl's BGM-only override actually runs - deleting it would leave the source at 200, the
+            // AudioConstant.DefaultPriority (128), so this only passes if PlayControl's BGM-only
+            // override actually runs - deleting it would leave the source at 200, the
             // value the plain (non-BGM) assignment already wrote moments earlier.
             const int EntityOwnPriority = 200;
             AudioEntity entity = NewEntity("PriorityBgm", BroAudioType.Music, NewClip(3f));

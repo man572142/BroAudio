@@ -28,13 +28,13 @@ namespace Ami.BroAudio.Editor.Tests
     {
         private const float Tolerance = 1e-4f;
 
-        /// <summary>Builds a ramp clip: frame i (per-channel) holds value i/n, interleaved across channels.</summary>
         /// <summary>1000 Hz is the lowest rate AudioClip.Create honours; below it Unity caps and logs an error.</summary>
         private const int SampleRate = 1000;
 
         /// <summary>A sample count expressed as the seconds value the editing helper takes.</summary>
         private static float Seconds(int samples) => samples / (float)SampleRate;
 
+        /// <summary>Builds a ramp clip: frame i (per-channel) holds value i/n, interleaved across channels.</summary>
         private AudioClip CreateRampClip(string name, int n, int channels, int frequency = SampleRate)
         {
             AudioClip clip = AudioClip.Create(name, n, channels, frequency, false);
