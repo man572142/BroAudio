@@ -1,3 +1,4 @@
+using Ami.BroAudio.Data;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -11,52 +12,91 @@ namespace Ami.BroAudio.Editor.Tests
     /// The A_-E_ prefixes describe the intended story - A_ dirties and B_ observes the restore, C_ creates
     /// the temp folder and D_ observes its removal, E_ checks nothing was left dirty - but NUnit does not
     /// guarantee alphabetical execution order on its own, so each test also carries an explicit
-    /// <see cref="OrderAttribute"/> pinning that order. B_, D_ and E_ additionally guard themselves with
-    /// <c>Assume.That(_aRan, ...)</c>: if the fixture is filtered down to run one of them alone (so A_
-    /// never runs and never sets <see cref="_aRan"/>), they go Inconclusive instead of reading default
-    /// field values and reporting a false red. Run the whole fixture to actually exercise the contract.
+    /// <see cref="OrderAttribute"/> pinning that order. B_ and E_ guard themselves with
+    /// <c>Assume.That(_aRan, ...)</c> and D_ with <c>Assume.That(_cRan, ...)</c>: if the fixture is
+    /// filtered down to run one of them alone (so its predecessor never runs and never sets the flag),
+    /// they go Inconclusive instead of reading default field values and reporting a false green or a
+    /// false red. Run the whole fixture to actually exercise the contract.
+    /// </para>
+    /// <para>
+    /// Every assertion here has to be able to fail. A_ therefore both establishes a known-clean baseline
+    /// before it mutates anything and checks that its probe values actually differ from what is already
+    /// in place - otherwise B_ and E_ would report green on state the fixture never had to restore.
     /// </para>
     /// </summary>
     public class IsolationContractTests : BroEditorTestFixture
     {
         private const string ProbeValue = "BroEditorTestFixture-probe";
+        private const int ProbeVirtualTrackCount = 99;
+        private const int ProbePlayerPoolSize = 97;
 
         // Stashed by A_ before it dirties anything, so B_ can assert the values came BACK rather than
         // merely that they are no longer the probe - a restore to the wrong value would pass that.
         private static int _trackCountBefore;
+        private static bool _showVUColorBefore;
+        private static int _playerPoolSizeBefore;
         private static string _lastEditAssetBefore;
         private static string _clipboardBefore;
 
-        // Set at the end of A_ - see the class doc's Assume.That() guard on B_/D_/E_.
+        // Set at the end of A_ and C_ respectively - see the class doc's Assume.That() guards.
         private static bool _aRan;
+        private static bool _cRan;
 
         [Test, Order(1)]
-        public void A_MutatedEditorSetting_IsDirtiedByTheTest()
+        public void A_MutatedSettingAssets_AreDirtiedByTheTest()
         {
-            EditorSetting setting = BroEditorUtility.EditorSetting;
-            Assert.IsTrue(setting, "EditorSetting asset is missing from Editor/Resources.");
+            EditorSetting editorSetting = BroEditorUtility.EditorSetting;
+            RuntimeSetting runtimeSetting = BroEditorUtility.RuntimeSetting;
+            Assert.IsTrue(editorSetting, "EditorSetting asset is missing from Editor/Resources.");
+            Assert.IsTrue(runtimeSetting, "RuntimeSetting asset is missing from Resources.");
 
-            _trackCountBefore = setting.VirtualTrackCount;
-            _lastEditAssetBefore = setting.LastEditAudioAsset;
+            // A known-clean baseline, so the dirty flags asserted below can only have been raised here.
+            // This takes nothing away from the developer's project: TearDown clears both flags after
+            // every test in this suite anyway, having already restored the assets' values from JSON.
+            EditorUtility.ClearDirty(editorSetting);
+            EditorUtility.ClearDirty(runtimeSetting);
+
+            _trackCountBefore = editorSetting.VirtualTrackCount;
+            _showVUColorBefore = editorSetting.ShowVUColorOnVolumeSlider;
+            _playerPoolSizeBefore = runtimeSetting.DefaultAudioPlayerPoolSize;
+            _lastEditAssetBefore = editorSetting.LastEditAudioAsset;
             _clipboardBefore = EditorGUIUtility.systemCopyBuffer;
 
-            setting.ShowVUColorOnVolumeSlider = !EditorSetting.FactorySettings.ShowVUColorOnVolumeSlider;
-            setting.VirtualTrackCount = 99;
-            setting.LastEditAudioAsset = ProbeValue;
+            // A probe that happens to equal the value already in place would make B_ pass without the
+            // fixture restoring anything.
+            Assume.That(_trackCountBefore, Is.Not.EqualTo(ProbeVirtualTrackCount), "VirtualTrackCount already holds the probe value - pick another probe, B_ cannot observe a restore of it.");
+            Assume.That(_playerPoolSizeBefore, Is.Not.EqualTo(ProbePlayerPoolSize), "DefaultAudioPlayerPoolSize already holds the probe value - pick another probe, B_ cannot observe a restore of it.");
+            Assume.That(_lastEditAssetBefore, Is.Not.EqualTo(ProbeValue), "LastEditAudioAsset already holds the probe value - a previous run leaked it, B_ cannot observe a restore of it.");
+            Assume.That(_clipboardBefore, Is.Not.EqualTo(ProbeValue), "The system clipboard already holds the probe value - a previous run leaked it, B_ cannot observe a restore of it.");
+
+            editorSetting.ShowVUColorOnVolumeSlider = !_showVUColorBefore;
+            editorSetting.VirtualTrackCount = ProbeVirtualTrackCount;
+            editorSetting.LastEditAudioAsset = ProbeValue;
+            runtimeSetting.DefaultAudioPlayerPoolSize = ProbePlayerPoolSize;
             EditorGUIUtility.systemCopyBuffer = ProbeValue;
 
-            Assert.AreEqual(99, setting.VirtualTrackCount);
+            // Writing a public field does not raise the dirty flag on its own; every production path that
+            // edits these assets pairs the write with SetDirty (LibraryManagerWindow, the Preferences
+            // window, BroUpdater...), so a test standing in for one has to do the same.
+            EditorUtility.SetDirty(editorSetting);
+            EditorUtility.SetDirty(runtimeSetting);
+
+            Assert.IsTrue(EditorUtility.IsDirty(editorSetting), "EditorSetting was not marked dirty by this test - E_ would then prove nothing.");
+            Assert.IsTrue(EditorUtility.IsDirty(runtimeSetting), "RuntimeSetting was not marked dirty by this test - E_ would then prove nothing.");
             _aRan = true;
         }
 
         [Test, Order(2)]
-        public void B_AfterAMutatingTest_SettingAndClipboardAreRestored()
+        public void B_AfterAMutatingTest_SettingsAndClipboardAreRestored()
         {
             Assume.That(_aRan, "B_ depends on A_ having dirtied state first - run the full IsolationContractTests fixture, not this test alone.");
 
-            EditorSetting setting = BroEditorUtility.EditorSetting;
-            Assert.AreEqual(_trackCountBefore, setting.VirtualTrackCount, "EditorSetting was not restored to its pre-test value.");
-            Assert.AreEqual(_lastEditAssetBefore, setting.LastEditAudioAsset, "LastEditAudioAsset (EditorPrefs) was not restored to its pre-test value.");
+            EditorSetting editorSetting = BroEditorUtility.EditorSetting;
+            RuntimeSetting runtimeSetting = BroEditorUtility.RuntimeSetting;
+            Assert.AreEqual(_trackCountBefore, editorSetting.VirtualTrackCount, "EditorSetting.VirtualTrackCount was not restored to its pre-test value.");
+            Assert.AreEqual(_showVUColorBefore, editorSetting.ShowVUColorOnVolumeSlider, "EditorSetting.ShowVUColorOnVolumeSlider was not restored to its pre-test value.");
+            Assert.AreEqual(_playerPoolSizeBefore, runtimeSetting.DefaultAudioPlayerPoolSize, "RuntimeSetting.DefaultAudioPlayerPoolSize was not restored to its pre-test value.");
+            Assert.AreEqual(_lastEditAssetBefore, editorSetting.LastEditAudioAsset, "LastEditAudioAsset (EditorPrefs) was not restored to its pre-test value.");
             Assert.AreEqual(_clipboardBefore, EditorGUIUtility.systemCopyBuffer, "The system clipboard was not restored to its pre-test contents.");
         }
 
@@ -64,13 +104,15 @@ namespace Ami.BroAudio.Editor.Tests
         public void C_TempFolder_IsCreatedOnDemand()
         {
             string path = EnsureTempFolder();
+            Assert.AreEqual(TempFolder, path, "EnsureTempFolder() returned a path other than the fixture's sanctioned temp folder.");
             Assert.IsTrue(AssetDatabase.IsValidFolder(path), "The temp folder was not created.");
+            _cRan = true;
         }
 
         [Test, Order(4)]
         public void D_TempFolder_DoesNotSurviveAPreviousTest()
         {
-            Assume.That(_aRan, "D_ depends on the fixture's own explicit order (C_ before D_) having run - run the full IsolationContractTests fixture, not this test alone.");
+            Assume.That(_cRan, "D_ depends on C_ having created the temp folder first - run the full IsolationContractTests fixture, not this test alone.");
 
             Assert.IsFalse(AssetDatabase.IsValidFolder(TempFolder), "A temp asset folder survived TearDown.");
         }
