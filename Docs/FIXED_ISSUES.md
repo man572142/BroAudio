@@ -22,7 +22,8 @@ Unreleased (after 3.2.3).
 | 20 | Editor / Audio type | Dead code: two audio-type index helpers with no callers, and a broken round-trip | `48516f57` |
 | 28 | Editor / Clip editing | A zero-length fade divided by zero and reported an edit it never made | `48516f57` |
 | 30 | Editor / Sample data | Trimming past the end of a clip spliced it with its own beginning | `48516f57` |
-| 33 | Editor / Logging | Three rect-splitting logs in the Editor assembly carried no `[BroAudio]` prefix | working tree |
+| 33 | Editor / Logging | Three rect-splitting logs in the Editor assembly carried no `[BroAudio]` prefix | `b9a9069f` |
+| 52 | Editor / Instructions | `BroInstruction` had no `NameOf` class, so its serialized fields were reachable only by string literal | `b9a9069f` |
 
 ---
 
@@ -213,3 +214,23 @@ tests that assert these logs previously matched the message string *exactly*, wh
 them red the moment the prefix was added; they now match on a substring `Regex`, the same
 prefix-agnostic shape the runtime tests already use. The rest of the Editor assembly is still unswept —
 see TEST_FINDINGS #34.
+
+## 52. `BroInstruction` had no `NameOf` class
+
+**What was wrong:** Editor code that reaches a serialized field through `SerializedObject` is meant to
+go through the type's nested `NameOf` class instead of a string literal, and `SoundSource`,
+`BroAudioClip`, `AudioAsset`, `IssueReportDraft` and the rest all carry one. `BroInstruction` was the
+exception, so the only way to walk its instruction table was to spell `"_dictionary"`, `"Key"` and
+`"Value"` out by hand — `ShippedDataTests`, which reads the shipped asset that way, did exactly that.
+Renaming any of the three would have compiled cleanly and then failed at runtime, with nothing
+pointing at the member that moved.
+
+**How it's fixed:** `BroInstruction` gains the nested `NameOf` class the convention asks for —
+`Dictionary`, `Key` and `Value`, each a `nameof` of the real member, so a rename is a compile error at
+the call site. `ShippedDataTests` now reads the asset through it, literals gone, and its "this field
+was renamed" assertion message quotes the constant rather than restating the old name.
+
+Unlike every other entry here, this one was never an open finding: it came out of a review of the test
+code itself rather than out of characterizing the library, so it has no number in
+[TEST_FINDINGS.md](TEST_FINDINGS.md). It takes the next free number in the sequence the two
+documents share.
