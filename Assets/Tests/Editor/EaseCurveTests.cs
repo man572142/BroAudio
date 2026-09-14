@@ -148,7 +148,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InQuad, -1f, 1f)]
         public void SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01(Ease ease, float t, float expected)
         {
-            // characterizes (reported as a finding, NOT fixed here): SetEase opens with a bare
+            // characterizes TEST_FINDINGS #53: SetEase opens with a bare
             // `Mathf.Clamp01(value);` whose return value is discarded - Mathf.Clamp01 is pure, so the clamp
             // does nothing and out-of-range t flows straight into the curve. t > 1 therefore overshoots the
             // target volume and a negative t can come back POSITIVE through the even powers (-1 -> 1).
@@ -160,9 +160,9 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SetEase_UndefinedEaseValue_FallsBackToZero()
         {
-            // characterizes the `_ => 0` switch arm: an out-of-range cast (e.g. a saved ordinal from a newer
-            // build) silently yields 0 for the whole fade rather than throwing, which pins the volume at the
-            // fade's origin for its entire duration.
+            // characterizes TEST_FINDINGS #54, the `_ => 0` switch arm: an out-of-range cast (e.g. a
+            // saved ordinal from a newer build) silently yields 0 for the whole fade rather than
+            // throwing, which pins the volume at the fade's origin for its entire duration.
             Assert.That(Half.SetEase((Ease)9999), Is.EqualTo(0f).Within(Tolerance));
         }
 
