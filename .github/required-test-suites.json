@@ -11,6 +11,7 @@
       "AudioMathTests",
       "ClipEditingTests",
       "ClipSelectionTests",
+      "EaseCurveTests",
       "EditorUtilityPureTests",
       "IsolationContractTests",
       "IssueReportMarkdownTests",

@@ -76,9 +76,9 @@ project, and both fixes below landed in both copies.
 The two sets line up exactly today: every enum member has an entry, every entry maps to a defined member,
 no duplicates. **Do not carry the totals around as facts** — they grow with every new tooltip. Re-derive
 them: the enum members are the entries in `Assets/BroAudio/Editor/EditorSettings/Instruction.cs`, the
-asset entries are its `Key:` lines (74 and 74 when this was last checked, counting `None = 0`). And note
-that equal totals are *not* the check — that coincidence is exactly what hid the 450 gap. The tests
-compare the two sets member by member, in both directions.
+asset entries are its `Key:` lines, counting `None = 0`. And note that equal totals are *not* the
+check — that coincidence is exactly what hid the 450 gap. The tests compare the two sets member by
+member, in both directions.
 
 Both were **findings before they were fixes**, which is the rule this plan runs on: the tests in
 `Assets/Tests/Editor/ShippedDataTests.cs` were written as "every enum value resolves to real text" and
