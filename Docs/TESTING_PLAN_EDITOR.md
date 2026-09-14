@@ -3,7 +3,7 @@
 Handoff doc for the session that builds BroAudio's **Editor-assembly** regression suite.
 
 Companion to [TESTING_PLAN.md](TESTING_PLAN.md), which covers the runtime and is **done**, ledger in
-`docs/TEST_INVENTORY.md`. Read that doc's *Principles* and
+`Docs/TEST_INVENTORY.md`. Read that doc's *Principles* and
 *Anti-goals* sections; they apply verbatim here and are not restated. Delegation is **not** inherited —
 this suite has its own agent and model allocation, below. Everything else in this doc covers what is
 different about testing `BroAudioEditor`.
@@ -44,28 +44,47 @@ Create `Assets/Tests/Editor/EditorTests.asmdef`:
 - `precompiledReferences: ["nunit.framework.dll"]`, `overrideReferences: true`
 - `autoReferenced: false`, `defineConstraints: ["UNITY_INCLUDE_TESTS"]`
 - copy the two `versionDefines` (`PACKAGE_ADDRESSABLES`, `PACKAGE_LOCALIZATION`) from `Tests.asmdef`
+- the committed file also carries four GUID references to the optional-package assemblies — three of
+  them shared with `Tests.asmdef` — added when the optional-package suites moved into this assembly
 
 Referencing `Tests` is the point: **`TestAudioLibrary` is reusable as-is** — `CreateClip(seconds, name)`
 generates a procedural clip of an exactly known sample count, which is what the clip-editing tests
 need. Do not write a second clip builder.
 
-Namespace: `Ami.BroAudio.Editor.Tests`, so `--filter` can select the editor suite alone.
+Namespace: `Ami.BroAudio.Editor.Tests` for tests of the editor tooling itself. That filter no longer
+selects the whole EditMode lane, though: the pure-logic suites that later moved out of PlayMode into this
+assembly — `AudioMathTests`, `ClipSelectionTests`, `EaseCurveTests`, `LocalizationClipStrategyTests`,
+`OptionalPackageEditorTests` — kept the runtime suite's `Ami.BroAudio.Tests` namespace. Filter on
+`Ami.BroAudio` for the whole EditMode lane, `Ami.BroAudio.Editor.Tests` for the editor-tooling half.
 
-### Two shipped-data bugs the first test will find
+### Two shipped-data bugs the first test found — both since fixed
 
-Verified by reading `Editor/Resources/BroInstruction.asset` against the `Instruction` enum:
+Verified by reading the shipped `BroInstruction` asset against the `Instruction` enum. The copy under
+version control is `Assets/BroAudio/Resources~/Editor/BroInstruction.asset`;
+`Editor/Resources/BroInstruction.asset` is the copy `BroUserDataGenerator` generates into a user's
+project, and both fixes below landed in both copies.
 
-1. **`Instruction.SoundSource_PositionMode` (450) has no entry in the asset.** The enum has 68 members;
-   the asset has 68 entries; the counts cancel and hide the gap. `BroInstructionHelper.GetText` returns
-   `MissingText` — the literal string `??????????` — so the Sound Source position-mode tooltip ships
-   broken.
-2. **Asset key `15` is stale** — a pitch-shifting tooltip whose enum member was deleted (the enum
-   carries a comment pinning the values around the hole). It deserializes to an undefined
-   `(Instruction)15` and is never read.
+1. **`Instruction.SoundSource_PositionMode` (450) had no entry in the asset.** The enum and the asset
+   held the same number of entries; the counts cancelled and hid the gap. `BroInstructionHelper.GetText`
+   returned `MissingText` — the literal string `??????????` — and the Sound Source position-mode tooltip
+   only looked intact because `SoundSourceEditor` drew a hardcoded literal instead of going through the
+   instruction system at all. **Fixed — [FIXED_ISSUES.md](FIXED_ISSUES.md) #18.**
+2. **Asset key `15` was stale** — a pitch-shifting tooltip whose enum member was deleted (the enum still
+   carries a comment pinning the values around the hole). It deserialized to an undefined
+   `(Instruction)15` and was never read. **Fixed — [FIXED_ISSUES.md](FIXED_ISSUES.md) #19.**
 
-Both are **findings, not fixes.** Characterize them, log them in `docs/TEST_FINDINGS.md`, and let the
-user decide. A test written as "every enum value resolves to real text" will be red on arrival — write
-it that way anyway, with the two known entries named explicitly, so the red is legible.
+The two sets line up exactly today: every enum member has an entry, every entry maps to a defined member,
+no duplicates. **Do not carry the totals around as facts** — they grow with every new tooltip. Re-derive
+them: the enum members are the entries in `Assets/BroAudio/Editor/EditorSettings/Instruction.cs`, the
+asset entries are its `Key:` lines (74 and 74 when this was last checked, counting `None = 0`). And note
+that equal totals are *not* the check — that coincidence is exactly what hid the 450 gap. The tests
+compare the two sets member by member, in both directions.
+
+Both were **findings before they were fixes**, which is the rule this plan runs on: the tests in
+`Assets/Tests/Editor/ShippedDataTests.cs` were written as "every enum value resolves to real text" and
+"every asset key is a defined enum member", landed red on 450 and 15, were logged as findings, and only
+then was the data repaired. They are green now, and they stay green **by fixing the asset, never by
+adding an exclusion list** — their failure messages say so.
 
 ### `BroInstruction` fails loudly on duplicate keys
 
@@ -123,7 +142,7 @@ Do not refactor production code to expose it — propose the seam, stop, ask.
 Same single-Editor lane rule as the runtime plan: **only the orchestrator runs `unity cmd`.**
 
 ```bash
-unity cmd run_tests --mode EditMode --filter Ami.BroAudio.Editor.Tests
+unity cmd run_tests --mode EditMode --filter Ami.BroAudio
 ```
 
 ```bash
@@ -164,7 +183,7 @@ Editor**. Two agents compiling or running at once interleave and hand each other
 |---|---|---|---|
 | Orchestration, phase E0 harness, isolation contract, ranking, findings judgement | main session | **Opus 5** | every writer inherits these decisions |
 | Writing a test file against a proven harness | `general-purpose` | **Sonnet 5** | mechanical once the conventions exist |
-| Updating `docs/TEST_INVENTORY.md` and `docs/TEST_FINDINGS.md` | `general-purpose` | **Sonnet 5** | transcription against a fixed template |
+| Updating `Docs/TEST_INVENTORY.md` and `Docs/TEST_FINDINGS.md` | `general-purpose` | **Sonnet 5** | transcription against a fixed template |
 | Source sweeps — "what does X actually do", "find every caller of Y" | `Explore` | Sonnet 5 | read-heavy, returns a conclusion instead of a file dump |
 | Triaging a compile error or a failed run's console output | `Explore` | Haiku 4.5 | grep and report, no judgement |
 | Final review of the finished suite | `general-purpose` | **Opus 5** | judging whether a test is worth keeping is not mechanical |
@@ -190,7 +209,8 @@ A subagent starts cold and re-derives nothing for free. Each prompt carries, ver
    **read them before writing anything**;
 2. the exact targets to cover — a named row of the tier tables in this doc, never "test the utilities";
 3. the isolation contract (settings snapshot/restore, temp folder, clipboard) and the **IMGUI wall**;
-4. the **characterize, do not fix** rule, and the two verified findings if the slice touches them;
+4. the **characterize, do not fix** rule, and the open findings from `Docs/TEST_FINDINGS.md` that the
+   slice touches;
 5. the prohibitions, verbatim (below);
 6. what to return: files written, ≤10 lines on what each test asserts, and anything it could not observe.
 
@@ -216,7 +236,7 @@ Milliseconds, zero setup, permanent value. Take all of it.
 | Target | What to protect |
 |---|---|
 | `BroEditorUtility.IsInvalidName` | The **error-code precedence**: empty → `StartWithNumber` → `ContainsInvalidWord` → `ContainsWhiteSpace`. Note the quirk: `IsValidWord` returns *true* for whitespace, so `"a b"` reports `ContainsWhiteSpace`, and a leading digit outranks everything. |
-| `GetSerializedEnumIndex` ↔ `GetAudioTypeByIndex` | Round-trip for every concrete `BroAudioType`, plus `None` and `All`. This mapping backs the audio-type dropdown; drift here silently retypes entities. |
+| ~~`GetSerializedEnumIndex` ↔ `GetAudioTypeByIndex`~~ | **Gone — nothing left to protect.** The round-trip was already broken (the composite `All` produced `VoiceOver`'s index, and converting back gave `VoiceOver`) and nothing in the package called either helper, so both were deleted along with the three tests that pinned them. See [FIXED_ISSUES.md](FIXED_ISSUES.md) #20. |
 | `Transport.SetValue` | The budget rule in `GetLengthLimit`: each value clamps to `FullLength` minus the *other four*. Rounds to 3 digits, away-from-zero. `Delay` is only `Max(0)` — never length-clamped. Also `HasDifferentPosition`'s odd `Delay > StartPosition` term. |
 | `EditorScriptingExtension` rect math | `SplitRectHorizontal`/`Vertical` — both the ratio form and the `params float[] ratios` form: gap accounting, and what happens when ratios don't sum to 1. `Scoping`/`DeScope` round-trip. `GetBackingFieldName`/`GetFieldName`. |
 | `BroEditorUtility.Combine` | Naked `+ "/" +` concatenation — a trailing slash yields `//`. Characterize it. |
@@ -225,12 +245,13 @@ Milliseconds, zero setup, permanent value. Take all of it.
 
 ### E1 — Shipped-data integrity
 
-Cheapest real-bug detection in the plan. This is where the two verified findings live.
+Cheapest real-bug detection in the plan. This is where the two shipped-data findings were caught; both
+are fixed now, and these tests are what keeps them fixed.
 
 - Every `Instruction` value resolves through `BroInstructionHelper.GetText` to a non-empty string that
-  is not `MissingText`. **Expect red on 450.**
+  is not `MissingText`. **Was red on 450; green since #18.**
 - No duplicate keys in the asset (see the `Add`-throws note above).
-- Every asset key maps to a defined enum member. **Expect red on 15.**
+- Every asset key maps to a defined enum member. **Was red on 15; green since #19.**
 - `EditorSetting.ResetToFactorySettings` yields an `AudioTypeSetting` for every concrete
   `BroAudioType`, and `GetAudioTypeColor` / `TryGetAudioTypeSetting` agree with it.
 - `GetSpectrumColor(index)` at 0, at `SpectrumBandColors.Count - 1`, and out of range.
@@ -258,12 +279,23 @@ Cover `Trim`, `AddSlient`, `AdjustVolume`, `Reverse`, `FadeIn`, `FadeOut`, `Conv
 `GetResultClip`. Characterize these edges rather than fixing them:
 
 - `GetResultClip` returns the **original instance** when `HasEdited` is false — reference equality, not
-  a copy.
-- `FadeIn(0f)` computes `1f / 0` = ∞, but the loop body never runs. Harmless today; assert it stays so.
+  a copy. *(Open: TEST_FINDINGS #29.)*
 - `ConvertToMono` Downmix accumulates a running sum whose grouping is offset by one and **drops the
-  final group** — output length is `n/channels - 1`, not `n/channels`.
-- `Reverse` reverses the raw interleaved array, which **swaps L/R** on a stereo clip.
-- `AddSlient` prepends silence (the name says nothing about which end).
+  final group** — output length is `n/channels - 1`, not `n/channels`. *(Open: TEST_FINDINGS #25.)*
+- `Reverse` reverses the raw interleaved array, which **swaps L/R** on a stereo clip. *(Open:
+  TEST_FINDINGS #26.)*
+- `AddSlient` prepends silence (the name says nothing about which end). *(Open: TEST_FINDINGS #27.)*
+
+Two edges on this list were characterized first and repaired later, so they now read the other way round:
+
+- `FadeIn(0f)` used to compute `1f / 0` = ∞ with a loop body that never ran — no audio was harmed, but
+  the call still flagged the clip as edited and forced a pointless copy. **Fixed —
+  [FIXED_ISSUES.md](FIXED_ISSUES.md) #28:** a fade window that rounds to zero samples returns
+  immediately and reports no edit (`ClipEditingTests.FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit`).
+- `Trim` past the end of the clip used to wrap around and splice the clip's own opening onto its end —
+  `AudioClip.GetData` wraps rather than failing. **Fixed — [FIXED_ISSUES.md](FIXED_ISSUES.md) #30:** the
+  read clamps to the samples that actually remain
+  (`ClipEditingTests.Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround`).
 
 ### E4 — Asset-writing paths — ask first
 
@@ -298,12 +330,14 @@ EditMode`, and `git status` is clean afterwards.
 *Delegation: none. Main session, Opus 5. Every writer downstream copies what you write here, so a wrong
 convention costs a rewrite of the whole suite.*
 
-**Phase E1 — Pure functions and shipped data** (tiers E0 + E1). The bulk of the value. Expect two red
-tests from the verified findings; log them and **stop to show the user** before continuing.
+**Phase E1 — Pure functions and shipped data** (tiers E0 + E1). The bulk of the value. This is the phase
+that landed the two red shipped-data tests; they were logged as findings and shown to the user before
+anything continued, and were repaired later (#18, #19), so the same two tests run green today.
 
 *Delegation: 3 `general-purpose` (Sonnet 5) writers spawned in one message — (a) name validation +
-enum-index round-trip + `Combine` + flag helpers, (b) `Transport` clamping + rect math, (c) shipped-data
-integrity + `IssueReportMarkdown`. Orchestrator compiles and runs once when all three return.*
+`Combine` + flag helpers (the enum-index round-trip that used to sit in this slice is gone with the
+helpers themselves, #20), (b) `Transport` clamping + rect math, (c) shipped-data integrity +
+`IssueReportMarkdown`. Orchestrator compiles and runs once when all three return.*
 
 **Phase E2 — SerializedProperty and Transport writeback** (tier E2).
 
@@ -314,7 +348,7 @@ the fixture by name; a cold agent otherwise invents its own and leaks assets.*
 **Phase E3 — Clip editing** (tier E3). The one tier worth a careful read of the production code first —
 several of the edges above are load-bearing for what the assertions should say.
 
-*Delegation: 1 `general-purpose` (Sonnet 5) writer, with all five characterization edges quoted into the
+*Delegation: 1 `general-purpose` (Sonnet 5) writer, with every characterization edge quoted into the
 prompt. This is where an agent "fixes" the Downmix off-by-one if you let it — repeat the characterize
 rule in the same paragraph as the edge list.*
 
@@ -324,7 +358,7 @@ rule in the same paragraph as the edge list.*
 
 Commit green at every phase boundary before fanning out again; a phase that ends red gets thrown away
 when context runs out. After each phase, spawn one `general-purpose` (Sonnet 5) to add that phase's row
-to `docs/TEST_INVENTORY.md` and append any new findings to `docs/TEST_FINDINGS.md` — it is transcription
+to `Docs/TEST_INVENTORY.md` and append any new findings to `Docs/TEST_FINDINGS.md` — it is transcription
 against a fixed template, and it keeps the orchestrator's context for decisions.
 
 ---
@@ -341,13 +375,13 @@ Agent({ subagent_type: "general-purpose", model: "opus",
         description: "Review the editor test suite", prompt: "..." })
 ```
 
-Hand it: this plan, the file list and diff of `Assets/Tests/Editor/`, `docs/TEST_FINDINGS.md`, and the
+Hand it: this plan, the file list and diff of `Assets/Tests/Editor/`, `Docs/TEST_FINDINGS.md`, and the
 final `test_status` output. Ask it to look for, in this order:
 
 - tests that pass no matter what the production code does — tautologies, assertions on constants,
   `Assert.NotNull` on something the test itself just constructed;
 - a characterization that quietly encodes a **bug** as correct behavior without a matching entry in
-  `docs/TEST_FINDINGS.md`;
+  `Docs/TEST_FINDINGS.md`;
 - missing restores in the isolation contract — a mutated setting, a temp asset, a clipboard write that
   survives the run;
 - any file touched under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/`;
@@ -372,7 +406,8 @@ Requirements, verbatim into its prompt:
   publish it with the `Artifact` tool.
 - The audience is a Unity developer who was **not** in this session and does not read C#. Lead with
   what is protected now and what turned out to be broken — not with a list of test method names.
-- State the two shipped-data findings in plain language: what a user of the package actually sees.
+- State the two shipped-data findings in plain language: what a user of the package saw before they were
+  repaired (#18, #19), and that the tests now hold that data correct.
 - Show the numbers that matter (tests per area, runtime, findings open vs. resolved). No walls of code;
   short snippets only where a snippet is the clearest explanation.
 - Say plainly what is **not** covered and why — the IMGUI wall, the deferred tiers.
@@ -389,8 +424,15 @@ Relay the artifact URL to the user; a subagent's final report is not shown to th
   `Packages/` is modified, and no temp asset survives.
 - No domain reload is triggered by any test.
 - Total EditMode runtime stays under a second or two — flag it if not.
-- `docs/TEST_INVENTORY.md` gains an Editor section marking each target covered / deferred / out of scope.
-- `docs/TEST_FINDINGS.md` carries the missing-450 and stale-15 findings, un-"fixed".
+- `Docs/TEST_INVENTORY.md` gains an Editor section marking each target covered / deferred / out of scope.
+- Every finding is written down exactly once: still-open ones in `Docs/TEST_FINDINGS.md`, repaired ones
+  moved to `Docs/FIXED_ISSUES.md` with their commit. The shipped-data pair is the worked example — both
+  sit in the fixed list (#18, #19) and neither appears in the open one.
+- `ShippedDataTests` is green because the shipped asset is correct, not because a test grew an exclusion
+  list: every `Instruction` member resolves to real text, and every asset key is a defined member.
+- Every fixture named in `.github/required-test-suites.json` appears in the results of its leg. A suite
+  that compiled to nothing is absent rather than red, so without that check a green run can cover less
+  than it claims.
 - No production code changed. If a test is impossible without a seam, **propose the seam, stop, ask.**
 
 > **Note.** The "do not fix" rule above is the standard the suite is held to, not a literal
