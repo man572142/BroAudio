@@ -41,6 +41,8 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 49 | Teardown | Release verbs on an `IAudioPlayer` handle that outlived the manager throw instead of no-op'ing | Open, characterized |
 | 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, suspected |
 | 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, characterized |
+| 53 | Easing | `SetEase` discards `Mathf.Clamp01`'s return value, so the clamp is a no-op and out-of-range input reaches the curve | Open, characterized |
+| 54 | Easing | An `Ease` outside the enum returns 0 for the whole fade instead of falling back to a curve | Open, characterized |
 
 ---
 
@@ -1060,3 +1062,54 @@ Status: **Open, characterized by its consequence rather than by a dedicated test
 later (CI run 20). `UpdateModeClockTests.RestoreTimeScaleAndDrainTheMasterFade` now drains the fade rather
 than relying on the reset, so the suite no longer depends on the broken cancellation. A fix would stop the
 stored coroutine on both the zero-fade branch and the early return.
+
+## 53. `SetEase` discards `Mathf.Clamp01`'s return value
+
+**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs:7-10`
+
+```csharp
+public static float SetEase(this float value, Ease ease)
+{
+    Mathf.Clamp01(value);
+
+    return ease switch
+```
+
+`Mathf.Clamp01` is pure — it returns the clamped number and mutates nothing. Called as a bare statement
+its result is thrown away, so the line has no effect and `value` reaches the curve exactly as passed. The
+method reads as though it guarantees a normalized input; it does not.
+
+The consequences are asymmetric and none of them is an exception. `t > 1` overshoots: `1.5f.SetEase(
+Ease.InQuad)` returns `2.25`, which as a fade ratio drives the volume past its target. A negative `t`
+comes back *positive* through the even powers — `(-1f).SetEase(Ease.InQuad)` is `1`, i.e. a ratio below
+the start of the fade reads as fully complete — while `Ease.Linear` passes `-1` straight through. So the
+same out-of-range input is silently corrected, inverted, or amplified depending on which curve the user
+picked.
+
+Nothing is audibly wrong today, which is why this is a finding and not a bug report: every caller passes
+an `elapsed / duration` ratio that is already in range, and `EditorVolumeTransporter` and `PlayerMoverment`
+re-clamp at the call site. The exposure is that the guard reads as present in the one place a future
+caller would check for it.
+
+Status: **Open, characterized.** Pinned by
+`EaseCurveTests.SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01`, whose four rows
+assert the unclamped values. The fix is one word — `value = Mathf.Clamp01(value);` — and those rows are
+written to go red on it, so the repair is a deliberate test update rather than a surprise.
+
+## 54. An undefined `Ease` silences the whole fade
+
+**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs` — the `_ => 0` arm of the `switch`
+
+The switch's default arm returns `0` for any `Ease` value that is not a defined member. Because the
+returned number is the fade's progress ratio, a `0` for every `t` holds the fade at its origin for its
+entire duration: a fade-in stays silent to the end and then snaps to full volume, rather than throwing or
+degrading to `Ease.Linear`.
+
+This is reachable without anyone writing a bad cast. `Ease` is serialized **by ordinal** into
+`RuntimeSetting.DefaultFadeInEase` and friends, so a project saved by a build whose enum had more members
+— or an asset carrying an ordinal that a later reorder removed — deserializes to an undefined value and
+silently loses the fade. The failure presents as an audio bug with no error in the console.
+
+Status: **Open, characterized.** Pinned by `EaseCurveTests.SetEase_UndefinedEaseValue_FallsBackToZero`.
+`EaseCurveTests.EaseMember_KeepsItsSerializedOrdinal` covers the other half of the exposure by failing if
+any member's ordinal moves.
