@@ -4,15 +4,15 @@ One-page summary of what the regression suite is for and the rules it is held to
 
 ## The goal
 
-**Maximum behavioral confidence per test, minimum test count.** The suite exists so BroAudio can be refactored and upgraded across Unity versions without silently changing what the user hears. Coverage percentage is explicitly not a goal.
+**Maximum behavioral confidence per test.** The suite exists so BroAudio can be refactored and upgraded across Unity versions without silently changing what the user hears. Coverage is not the highest priority: a test earns its place by the confidence it adds, and coverage percentage is not a target.
 
 ## The core idea: characterize, don't fix
 
 The suite is a **characterization pass**: every test pins current behavior as-is, even where it contradicts the docs or the apparent intent.
 
 - Where behavior looked wrong, the test asserts the *actual* behavior and the conflict is logged in [TEST_FINDINGS.md](TEST_FINDINGS.md).
-- A test never earns a production change. If a behavior cannot be pinned without a seam, propose the seam, stop, and ask. When production does have to move — an approved fix, a seam, a repair to make the suite runnable at all — it is its own commit with its own [FIXED_ISSUES.md](FIXED_ISSUES.md) entry, never folded into the diff that adds the test.
-- Fixing is the maintainer's call, not the suite's. A finding stays characterized and open until it is reviewed and approved, and a fix waits for both suites to be green so it lands on top of a net rather than beside one. Approved fixes move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit. Several tests are written to fail loudly if a still-open defect gets fixed, so a repair is a deliberate test update, never a surprise.
+- Production code changes only when the maintainer explicitly asks for a fix. A test never earns one on its own: if a behavior cannot be pinned without a seam, propose the seam, stop, and ask. Every production change that does land is recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md) with its commit, in its own commit, never folded into the diff that adds a test.
+- A finding stays characterized and open in [TEST_FINDINGS.md](TEST_FINDINGS.md) until the maintainer asks for it to be fixed. Several tests are written to fail loudly if a still-open defect gets fixed, so a repair is a deliberate test update, never a surprise.
 
 This separates two questions that usually get tangled: *what does it do* (the tests) and *what should it do* (the findings). The findings list is the actionable output; the tests are the safety net that makes acting on it safe.
 
