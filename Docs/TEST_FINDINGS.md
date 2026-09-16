@@ -45,6 +45,7 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 54 | Easing | An `Ease` outside the enum returns 0 for the whole fade instead of falling back to a curve | Open, characterized |
 | 55 | Pitch | A per-type pitch **replaces** the entity's authored pitch instead of scaling it | Open, characterized |
 | 56 | Pitch | Master `SetPitch` writes every concrete type's pref, unlike master `SetVolume` | Open, characterized |
+| 57 | Volume / Fade | A timed per-type `SetVolume` ramps live players but stores the target instantly, so a sound started mid-fade begins at the end value | Open, characterized |
 
 ---
 
@@ -1158,3 +1159,23 @@ at once — it is stored five times, reaches every future player through the non
 
 Status: **Open, characterized.** Pinned by
 `AuthoredPitchAndRandomizationTests.SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers`.
+
+## 57. A timed per-type `SetVolume` snaps future players while live ones ramp
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `SetVolume(float, BroAudioType, float)`
+
+`SetPlaybackPrefByType(targetType, vol, AudioTypePlaybackPreference.OnSetVolume)` runs before the
+active-player loop and takes no `fadeTime`, so the stored `AudioTypePlaybackPreference.Volume` jumps straight
+to the target while every live player of that type is handed a `fadeTime`-long `Fader` ramp. `PlayControl`
+then applies the stored pref with `_audioTypeVolume.Complete(audioTypePref.Volume, false)`, so a sound played
+one second into a five-second type fade-out starts *already* at the end volume, next to siblings that are
+still most of the way up.
+
+The asymmetry is audible exactly where a type fade is normally used: ducking a whole category over a beat
+while sounds keep firing. Fixing it means either ramping the pref on the same clock or seeding a fresh
+player's `_audioTypeVolume` from the in-flight ramp rather than its endpoint — both behavior changes, so it
+stays characterized.
+
+Status: **Open, characterized.** Pinned by
+`VolumeFadeTests.SetVolume_ByTypeWithFade_RampsLivePlayerOverDuration`, which asserts both halves in the frame
+of the call: the pref already at the target, the live player still exactly at its origin.

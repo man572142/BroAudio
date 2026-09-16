@@ -41,6 +41,7 @@
       "SpectrumAnalyzerTests",
       "TeardownTests",
       "UpdateModeClockTests",
+      "VolumeFadeTests",
       "VolumePitchMixerTests"
     ]
   }
