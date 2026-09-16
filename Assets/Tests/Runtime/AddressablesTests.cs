@@ -22,6 +22,7 @@ namespace Ami.BroAudio.Tests
     public class AddressablesTests : BroAudioTestFixture
     {
         private readonly List<AudioEntity> _addressableEntities = new List<AudioEntity>();
+        private readonly List<SoundID> _backDatedIds = new List<SoundID>();
 
         /// <summary>Creates a tracked addressable entity whose handles are released after the test.</summary>
         private AudioEntity NewAddressableEntity(string name, params string[] guids)
@@ -45,6 +46,23 @@ namespace Ami.BroAudio.Tests
                 }
             }
             _addressableEntities.Clear();
+
+            // The back-dated keys are the suite's own doing - production never adds one (see
+            // CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds) - so
+            // the suite has to take them back out. A key left behind outlives this fixture: the routine keeps
+            // ticking for the rest of the run, and once the fixture has destroyed the entity the SoundID no longer
+            // resolves, so TryGetEntity logs an error and fails whichever unrelated test is running at that moment.
+            // This has to happen before BroAudioTestFixture's teardown destroys the entities - NUnit runs the
+            // derived teardown first - because a destroyed entity hashes to 0 and the key can no longer be found.
+            if (SoundManager.HasInstance)
+            {
+                Dictionary<SoundID, double> tracked = LastPlayedTimes();
+                foreach (SoundID id in _backDatedIds)
+                {
+                    tracked.Remove(id);
+                }
+            }
+            _backDatedIds.Clear();
             yield return null;
         }
 
@@ -103,16 +121,32 @@ namespace Ami.BroAudio.Tests
         public IEnumerator Play_WhileTheClipIsStillLoading_WaitsForTheLoadRatherThanFailing()
         {
             // characterizes: PlayControl yields on WaitForAddressablesToLoad before touching AudioSource.clip,
-            // so a play issued mid-load is deferred, not dropped. IsActive is true throughout that window
-            // while IsPlaying stays false — the same pair of states as the queued-but-not-drained window.
+            // so a play issued mid-load is deferred, not dropped — it is accepted (IsActive) and starts by
+            // itself once the load lands, rather than failing or falling back to a synchronous load.
             SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = true;
             AudioEntity entity = NewAddressableEntity("AddrMidLoad", TestAudioLibrary.AddressableClipGuids[1]);
             SoundID id = IdOf(entity);
 
             entity.Clips[0].LoadAssetAsync();
+
+            // PlayControl only takes the deferring branch when `!broAudioClip.IsLoaded`, and Editor Addressables
+            // in "Use Asset Database" mode can complete a load synchronously - in which case the mid-load window
+            // this test is named for does not exist on this machine and the test would be re-proving
+            // Play_WithAutomaticLoadingEnabled_LoadsTheAddressableClipAndPlaysIt instead. Assume, not Assert:
+            // an inconclusive result says "this run could not stage the scenario", a green one would be a lie.
+            Assume.That(entity.Clips[0].IsLoaded, Is.False,
+                "The addressable load completed synchronously, so there is no mid-load window to characterize.");
+
             IAudioPlayer player = BroAudio.Play(id);
             Assert.IsTrue(player.IsActive, "The play is accepted even though the clip is not loaded yet.");
 
+            // Deliberately not asserted here: !player.IsPlaying in this frame. BroAudio.Play only enqueues and
+            // SoundManager.LateUpdate drains the queue, so that holds for every play, addressable or not - it is
+            // already pinned for the ordinary case by
+            // PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows, and here it
+            // would be evidence of the queue, not of the load. The load can also finish inside any single frame,
+            // so there is no later frame in which "still loading" can be observed without a race. The Assume
+            // above is the real proof that the deferring branch was the one taken.
             yield return WaitUntilOrTimeout(() => player.IsPlaying,
                 "the deferred play to start once loading finishes", 10f);
             Assert.IsNotNull(player.AudioSource.clip);
@@ -135,62 +169,77 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
-        public IEnumerator CleanupRoutine_WhenAnEntityHasBeenIdleLongEnough_ReleasesItsAssets()
+        public IEnumerator CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds()
         {
-            // The routine's staleness threshold is a hardcoded 60 seconds, so a test cannot wait it out.
-            // Back-dating the tracked timestamp puts the entity past the threshold immediately; the routine's
-            // own tick interval (clamped to at most 5s) is then the only thing left to wait for.
-            // This is the proof that the cleanup routine fires at all; the test below pins the threshold
-            // itself being hardcoded rather than driven by the setting named after it.
-            SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = true;
-            AudioEntity entity = NewAddressableEntity("AddrCleanup", TestAudioLibrary.AddressableClipGuids[0]);
-            SoundID id = IdOf(entity);
-
-            AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
-            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
-            Assert.IsTrue(SoundManager.Instance.IsLoaded(id));
-
-            BackDateLastPlayedTime(id, 61d);
-
-            yield return WaitUntilOrTimeout(() => !SoundManager.Instance.IsLoaded(id),
-                "the cleanup routine to release the idle entity", 12f);
-        }
-
-        [UnityTest]
-        public IEnumerator CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_KeepsTheEntityLoadedAnyway()
-        {
-            // TEST_FINDINGS #14, hard pin. AutomaticallyUnloadUnusedAddressableAudioClipsAfter is not the
-            // unload delay its name promises: the routine feeds it to Mathf.Clamp(setting, 1f, 5f) as its
-            // *tick interval* only, and measures staleness against the hardcoded literal 60.0. So an entity
-            // idle for 30 seconds outlives a 5-second setting. The test above cannot show that - the
-            // setting's factory default is 60 as well, so its 61-second back-date is past either threshold.
+            // TEST_FINDINGS #14, both halves, pinned in one pass of the routine.
             //
-            // The setting written here is ignored twice over: _addressableCleanupInterval is built once,
-            // guarded by `if (_addressableCleanupInterval == null)`, on the coroutine's first iteration back
-            // at SoundManager start-up, so a mid-run write cannot move the tick rate either. The interval is
-            // therefore still the clamped default - and the clamp caps any value at 5s - which is what makes
-            // the wait below a positive result rather than a vacuous one: 12s spans at least two ticks, so
-            // the routine did run, did look at this entity, and did choose to leave it loaded.
+            // (a) Nothing in production ever registers an entity with the cleanup routine.
+            //     UpdateLoadedEntityLastPlayedTime is guarded by `if (_loadedEntityLastPlayedTime.ContainsKey(id))`,
+            //     yet every call site - SoundManager.LoadAssetAsync, SoundManager.LoadAllAssetsAsync,
+            //     StartLoadingAddressableClips and AudioPlayer.WaitForAddressablesToLoad - calls it to *register*
+            //     an entity that is not in the dictionary yet. The only other writes are the refresh inside the
+            //     routine, which walks keys that already exist, and the Remove after unloading. So in a real
+            //     player the dictionary stays empty for the lifetime of the process and the auto-unload feature
+            //     never fires at all. Asserted below right after a public preload with automatic loading on -
+            //     the most favourable conditions the registration will ever get.
             //
-            // The day the setting is wired to the threshold, 30s > 5s, the entity is released and this test
-            // fails. BroAudioTestFixture restores the whole RuntimeSetting from a JSON snapshot in teardown,
-            // so the write neither leaks into the next test nor dirties the asset on disk.
+            // (b) AutomaticallyUnloadUnusedAddressableAudioClipsAfter is not the unload delay its name promises:
+            //     the routine feeds it to Mathf.Clamp(setting, 1f, 5f) as its *tick interval* only, and measures
+            //     staleness against the hardcoded literal 60.0. So with the setting asking for a 5-second unload
+            //     delay, the entity idle for 61s is released and the one idle for 30s is not.
+            //
+            // Both entities are back-dated in the same frame, and each tick snapshots every key into one list and
+            // walks it without yielding. So the tick that released the stale one also visited the fresh one and
+            // chose to keep it - the "still loaded" half is a positive result, not the absence of one. It is also
+            // what makes this test fail if the routine never runs: the wait for the stale release times out.
+            //
+            // The setting written here is ignored twice over: _addressableCleanupInterval is built once, guarded
+            // by `if (_addressableCleanupInterval == null)`, on the coroutine's first iteration back at
+            // SoundManager start-up, so a mid-run write cannot move the tick rate either. The interval is
+            // therefore still the clamped start-up value, and the clamp caps any value at 5s, which is what keeps
+            // the wait below bounded.
+            //
+            // The day the setting is wired to the threshold, 30s > 5s, the fresh entity is released too and this
+            // test fails. BroAudioTestFixture restores the whole RuntimeSetting from a JSON snapshot in teardown,
+            // so the writes neither leak into the next test nor dirty the asset on disk.
             SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = true;
             SoundManager.Instance.Setting.AutomaticallyUnloadUnusedAddressableAudioClipsAfter = 5f;
-            AudioEntity entity = NewAddressableEntity("AddrCleanupDelay", TestAudioLibrary.AddressableClipGuids[0]);
-            SoundID id = IdOf(entity);
 
-            AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
-            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
-            Assert.IsTrue(SoundManager.Instance.IsLoaded(id));
+            // Two different addressable assets, so releasing one cannot be confused with a shared refcount.
+            AudioEntity staleEntity = NewAddressableEntity("AddrCleanupStale", TestAudioLibrary.AddressableClipGuids[0]);
+            AudioEntity freshEntity = NewAddressableEntity("AddrCleanupFresh", TestAudioLibrary.AddressableClipGuids[1]);
+            SoundID stale = IdOf(staleEntity);
+            SoundID fresh = IdOf(freshEntity);
 
-            BackDateLastPlayedTime(id, 30d);
+            AsyncOperationHandle<AudioClip> staleHandle = BroAudio.LoadAssetAsync(stale);
+            AsyncOperationHandle<AudioClip> freshHandle = BroAudio.LoadAssetAsync(fresh);
+            yield return WaitUntilOrTimeout(() => staleHandle.IsDone && freshHandle.IsDone,
+                "both preload handles to complete", 10f);
+            Assert.IsTrue(SoundManager.Instance.IsLoaded(stale));
+            Assert.IsTrue(SoundManager.Instance.IsLoaded(fresh));
 
-            yield return new WaitForSecondsRealtime(12f);
+            // (a). Both preloads ran UpdateLoadedEntityLastPlayedTime with automatic loading enabled, which is
+            // every precondition that method checks - and neither entity is tracked afterwards.
+            Dictionary<SoundID, double> tracked = LastPlayedTimes();
+            Assert.IsFalse(tracked.ContainsKey(stale),
+                "Characterizes TEST_FINDINGS #14: a public preload never registers the entity with the cleanup " +
+                "routine, so in a real player the routine has nothing to iterate and never unloads anything.");
+            Assert.IsFalse(tracked.ContainsKey(fresh));
 
-            Assert.IsTrue(SoundManager.Instance.IsLoaded(id),
-                "Characterizes TEST_FINDINGS #14: 30s of idling is far past the 5s unload delay this test " +
-                "asked for, but the routine compares against its own hardcoded 60s and keeps the assets.");
+            // Which is also why the back-dating below is what puts them in the dictionary in the first place:
+            // the routine's staleness threshold is a hardcoded 60 seconds that no test can wait out, and the
+            // indexer write is the only registration either entity will ever get.
+            BackDateLastPlayedTime(stale, 61d);
+            BackDateLastPlayedTime(fresh, 30d);
+
+            // The tick interval is clamped to at most 5s, so three ticks is a generous bound.
+            yield return WaitUntilOrTimeout(() => !SoundManager.Instance.IsLoaded(stale),
+                "the cleanup routine to release the entity idled past its hardcoded 60s threshold", 15f);
+
+            Assert.IsTrue(SoundManager.Instance.IsLoaded(fresh),
+                "Characterizes TEST_FINDINGS #14: 30s of idling is far past the 5s unload delay this test asked " +
+                "for, but the routine compares against its own hardcoded 60s. The very tick that released the " +
+                "61s entity walked this one in the same loop and kept its assets.");
         }
 
         [UnityTest]
@@ -230,14 +279,21 @@ namespace Ami.BroAudio.Tests
         /// <para>
         /// The indexer write is also what *creates* that record: <c>UpdateLoadedEntityLastPlayedTime</c> is
         /// guarded by <c>ContainsKey</c> and nothing else ever adds to the dictionary, so in a real player
-        /// it stays empty and the routine has nothing to iterate. Both cleanup tests depend on this write.
+        /// it stays empty and the routine has nothing to iterate. The record is dropped again in teardown -
+        /// see <see cref="ReleaseAddressableHandles"/>.
         /// </para>
         /// </summary>
-        private static void BackDateLastPlayedTime(SoundID id, double secondsAgo)
+        private void BackDateLastPlayedTime(SoundID id, double secondsAgo)
         {
-            var tracked = TestAudioLibrary.GetPrivateField<Dictionary<SoundID, double>>(
+            LastPlayedTimes()[id] = Time.unscaledTimeAsDouble - secondsAgo;
+            _backDatedIds.Add(id);
+        }
+
+        /// <summary>The cleanup routine's private record of when each tracked entity last played.</summary>
+        private static Dictionary<SoundID, double> LastPlayedTimes()
+        {
+            return TestAudioLibrary.GetPrivateField<Dictionary<SoundID, double>>(
                 SoundManager.Instance, "_loadedEntityLastPlayedTime");
-            tracked[id] = Time.unscaledTimeAsDouble - secondsAgo;
         }
     }
 }
