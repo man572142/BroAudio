@@ -1,7 +1,7 @@
 # BroAudio Test Inventory
 
-Ranked plan for the regression suite. Goal: **maximum behavioral confidence per test, minimum test count.**
-Coverage percentage is not a goal.
+Ranked plan for the regression suite. Goal: **maximum behavioral confidence per test.**
+Coverage is not the highest priority, and coverage percentage is not a target.
 
 Detail lives in four section files; this file is the index, the ranking, and the coverage ledger.
 

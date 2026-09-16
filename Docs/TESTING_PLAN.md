@@ -2,7 +2,7 @@
 
 Handoff doc for a `/goal` session that builds BroAudio's regression suite.
 
-**Goal:** maximum behavioral confidence per test, minimum test count. Coverage % is not a goal.
+**Goal:** maximum behavioral confidence per test. Coverage is not the highest priority; coverage % is not a target.
 
 ---
 
