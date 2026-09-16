@@ -1,5 +1,6 @@
 using System.Reflection;
 using Ami.BroAudio.Data;
+using Ami.Extension;
 using UnityEngine;
 
 namespace Ami.BroAudio.Tests
@@ -79,6 +80,46 @@ namespace Ami.BroAudio.Tests
                 clip.Volume = clipVolume;
             }
             SetPrivateField(entity, nameof(AudioEntity.MasterVolume), masterVolume);
+            return entity;
+        }
+
+        /// <summary>
+        /// Creates a playable entity exactly like <see cref="CreateEntity"/>, but with the entity's authored
+        /// <see cref="AudioEntity.Pitch"/> moved off <see cref="AudioConstant.DefaultPitch"/>.
+        /// <para>
+        /// <see cref="AudioEntity.CreateNewInstance"/> always sets Pitch to exactly 1, and nothing else in this
+        /// suite moves it, which leaves AudioPlayer.Pitch.cs's <c>GetBasePitch</c> unable to read as anything but
+        /// 1 - the same blind spot <see cref="CreateEntityWithVolume"/> exists to remove for clip/master volume.
+        /// Pitch is `private set` like most of <see cref="AudioEntity"/>, so it goes through
+        /// <see cref="SetPrivateField"/> against the auto-property's backing field.
+        /// </para>
+        /// </summary>
+        public static AudioEntity CreateEntityWithPitch(string name, BroAudioType audioType, float pitch, params AudioClip[] clips)
+        {
+            AudioEntity entity = CreateEntity(name, audioType, clips);
+            SetPrivateField(entity, nameof(AudioEntity.Pitch), pitch);
+            return entity;
+        }
+
+        /// <summary>
+        /// Creates a playable entity with the per-play randomization a designer authors in the Library Manager:
+        /// <see cref="AudioEntity.RandomFlags"/> plus the base value and range for each enabled flag.
+        /// <para>
+        /// <see cref="AudioEntity.GetRandomValue(float, RandomFlag)"/> returns
+        /// <c>baseValue + Random.Range(-range * 0.5f, range * 0.5f)</c>, so the base and the range are what
+        /// bound every draw; pass the two ranges as *different* values so a test can tell them apart if they
+        /// were ever swapped. All four numbers are `private set`, hence <see cref="SetPrivateField"/>.
+        /// </para>
+        /// </summary>
+        public static AudioEntity CreateRandomizedEntity(string name, BroAudioType audioType, RandomFlag randomFlags,
+            float pitch, float pitchRandomRange, float masterVolume, float volumeRandomRange, params AudioClip[] clips)
+        {
+            AudioEntity entity = CreateEntity(name, audioType, clips);
+            SetPrivateField(entity, nameof(AudioEntity.Pitch), pitch);
+            SetPrivateField(entity, nameof(AudioEntity.PitchRandomRange), pitchRandomRange);
+            SetPrivateField(entity, nameof(AudioEntity.MasterVolume), masterVolume);
+            SetPrivateField(entity, nameof(AudioEntity.VolumeRandomRange), volumeRandomRange);
+            SetPrivateField(entity, nameof(AudioEntity.RandomFlags), randomFlags);
             return entity;
         }
 
