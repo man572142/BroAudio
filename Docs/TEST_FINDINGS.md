@@ -267,17 +267,21 @@ Two smaller consequences:
 
 It is in fact stronger than "testable only by back-dating": **nothing in production ever adds a key to that
 dictionary**. `UpdateLoadedEntityLastPlayedTime` is guarded by `if (_loadedEntityLastPlayedTime.ContainsKey(id))`,
-and all three of its call sites intend to *register* the entity on load. The only other writes are the refresh
+and all four of its call sites intend to *register* the entity on load. The only other writes are the refresh
 inside the routine, which iterates keys that already exist, and the `Remove` after unloading. So the dictionary
 stays empty for the life of the player and the auto-unload feature never fires at all; the tests work only
 because `BackDateLastPlayedTime`'s indexer write is what registers the entity in the first place. That is
-arguably the more severe half of this finding and is not separately pinned.
+arguably the more severe half of this finding, and it is now pinned directly: the test below asserts that
+`_loadedEntityLastPlayedTime` contains neither entity after a public `BroAudio.LoadAssetAsync` with automatic
+loading enabled — every precondition `UpdateLoadedEntityLastPlayedTime` checks.
 
-Status: Open, characterized. Pinned by
-`AddressablesTests.CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_KeepsTheEntityLoadedAnyway`, which asks for
-a 5-second unload delay, lets the entity idle 30 seconds, and asserts it is still loaded.
-`AddressablesTests.CleanupRoutine_WhenAnEntityHasBeenIdleLongEnough_ReleasesItsAssets` covers the other half —
-that the routine fires at all — but cannot pin the defect alone, since the setting's factory default is 60 too.
+Status: Open, characterized — both halves pinned by
+`AddressablesTests.CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds`.
+It asks for a 5-second unload delay, preloads two entities and asserts neither is registered with the routine,
+then back-dates one by 61 seconds and the other by 30, polls until the first is released, and asserts the second
+is still loaded. Because each tick snapshots every key into one list and walks it without yielding, the tick that
+released the 61-second entity necessarily visited the 30-second one and chose to keep it — so the "still loaded"
+half is a positive result, and the test fails rather than passing vacuously if the routine never runs at all.
 
 ## 21. The `params float[] ratios` rect splits do not land on the far edge
 
