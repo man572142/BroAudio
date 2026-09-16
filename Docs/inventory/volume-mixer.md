@@ -104,7 +104,9 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | `SetPitch` drives `AudioSource.pitch`, clamped to the AudioSource range | covered | `VolumePitchMixerTests.SetPitch_WithOutOfRangeValue_ClampsToAudioSourceRange` |
 | `SetPitch` before playback defers the fade rather than snapping | covered | `VolumePitchMixerTests.SetPitch_BeforePlaybackStarts_DefersFadeRatherThanSnapping` |
 | `SetPitch` recalculates the scheduled end time on every change | covered | `SchedulingAndMusicTests.SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration` |
-| Master / per-type pitch use the same persistence + live-push pattern as volume | deferred | No test calls `BroAudio.SetPitch(BroAudioType, ...)` or the obsolete two-arg overload. |
+| Master / per-type pitch use the same persistence + live-push pattern as volume | covered | `AuthoredPitchAndRandomizationTests.SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers` — master pitch is *not* the volume pattern: it writes every concrete type's pref rather than a single master stage (TEST_FINDINGS #56). |
+| The entity's authored `Pitch` reaches `AudioSource.pitch`, and a per-type pitch replaces rather than scales it | covered | `AuthoredPitchAndRandomizationTests.Play_WithAuthoredEntityPitch_ReachesAudioSourceAndIsReplacedNotScaledByTypePitch` (TEST_FINDINGS #55) |
+| Per-play randomization (`RandomFlags`, `PitchRandomRange`, `VolumeRandomRange`) is drawn at Play, base ± range/2 | covered | `AuthoredPitchAndRandomizationTests.Play_WithRandomPitchAndVolumeFlags_JittersWithinHalfRangePerPlay` — the arithmetic itself stays unit-tested in EditMode; this pins that a Play draws from it at all. |
 | Mixer track acquisition, routing and the dominator path | covered | `VolumePitchMixerTests.Play_AcquiresPooledMixerTrackAndReusesOneAfterRecycle`; dominator routing via `SelectionStateAndDecoratorTests.LowPassOthers_*` / `HighPassOthers_*` and `AudioEffectTests.SetEffect_*` |
 
 "EditMode unit-test candidates", "Conflicts observed" and "Could not determine statically" elsewhere in this file

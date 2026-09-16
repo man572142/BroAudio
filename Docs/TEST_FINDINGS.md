@@ -43,6 +43,8 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 | 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, characterized |
 | 53 | Easing | `SetEase` discards `Mathf.Clamp01`'s return value, so the clamp is a no-op and out-of-range input reaches the curve | Open, characterized |
 | 54 | Easing | An `Ease` outside the enum returns 0 for the whole fade instead of falling back to a curve | Open, characterized |
+| 55 | Pitch | A per-type pitch **replaces** the entity's authored pitch instead of scaling it | Open, characterized |
+| 56 | Pitch | Master `SetPitch` writes every concrete type's pref, unlike master `SetVolume` | Open, characterized |
 
 ---
 
@@ -1117,3 +1119,42 @@ silently loses the fade. The failure presents as an audio bug with no error in t
 Status: **Open, characterized.** Pinned by `EaseCurveTests.SetEase_UndefinedEaseValue_FallsBackToZero`.
 `EaseCurveTests.EaseMember_KeepsItsSerializedOrdinal` covers the other half of the exposure by failing if
 any member's ordinal moves.
+
+## 55. A per-type pitch replaces the entity's authored pitch instead of scaling it
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Pitch.cs`, `GetBasePitch`
+
+```csharp
+if (!Mathf.Approximately(audioTypePlaybackPref.Pitch, AudioConstant.DefaultPitch))
+{
+    return entity.GetRandomValue(audioTypePlaybackPref.Pitch, RandomFlag.Pitch);
+}
+return entity.GetPitch();
+```
+
+The entity's authored `Pitch` is read only on the fall-through branch. Once `SetPitch(SFX, 0.5f)` has been
+issued, an entity authored at pitch 1.5 plays at **0.5**, not 0.75: its authored pitch is discarded rather
+than composed. This is the opposite of how volume layers, which multiply throughout
+(`_clipVolume * _trackVolume * _audioTypeVolume`). The entity's random *range* still applies, but around the
+per-type base rather than its own.
+
+The defect is invisible at the default, where replacing and multiplying give the same number, which is why
+nothing noticed it: `AudioEntity.CreateNewInstance` sets `Pitch` to exactly `AudioConstant.DefaultPitch`.
+
+Status: **Open, characterized.** Pinned by
+`AuthoredPitchAndRandomizationTests.Play_WithAuthoredEntityPitch_ReachesAudioSourceAndIsReplacedNotScaledByTypePitch`,
+which asserts 0.5 and explicitly pins "not 0.75" — a change to composing pitch is a deliberate test update,
+not a silent pass.
+
+## 56. Master `SetPitch` and master `SetVolume` are asymmetric on `BroAudioType.All`
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/`, `SetVolume` vs `SetPitch`
+
+`SetVolume(vol, All, fade)` short-circuits into `SetMasterVolume` and writes the mixer's Master parameter,
+never entering a per-type pref. `SetPitch(pitch, All, fade)` has no such branch: it runs
+`SetPlaybackPrefByType` across every concrete type. So a "master" pitch is really every type's pitch written
+at once — it is stored five times, reaches every future player through the non-default branch of finding
+#55's `GetBasePitch`, including types the caller never named, and can only be undone type by type.
+
+Status: **Open, characterized.** Pinned by
+`AuthoredPitchAndRandomizationTests.SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers`.
