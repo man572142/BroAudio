@@ -266,6 +266,14 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetTransition_CrossFade_OutgoingAndIncomingBGMOverlap()
         {
+            // The implicit AlwaysPlayMusicAsBGM transition is itself a CrossFade by factory default, so
+            // this test would report an overlap even if the explicit SetTransition below did nothing at
+            // all. Pinning the implicit one to Immediate (the fixture restores RuntimeSetting in TearDown)
+            // leaves the explicit call as the only thing that can produce an overlap, and costs nothing in
+            // timing: SoundManager applies its implicit SetTransition synchronously inside Play(), so the
+            // explicit call overwrites transition *and* fade time either way.
+            SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
+
             SoundID firstId = NewSound("CrossfadeBgmA", BroAudioType.Music, NewClip(2f));
             SoundID secondId = NewSound("CrossfadeBgmB", BroAudioType.Music, NewClip(2f));
 
@@ -313,10 +321,21 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator AlwaysPlayMusicAsBGM_Disabled_MusicPlaysOverlapFreelyWithoutTransition()
         {
-            SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = false; // fixture restores RuntimeSetting in TearDown
+            // fixture restores RuntimeSetting in TearDown. Pinning the transition is what makes the
+            // negative assertion decisive, and it is the mirror image of the Enabled twin's reason for
+            // doing the same: left at the factory default of a 2s CrossFade, the auto-BGM path stops the
+            // outgoing player by fading it out, and a fade-out keeps AudioSource.isPlaying - hence
+            // IAudioPlayer.IsPlaying - true for those 2s. Deleting the Setting.AlwaysPlayMusicAsBGM guard
+            // in SoundManager.PlayerToPlay would then be indistinguishable from the feature working.
+            // With Immediate, that same mutation ends the first player within a frame or two of the
+            // second starting (Transition.Immediate forces fadeOut to 0 in MusicPlayer.StopCurrentPlayer).
+            SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = false;
+            SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
-            SoundID firstId = NewSound("NoBgmA", BroAudioType.Music, NewClip(2f));
-            SoundID secondId = NewSound("NoBgmB", BroAudioType.Music, NewClip(2f));
+            // 9s clips, as in the Enabled twin: the observation window has to sit far inside both clips'
+            // natural length, or a clip simply reaching its own end could stand in for the auto-transition.
+            SoundID firstId = NewSound("NoBgmA", BroAudioType.Music, NewClip(9f));
+            SoundID secondId = NewSound("NoBgmB", BroAudioType.Music, NewClip(9f));
 
             IAudioPlayer first = BroAudio.Play(firstId);
             yield return WaitForPlaybackStart(first, "first Music play to start");
@@ -324,9 +343,16 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer second = BroAudio.Play(secondId);
             yield return WaitForPlaybackStart(second, "second Music play to start");
 
-            yield return WaitFrames(3);
-            Assert.IsTrue(first.IsPlaying, "With AlwaysPlayMusicAsBGM off, the first Music player must keep playing - no auto-transition should have stopped it.");
-            Assert.IsTrue(second.IsPlaying, "The second Music player must be playing concurrently, not sequenced after the first.");
+            // Watch continuously instead of sampling once: every frame of a 1.5s window must show both
+            // players audible. That is a full second wider than the couple of frames an auto-transition
+            // needs to end the first player, and still ~7s short of either clip's natural end.
+            float deadline = Time.realtimeSinceStartup + 1.5f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                Assert.IsTrue(first.IsPlaying, "With AlwaysPlayMusicAsBGM off, the first Music player must keep playing - no auto-transition should have stopped it.");
+                Assert.IsTrue(second.IsPlaying, "The second Music player must be playing concurrently, not sequenced after the first.");
+                yield return null;
+            }
         }
 
         // 2.8 - BroAudio.OnBGMChanged fires exactly once per actual CurrentBGMPlayer change.
