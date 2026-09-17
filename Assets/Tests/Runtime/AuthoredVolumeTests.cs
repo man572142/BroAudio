@@ -60,7 +60,8 @@ namespace Ami.BroAudio.Tests
                 "A freshly played entity with a non-default authored clip volume and MasterVolume should read their product, not either factor alone or full volume.");
 
             // Prove the product reaches the actual mixer output too, not just AudioPlayer's own linear
-            // bookkeeping - mirrors VolumePitchMixerTests.SetVolume_PerSoundIdAndPerType_ComposeMultiplicativelyInLinearProduct.
+            // bookkeeping - the same mixer read SetVolume_ComposesMultiplicativelyWithTheAuthoredClipAndMasterVolume
+            // below performs after composing per-id and per-type volume on top of this product.
             Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must hold a pooled track for its volume parameter to be exposed.");
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
             Assert.AreEqual(ExpectedProduct.ToDecibel(), db, DecibelTolerance,
@@ -102,51 +103,14 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
             Assert.AreEqual(AuthoredProduct * 0.4f * 0.7f, player.GetVolume(), LinearTolerance,
                 "Per-BroAudioType volume must further multiply the same running product, authored volume included.");
-        }
 
-        [UnityTest]
-        public IEnumerator Play_WithFadeIn_RampsFromZeroToTheAuthoredProductNotFullVolume()
-        {
-            // 0.5 * 0.6 = 0.3, clearly short of both a single dropped factor (0.5 or 0.6) and of full
-            // volume (1) - the value SetupClipVolume's fade-in branch snaps to instead of 0 if the
-            // HasFadeIn(...) check itself were broken.
-            const float ClipVolume = 0.5f;
-            const float MasterVolume = 0.6f;
-            const float AuthoredProduct = ClipVolume * MasterVolume; // 0.3
-            const float FadeInSeconds = 0.3f;
-
-            // A long clip relative to FadeInSeconds so the fade-in has room to be observed mid-ramp and to
-            // finish well before playback ends. FadeIn is on the clip itself (BroAudioClip.FadeIn), so it's
-            // written after CreateEntityWithVolume the same way any other per-clip field would be.
-            AudioEntity entity = TestAudioLibrary.CreateEntityWithVolume("FadeInVolSfx", BroAudioType.SFX, ClipVolume, MasterVolume, NewClip(3f));
-            Track(entity);
-            entity.Clips[0].FadeIn = FadeInSeconds;
-            SoundID id = IdOf(entity);
-
-            IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitForPlaybackStart(player);
-
-            // No RequireRealtimeAudioClock: SetupClipVolume's fade-in branch
-            // makes PlayControl block on `while (_clipVolume.IsFading) yield return null;` *before* it
-            // ever reaches the DSP-time-gated end-of-clip loop, and Fader.Update (FaderModule.cs) advances
-            // purely on Utility.GetDeltaTime() (Time.deltaTime/unscaledDeltaTime) - never AudioSettings.dspTime.
-            // So a decoupled/fast DSP clock on a device-less CI runner cannot race this player to EndPlaying
-            // before the fade is observed, unlike SetPitch_BeforePlaybackStarts_DefersFadeRatherThanSnapping's
-            // pitch fade, which has no such fade-in blocking the DSP-gated loop ahead of it.
-            //
-            // Would this pass if HasFadeIn(clipFade) always returned false, i.e. SetupClipVolume always took
-            // the snap branch? No - the very first playing frame would already read ~0.3, not "well below it".
-            Assert.Less(player.GetVolume(), AuthoredProduct * 0.5f,
-                "A fade-in must start near 0, not snap straight to the authored target on the first playing frame.");
-
-            yield return WaitUntilOrTimeout(() => Mathf.Abs(player.GetVolume() - AuthoredProduct) < LinearTolerance,
-                "the clip-volume fade-in to reach the authored target", 2f);
-
-            // Would this pass if SetupClipVolume's multiplication were deleted, leaving its target at full volume (1)
-            // or at a single dropped factor (0.5 or 0.6)? No - only the real product (0.3) satisfies both
-            // this assertion and the WaitUntilOrTimeout above.
-            Assert.AreEqual(AuthoredProduct, player.GetVolume(), LinearTolerance,
-                "A fade-in must land on clip.Volume * entity.MasterVolume, not on full volume or on either factor alone.");
+            // Prove the fully composed product reaches the actual mixer output too, not just AudioPlayer's own
+            // linear bookkeeping - mirrors Play_WithAuthoredClipAndMasterVolume_AppliesTheirProductNotEitherFactorAlone
+            // above.
+            Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must still hold a pooled track for its volume parameter to be exposed.");
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
+            Assert.AreEqual((AuthoredProduct * 0.4f * 0.7f).ToDecibel(), db, DecibelTolerance,
+                "The composed authored*per-id*per-type product must reach the track's mixer parameter in decibels, not just IAudioPlayer.GetVolume()'s linear bookkeeping.");
         }
     }
 }

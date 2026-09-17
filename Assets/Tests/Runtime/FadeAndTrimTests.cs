@@ -22,9 +22,8 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class FadeAndTrimTests : BroAudioTestFixture
     {
-        // Mathf.Lerp + an easing curve is not sample-accurate, and GetVolume() is a live fade read - use
-        // wide, meaning-carrying thresholds ("basically silent" / "basically at target") rather than exact values.
-        private const float NearSilenceThreshold = 0.15f;
+        // Mathf.Lerp + an easing curve is not sample-accurate, and GetVolume() is a live fade read - use a
+        // wide, meaning-carrying threshold ("basically at target") rather than an exact value.
         private const float NearTargetThreshold = 0.95f;
 
         [UnityTest]
@@ -32,10 +31,19 @@ namespace Ami.BroAudio.Tests
         {
             // The near-silence check below runs on the frame IsPlaying is first observed true, which can already
             // be a slow frame into the fade, so the fade must be long enough that one frame can't push the read
-            // past NearSilenceThreshold.
+            // past AuthoredProduct's near-silence band.
+            //
+            // ClipVolume/MasterVolume are authored off their shared default of 1 (TestAudioLibrary.CreateEntityWithVolume)
+            // so the ramp's target is the composed product, not full volume - this is also the suite's only test
+            // proving the fade-in ramp shape (monotonic, multi-frame via OnUpdate) and the authored composition
+            // target land on the same player at once.
             const float fadeIn = 1.2f;
+            const float ClipVolume = 0.4f;
+            const float MasterVolume = 0.5f;
+            const float AuthoredProduct = ClipVolume * MasterVolume; // 0.2
             AudioClip clip = NewClip(3f);
-            AudioEntity entity = NewEntity("FadeInSfx", BroAudioType.SFX, clip);
+            AudioEntity entity = TestAudioLibrary.CreateEntityWithVolume("FadeInSfx", BroAudioType.SFX, ClipVolume, MasterVolume, clip);
+            Track(entity);
             entity.Clips[0].FadeIn = fadeIn;
             SoundID id = IdOf(entity);
 
@@ -46,10 +54,16 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player);
 
             // SetupClipVolume snaps _clipVolume.Current to 0 before the fade-in coroutine starts ramping it up.
-            Assert.Less(player.GetVolume(), NearSilenceThreshold, "Volume should start near silence when the clip has a FadeIn.");
+            Assert.Less(player.GetVolume(), AuthoredProduct * 0.5f, "Volume should start near silence when the clip has a FadeIn.");
 
-            yield return WaitUntilOrTimeout(() => player.GetVolume() >= NearTargetThreshold,
-                "the clip's own fade-in to reach full target volume", fadeIn + 1f);
+            yield return WaitUntilOrTimeout(() => Mathf.Abs(player.GetVolume() - AuthoredProduct) < LinearTolerance,
+                "the clip's own fade-in to reach the authored clip*master target", fadeIn + 1f);
+
+            // Would this pass if SetupClipVolume's multiplication were deleted, leaving the fade's target at full
+            // volume (1) or at either single factor (0.4 or 0.5) alone? No - only the real product (0.2) satisfies
+            // both this assertion and the WaitUntilOrTimeout above.
+            Assert.AreEqual(AuthoredProduct, player.GetVolume(), LinearTolerance,
+                "A fade-in must land on clip.Volume * entity.MasterVolume, not on full volume or either factor alone.");
 
             Assert.GreaterOrEqual(samples.Count, 2, "OnUpdate should have fired on multiple frames during the fade-in.");
             for (int i = 1; i < samples.Count; i++)
