@@ -27,39 +27,31 @@ namespace Ami.BroAudio.Tests
         private volatile int _capturedBufferLength = -1;
 
         /// <summary>
+        /// Resets the mixer-routed LowPass in the middle of a test, for the one test that has to observe
+        /// the reset itself. Cleaning up afterwards is no longer this fixture's job, and it declares no
+        /// [UnityTearDown] of its own: BroAudioTestFixture's TearDown resets Effect_LowPass and
+        /// Effect_HighPass (plus their FourPole second poles) after every PlayMode test, unconditionally,
+        /// and waits for the parameters to actually read their defaults instead of a fixed frame count.
+        /// <para>
         /// SetEffect's Add/Override modes for a non-default value permanently flip a bit in the SFX-type's
         /// stored EffectType pref (read by every future Play() via AudioPlayer.Playback.cs's SetTrackEffect)
-        /// - state this fixture's own Setting/volume snapshot-restore does not know about, because it lives
-        /// on a separate in-memory AudioTypePlaybackPreference, not on the RuntimeSetting asset. <see
-        /// cref="AudioEffectTearDown"/> below undoes it unconditionally after every test in this fixture, so
-        /// a failed assertion earlier in a test body can no longer skip cleanup and leak it into later tests.
+        /// - state the base fixture's Setting/volume snapshot-restore does not know about, because it lives
+        /// on a separate in-memory AudioTypePlaybackPreference, not on the RuntimeSetting asset. Handing
+        /// SetEffect a *default-valued* Effect is what clears it, because SoundManager then picks
+        /// SetEffectMode.Remove. SetEffect(new Effect(EffectType.None)) would clear every tracked effect in
+        /// one call, but it logs on construction and again for any unresolvable tracked entry, so it stays
+        /// out of every shared cleanup path.
+        /// </para>
         /// <para>
-        /// This targets LowPass only. SetEffect(new Effect(EffectType.None)) resets every tracked effect at
-        /// once, but it logs on construction and for any unresolvable tracked entry, so it stays out of the
-        /// shared cleanup path.
+        /// Correct under either slope: whether the second pole is written too is decided per call from
+        /// Setting.AudioFilterSlope, and that field lives on the RuntimeSetting object the base fixture's
+        /// JSON snapshot restores after the effect reset, never before it.
         /// </para>
         /// </summary>
         private static IEnumerator ResetLowPassEffect()
         {
             BroAudio.SetEffect(Effect.ResetLowPass());
             yield return WaitFrames(2);
-        }
-
-        /// <summary>
-        /// Runs before BroAudioTestFixture's own [UnityTearDown] (NUnit runs derived-class UnityTearDown
-        /// before base-class UnityTearDown), so SoundManager is still alive here. Unconditional - unlike the
-        /// old in-body calls it replaces, this also fires when an earlier assertion in the test already failed.
-        /// <para>
-        /// AudioFilterSlope itself (mutated by the FourPole test below) needs no separate restore here: it
-        /// lives on the RuntimeSetting object, which BroAudioTestFixture's own JSON snapshot restore already
-        /// puts back afterwards. ResetLowPassEffect() writes the LowPass parameter(s) correctly regardless of
-        /// whichever slope value is still in effect when this runs.
-        /// </para>
-        /// </summary>
-        [UnityTearDown]
-        public IEnumerator AudioEffectTearDown()
-        {
-            yield return ResetLowPassEffect();
         }
 
         [UnityTest]

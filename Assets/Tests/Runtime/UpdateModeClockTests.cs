@@ -36,6 +36,17 @@ namespace Ami.BroAudio.Tests
     /// these two call sites would be invisible to a test that checked just the other.
     /// </para>
     /// <para>
+    /// Both tests below pause the game and leave a master-volume fade in flight, and neither cleans up
+    /// after itself: BroAudioTestFixture's own TearDown owns both halves of that. It restores
+    /// Time.timeScale first - nothing else can drain while the game is paused, and the next test's first
+    /// WaitForSeconds would never return - and then waits for the Master parameter to stop being
+    /// rewritten, because a fade frozen here resumes the moment timeScale is restored and
+    /// SetMasterVolume cannot be cancelled by the teardown's own SetVolume(FullVolume, 0f): it only
+    /// RestartCoroutine()s on its `fadeTime != 0f` branch, and returns early when the parameter already
+    /// reads the requested value (Docs/TEST_FINDINGS.md #51). Do not re-add a local [UnityTearDown] here
+    /// for either half - the base runs after this class's, so a duplicate would only pay for itself twice.
+    /// </para>
+    /// <para>
     /// Deliberately NOT gated on RequireRealtimeAudioClock: that gate exists for state that rides the DSP
     /// clock (BroAudioTestFixture.WaitDspSeconds's own doc comment says so explicitly), and every value
     /// asserted here - Fader.Current and the mixer's Master float - is written from the frame clock
@@ -60,71 +71,6 @@ namespace Ami.BroAudio.Tests
         // -20dB (Mathf.Log10(0.1) * 20 = -20), a large, unambiguous drop from the 0dB baseline (full
         // volume) established below - nowhere near mixer round-trip noise.
         private const float MasterFadeTargetVolume = 0.1f;
-
-        // Drain budget for a master fade left in flight by these tests (see the teardown below). The
-        // longest one this file can leave is FadeDuration, and it only has to run down once timeScale is
-        // restored, so 5s is several times the worst case - wide enough that a slow frame cannot trip it,
-        // tight enough to fail loudly rather than hang the run if a fade never stops.
-        private const float MasterDrainTimeout = 5f;
-
-        // Consecutive identical readings that count as "no coroutine is writing this any more". One frame
-        // is not enough: a fade's own ease can land two adjacent frames on the same float near the end of
-        // its curve, which would read as settled while the ramp is still going.
-        private const int SteadyFrameCount = 5;
-
-        /// <summary>
-        /// Time.timeScale is global process state BroAudioTestFixture does not touch (its JSON
-        /// snapshot/restore only covers the RuntimeSetting asset, which does include UpdateMode - a plain
-        /// public field JsonUtility serializes like any other). A test here that pauses the game must
-        /// restore timeScale itself or every later PlayMode test in the run hangs on its first
-        /// WaitForSeconds. Declared here as its own [UnityTearDown] rather than inside the test bodies:
-        /// NUnit runs a derived class's [UnityTearDown] before the base class's (confirmed by the
-        /// identical pattern in AudioEffectTests.AudioEffectTearDown, whose own doc comment says so), and
-        /// unconditionally - a failed assertion above cannot skip it.
-        /// </summary>
-        [UnityTearDown]
-        public IEnumerator RestoreTimeScaleAndDrainTheMasterFade()
-        {
-            Time.timeScale = 1f;
-            yield return null;
-
-            // Restoring timeScale is not enough on its own: a master fade this fixture froze outlives the
-            // fixture's own reset and resumes the moment the line above unpauses it.
-            //
-            // BroAudioTearDown resets with BroAudio.SetVolume(FullVolume, 0f), and that cannot cancel a
-            // running master fade. SetMasterVolume only calls RestartCoroutine -
-            // the one path that stops the previous coroutine - on its `fadeTime != 0f` branch; the zero
-            // branch just writes the parameter once and leaves the coroutine running. And a fade frozen at
-            // timeScale 0 never even gets that far: with GetDeltaTime pinned at 0 the coroutine rewrites
-            // Master with its *starting* value every frame, so Master still reads exactly full volume and
-            // the `currentVol == targetVol` early return skips the write entirely.
-            //
-            // Left running, the stale coroutine survives into the next fixture and keeps moving Master while
-            // that fixture asserts on it (Docs/TEST_FINDINGS.md #51), so this fixture drains its own fade.
-            //
-            // Waiting for the reading to stop moving, rather than for a particular value, is deliberate: a
-            // live fade rewrites Master every frame, so a steady reading is the observable end
-            // of the coroutine whether it completed, was never started, or is still mid-ramp - and no
-            // branch of this file has to predict which.
-            float deadline = Time.realtimeSinceStartup + MasterDrainTimeout;
-            float lastDb = float.MinValue;
-            int steadyFrames = 0;
-            while (steadyFrames < SteadyFrameCount)
-            {
-                Assert.Less(Time.realtimeSinceStartup, deadline,
-                    "Timed out waiting for the master volume to stop being written by an in-flight fade. " +
-                    "Something is still ramping it, and leaving it running would corrupt every later fixture.");
-
-                yield return null;
-                if (!SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db))
-                {
-                    continue;
-                }
-
-                steadyFrames = Mathf.Approximately(db, lastDb) ? steadyFrames + 1 : 0;
-                lastDb = db;
-            }
-        }
 
         [UnityTest]
         public IEnumerator Fade_WithUnscaledTimeModeAndPausedGame_StillProgressesToCompletion()

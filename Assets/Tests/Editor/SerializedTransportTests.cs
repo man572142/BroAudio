@@ -173,7 +173,8 @@ namespace Ami.BroAudio.Editor.Tests
         {
             MethodInfo method = typeof(SoundManager).GetMethod("GetCurrentAudioPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(method, "SoundManager.GetCurrentAudioPlayers could not be resolved via reflection. " +
-                "LoopHandoverTests.cs reaches this method by that exact string literal.");
+                "BroAudioTestFixture.cs (the per-test player-pool drain) and LoopHandoverTests.cs both reach this " +
+                "method by that exact string literal.");
         }
         #endregion
 
