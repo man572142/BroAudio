@@ -41,7 +41,7 @@ namespace Ami.BroAudio.Tests
         // default-entity version of this test could prove.
 
         [UnityTest]
-        public IEnumerator SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers()
+        public IEnumerator SetAudioTypeVolume_ToExactlyDefault_PushesLive_AndNonDefaultAppliesToFuturePlayersAndMixer()
         {
             SoundID liveId = NewSound("LiveTypeSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer livePlayer = BroAudio.Play(liveId);
@@ -62,10 +62,26 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref pref));
             Assert.AreEqual(1f, pref.Volume, LinearTolerance);
 
+            // Now move the per-type factor to a NON-default value before playing the future player. Checking a
+            // future player against the default (1f) can't tell "the pref applied" from "the pref was dropped
+            // and the player just started at full volume" - they read identically. 0.4f rules that out: only a
+            // genuinely-applied pref reads back as 0.4, not silently as 1.
+            const float NonDefaultTypeVolume = 0.4f;
+            BroAudio.SetVolume(BroAudioType.SFX, NonDefaultTypeVolume, 0f);
+            yield return WaitFrames(1);
+
             SoundID futureId = NewSound("FutureTypeSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer futurePlayer = BroAudio.Play(futureId);
             yield return WaitForPlaybackStart(futurePlayer, "future playback to start");
-            Assert.AreEqual(1f, futurePlayer.GetVolume(), LinearTolerance, "A fresh player should read the stored per-type volume.");
+            Assert.AreEqual(NonDefaultTypeVolume, futurePlayer.GetVolume(), LinearTolerance,
+                "A fresh player should read the stored per-type volume, not silently fall back to full volume.");
+
+            // Prove the stored pref reaches the new player's actual mixer output too, not just its own linear
+            // bookkeeping - mirrors SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct's mixer read.
+            Assert.IsNotNull(futurePlayer.AudioSource.outputAudioMixerGroup, "The player must hold a pooled track for its volume parameter to be exposed.");
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(futurePlayer.AudioSource.outputAudioMixerGroup.name, out float db));
+            Assert.AreEqual(NonDefaultTypeVolume.ToDecibel(), db, DecibelTolerance,
+                "The stored per-type volume must reach the new player's track parameter in decibels, not just GetVolume()'s linear bookkeeping.");
         }
 
         [UnityTest]
@@ -128,7 +144,7 @@ namespace Ami.BroAudio.Tests
         }
 
         // SoundManager.SetPitch(float, BroAudioType, float) mirrors
-        // SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers above: it both pushes the new
+        // SetAudioTypeVolume_ToExactlyDefault_PushesLive_AndNonDefaultAppliesToFuturePlayersAndMixer above: it both pushes the new
         // pitch to every live player of the matching type and stores it into AudioTypePlaybackPreference,
         // so a player that hasn't been played yet also picks it up via SetInitialPitch. BroAudio.SetPitch
         // with no fadeTime argument defaults to BroAdvice.FadeTime_Immediate, so this applies instantly.
