@@ -408,6 +408,12 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_CalledDirectly_IgnoresTheInspectorDelay()
         {
+            // The discriminating assertion is wall-clock elapsed time against a DSP-scheduled playhead
+            // (timeSamples). On a machine with no audio device the DSP clock runs decoupled from wall time
+            // (see RequireRealtimeAudioClock), so a wrongly-applied Delay would elapse in a sliver of real
+            // time and this would false-pass instead of catching the regression.
+            yield return RequireRealtimeAudioClock();
+
             const float delay = 1f;
             SoundID id = NewSound("DirectPlayDelaySfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: false, delay: delay);
