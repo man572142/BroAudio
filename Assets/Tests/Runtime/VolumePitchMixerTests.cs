@@ -34,50 +34,11 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(baselineLinear, player.GetVolume(), LinearTolerance, "Master volume must never appear in IAudioPlayer.GetVolume()'s linear product.");
         }
 
-        [UnityTest]
-        public IEnumerator SetVolume_PerSoundIdAndPerType_ComposeMultiplicativelyInLinearProduct()
-        {
-            SoundID id = NewSound("CompositionSfx", BroAudioType.SFX, NewClip(3f));
-            IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitForPlaybackStart(player);
-
-            // Fresh play: clip.Volume(1) * entity.MasterVolume(1) baked into _clipVolume, _trackVolume
-            // and _audioTypeVolume both still at their default of 1.
-            Assert.AreEqual(1f, player.GetVolume(), LinearTolerance, "A freshly played default entity should read full linear volume.");
-
-            BroAudio.SetVolume(id, 0.5f, 0f);
-            yield return WaitFrames(1);
-            Assert.AreEqual(0.5f, player.GetVolume(), LinearTolerance, "Per-SoundID volume should multiply into the linear product.");
-
-            BroAudio.SetVolume(BroAudioType.SFX, 0.4f, 0f);
-            yield return WaitFrames(1);
-            Assert.AreEqual(0.5f * 0.4f, player.GetVolume(), LinearTolerance, "Per-BroAudioType volume should further multiply the same linear product (0.5 * 0.4).");
-
-            // Everything above reads the library's own bookkeeping - the *inputs* to the mixer write - so a
-            // broken UpdateVolume would still pass. What the listener hears is
-            // AudioPlayer.UpdateVolume: it writes
-            // (_clipVolume * _trackVolume * _audioTypeVolume).ToDecibel() through TrySetMixerDecibelVolume
-            // to VolumeParaName, and only falls back to AudioSource.volume when there is no mixer/track.
-            // Read the mixer back so the composition rule is proven at the output, not just at the input.
-            //
-            // VolumeParaName is GetSendParaName() while the player is routed through a
-            // track effect, and GetCurrentTrackName() - the output group's own name - otherwise. This is a
-            // plain SFX with no effect set, so the group's name is the right parameter here; it would NOT be
-            // for a player under SetEffect, which writes to "<track>_Effect" instead.
-            Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must still hold a pooled track for its volume parameter to be exposed.");
-
-            // A fixed frame wait is enough: TrySetMixerDecibelVolume only defers through DelaySetMixerVolume
-            // while Mixer.WaitForAudioMixerInitialization is non-null, and SoundManager.Start
-            // nulls it on the first Play Mode frame - long before the fixture hands a test a live manager - so
-            // SetVolume writes to the mixer synchronously.
-            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
-
-            // Log10(0.2) * 20 = -13.98 dB. TrySetMixerDecibelVolume then applies ClampDecibel(true), whose
-            // range is [MinDecibelVolume, MaxDecibelVolume] = [-80, 20], so 0.2 passes through untouched and
-            // the expected value stays the plain conversion. dB needs the looser tolerance because it carries
-            // both the log conversion and the mixer round-trip.
-            Assert.AreEqual((0.5f * 0.4f).ToDecibel(), db, DecibelTolerance, "The composed linear product must reach the track's exposed mixer parameter in decibels - GetVolume() alone is only the input to that write.");
-        }
+        // Per-SoundID and per-BroAudioType volume composing multiplicatively in the linear product, and that
+        // product reaching the track's mixer dB parameter, is covered by
+        // AuthoredVolumeTests.SetVolume_ComposesMultiplicativelyWithTheAuthoredClipAndMasterVolume, which
+        // additionally starts from a non-default authored clip*master product - a strict superset of what a
+        // default-entity version of this test could prove.
 
         [UnityTest]
         public IEnumerator SetAudioTypeVolume_ToExactlyDefault_AppliesToLiveAndFuturePlayers()

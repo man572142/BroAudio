@@ -23,6 +23,12 @@ namespace Ami.BroAudio.Tests
     {
         private const float FrequencyTolerance = 1f;
 
+        // Anchored on the constant every BroAudio log is tagged with (Utility.LogTitle), not on any one
+        // message's wording - the log's TYPE plus this tag is the contract; the sentence is not
+        // (Docs/GOAL.md anti-goal: "Asserting on log text"). Regex.Escape because the tag's rich-text markup
+        // ("[BroAudio]" among it) contains regex metacharacters.
+        private static readonly Regex BroAudioLogPrefix = new Regex(Regex.Escape(Utility.LogTitle));
+
         private volatile int _capturedChannels = -1;
         private volatile int _capturedBufferLength = -1;
 
@@ -52,6 +58,46 @@ namespace Ami.BroAudio.Tests
         {
             BroAudio.SetEffect(Effect.ResetLowPass());
             yield return WaitFrames(2);
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/> and waits <paramref name="waitFrames"/> frames while collecting
+        /// every Error-type log it produces into <paramref name="taggedErrors"/>, instead of quoting a
+        /// specific sentence with LogAssert.Expect. Two callers need this rather than a single Expect: the
+        /// EffectAutomationHelper guards this exercises (GetEffectParameterName / ResetAllEffect's unresolved
+        /// entries) can log more than once per call - an implementation detail (the exact count, through an
+        /// internal tween coroutine) this suite does not pin down.
+        /// <para>
+        /// LogAssert.ignoreFailingMessages is scoped to just this call so it never leaks into the rest of the
+        /// test, and it never silently hides an unrelated bug: every captured Error is asserted here to carry
+        /// <see cref="Utility.LogTitle"/> - a message that does not is a genuinely unrelated failure and fails
+        /// the test immediately, right where it happened.
+        /// </para>
+        /// </summary>
+        private static IEnumerator RunAndCollectBroAudioErrorLogs(Action action, int waitFrames, List<string> taggedErrors)
+        {
+            void OnLog(string message, string stackTrace, LogType type)
+            {
+                if (type != LogType.Error)
+                {
+                    return;
+                }
+                Assert.IsTrue(message.Contains(Utility.LogTitle), $"An error unrelated to BroAudio's own tagged logging must not be swallowed: {message}");
+                taggedErrors.Add(message);
+            }
+
+            Application.logMessageReceived += OnLog;
+            bool previousIgnore = LogAssert.ignoreFailingMessages;
+            LogAssert.ignoreFailingMessages = true;
+
+            action();
+            for (int i = 0; i < waitFrames; i++)
+            {
+                yield return null;
+            }
+
+            LogAssert.ignoreFailingMessages = previousIgnore;
+            Application.logMessageReceived -= OnLog;
         }
 
         [UnityTest]
@@ -108,7 +154,7 @@ namespace Ami.BroAudio.Tests
             player.AddLowPassEffect();
             yield return WaitFrames(1);
 
-            LogAssert.Expect(LogType.Warning, new Regex("AudioLowPassFilter already exists"));
+            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
             player.AddLowPassEffect();
             yield return WaitFrames(1);
 
@@ -131,9 +177,10 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1); // Destroy() is deferred to end of frame
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect should destroy the component.");
 
-            LogAssert.Expect(LogType.Warning, new Regex("No effects to remove"));
+            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
             player.RemoveLowPassEffect();
             yield return WaitFrames(1);
+            Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "Removing again with nothing attached must stay a no-op, not throw or attach anything.");
         }
 
         [UnityTest]
@@ -192,14 +239,15 @@ namespace Ami.BroAudio.Tests
             // "this audio player has been recycled" warning instead of AudioPlayer's own !IsActive guard.
             IAudioPlayer inactivePlayer = concrete;
 
-            LogAssert.Expect(LogType.Error, new Regex("Cannot add AudioLowPassFilter to inactive audio player"));
+            LogAssert.Expect(LogType.Error, BroAudioLogPrefix);
             inactivePlayer.AddLowPassEffect();
             yield return WaitFrames(1);
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "AddLowPassEffect on an inactive player must not attach anything.");
 
-            LogAssert.Expect(LogType.Error, new Regex("Cannot remove AudioLowPassFilter from inactive audio player"));
+            LogAssert.Expect(LogType.Error, BroAudioLogPrefix);
             inactivePlayer.RemoveLowPassEffect();
             yield return WaitFrames(1);
+            Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect on an inactive player must not attach or leave anything behind either.");
         }
 
         [UnityTest]
@@ -295,22 +343,14 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float lowPassBefore));
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.HighPassParaName, out float highPassBefore));
 
-            List<string> logs = new List<string>();
-            void OnLog(string message, string stackTrace, LogType type) => logs.Add(message);
-            Application.logMessageReceived += OnLog;
-            bool previousIgnore = LogAssert.ignoreFailingMessages;
-            LogAssert.ignoreFailingMessages = true; // the exact error count through the internal tween coroutine is an implementation detail we don't want to pin down
-
             // characterizes: EffectType.Volume is only meaningful on a Dominator. A plain SetEffect(Volume)
-            // call still runs the whole automation pipeline and logs "only supported on Dominator" from
-            // inside it (GetEffectParameterName), rather than rejecting the call up front.
-            BroAudio.SetEffect(new Effect(EffectType.Volume));
-            yield return WaitFrames(2);
+            // call still runs the whole automation pipeline and logs from inside it (GetEffectParameterName),
+            // rather than rejecting the call up front. The state below (mixer untouched) is the real
+            // contract; the log is only checked for TYPE and BroAudio's own tag, never its wording.
+            List<string> taggedErrors = new List<string>();
+            yield return RunAndCollectBroAudioErrorLogs(() => BroAudio.SetEffect(new Effect(EffectType.Volume)), 2, taggedErrors);
 
-            Application.logMessageReceived -= OnLog;
-            LogAssert.ignoreFailingMessages = previousIgnore;
-
-            Assert.IsTrue(logs.Exists(m => m.Contains("only supported on Dominator")), "SetEffect(Volume) on a non-Dominator effect should log the Dominator-only error.");
+            Assert.IsNotEmpty(taggedErrors, "SetEffect(Volume) on a non-Dominator effect should log at least one error from the Dominator-only guard.");
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float lowPassAfter));
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.HighPassParaName, out float highPassAfter));
@@ -394,14 +434,11 @@ namespace Ami.BroAudio.Tests
             // Two unrelated warts make SetEffect(None) noisy, neither is what this test is about:
             // new Effect(EffectType.None) logs from Effect's Value setter, and an earlier test in the same
             // Editor session can leave a tweaker registered for an effect whose parameter never resolves
-            // (EffectType.Volume on a non-Dominator), which the reset loop then logs once per entry.
-            bool previousIgnore = LogAssert.ignoreFailingMessages;
-            LogAssert.ignoreFailingMessages = true;
-
-            BroAudio.SetEffect(new Effect(EffectType.None));
-            yield return WaitFrames(2);
-
-            LogAssert.ignoreFailingMessages = previousIgnore;
+            // (EffectType.Volume on a non-Dominator), which the reset loop then logs once per entry. Both are
+            // asserted BroAudio-tagged rather than blanket-swallowed, so a genuinely unrelated error would
+            // still fail this test.
+            List<string> taggedErrors = new List<string>();
+            yield return RunAndCollectBroAudioErrorLogs(() => BroAudio.SetEffect(new Effect(EffectType.None)), 2, taggedErrors);
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float reset));
             Assert.AreEqual(AudioConstant.MaxFrequency, reset, FrequencyTolerance,
