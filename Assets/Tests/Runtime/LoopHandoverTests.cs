@@ -426,5 +426,102 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(BroAudio.HasAnyPlayingInstances(id),
                 "The resumed sound must be audible again through the public surface, not merely un-paused internally.");
         }
+
+        // ChangeClipPerLoop makes ScheduleNextPlayback hand over no clip, so every iteration re-picks through
+        // the entity's strategy. Sequence mode makes each pick a distinct, predictable clip.
+        [UnityTest]
+        public IEnumerator Loop_WithChangeClipPerLoopAndSequence_AdvancesClipAtEachSeam()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 0.5f;
+            AudioClip[] clips = { NewClip(ClipSeconds, "PerLoopClip0"), NewClip(ClipSeconds, "PerLoopClip1"), NewClip(ClipSeconds, "PerLoopClip2") };
+            AudioEntity entity = NewEntity("ChangeClipPerLoopSfx", BroAudioType.SFX, clips);
+            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Sequence);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Flags), AudioEntityFlag.ChangeClipPerLoop);
+            SoundID id = IdOf(entity);
+
+            BroAudio.Play(id);
+
+            // Record each clip in the order a player first takes it on. A pooled player re-used for a later
+            // iteration counts again because its clip changes.
+            var picked = new List<AudioClip>();
+            var lastClipOf = new Dictionary<AudioPlayer, AudioClip>();
+            float deadline = Time.realtimeSinceStartup + (ClipSeconds * 4f) + 3f;
+            while (picked.Count < 4)
+            {
+                Assert.Less(Time.realtimeSinceStartup, deadline,
+                    $"Timed out after {picked.Count} iteration(s): [{string.Join(", ", picked.ConvertAll(c => c.name))}] - the loop stopped handing over.");
+                foreach (AudioPlayer active in GetActivePlayers(id))
+                {
+                    AudioClip clip = ClipOf(active);
+                    if (clip && (!lastClipOf.TryGetValue(active, out AudioClip last) || last != clip))
+                    {
+                        lastClipOf[active] = clip;
+                        picked.Add(clip);
+                    }
+                }
+                yield return null;
+            }
+
+            CollectionAssert.AreEqual(new[] { clips[0], clips[1], clips[2], clips[0] }, picked.GetRange(0, 4),
+                "Each loop iteration should re-pick through the Sequence strategy - a reused clip means ChangeClipPerLoop was ignored.");
+        }
+
+        // SoundManager.Stop(type, fade) calls Stop(fade) on every live player of that type. For a loop,
+        // StopControl cancels the pending handover and discards any pre-spawned next player, so the sound
+        // never comes back - but it also goes silent at the current iteration's end, while its handle stays
+        // active for the rest of the fade (TEST_FINDINGS #58).
+        [UnityTest]
+        [Category("Finding_58")]
+        public IEnumerator Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float FadeSeconds = 3f;
+            const float LoopClipSeconds = 0.5f;
+            SoundID oneShotA = NewSound("TypeStopOneShotA", BroAudioType.SFX, NewClip(10f));
+            SoundID oneShotB = NewSound("TypeStopOneShotB", BroAudioType.SFX, NewClip(10f));
+            AudioEntity loopEntity = NewEntity("TypeStopLoop", BroAudioType.SFX, NewClip(LoopClipSeconds));
+            TestAudioLibrary.SetPrivateField(loopEntity, nameof(AudioEntity.Loop), true);
+            SoundID loopId = IdOf(loopEntity);
+            SoundID uiId = NewSound("TypeStopUi", BroAudioType.UI, NewClip(10f));
+
+            IAudioPlayer a = BroAudio.Play(oneShotA);
+            IAudioPlayer b = BroAudio.Play(oneShotB);
+            IAudioPlayer loop = BroAudio.Play(loopId);
+            IAudioPlayer ui = BroAudio.Play(uiId);
+            yield return WaitForPlaybackStart(a);
+            yield return WaitForPlaybackStart(b);
+            yield return WaitForPlaybackStart(loop);
+            yield return WaitForPlaybackStart(ui);
+            // Past at least one seam, so the loop's handle has been handed over before the stop.
+            yield return WaitDspSeconds(LoopClipSeconds * 1.5);
+            Assert.IsTrue(loop.IsActive, "Precondition: the loop must survive its first seam.");
+
+            BroAudio.Stop(BroAudioType.SFX, FadeSeconds);
+
+            yield return new WaitForSeconds(1f);
+            Assert.IsTrue(a.IsActive && a.IsPlaying && a.GetVolume() < 0.95f, "One-shot A should be audibly fading, not cut, 1s into a 3s stop fade.");
+            Assert.IsTrue(b.IsActive && b.IsPlaying && b.GetVolume() < 0.95f, "One-shot B should be audibly fading, not cut, 1s into a 3s stop fade.");
+            Assert.IsTrue(loop.IsActive, "The loop's handle should still be live 1s into a 3s stop fade.");
+            Assert.IsFalse(BroAudio.HasAnyPlayingInstances(loopId),
+                "characterizes: 1s into the fade the loop is already silent - its voice ended with the 0.5s iteration that was playing when Stop cancelled the handover.");
+
+            yield return WaitForRecycle(a, "one-shot A to end once the fade completes", FadeSeconds + 1f);
+            yield return WaitForRecycle(b, "one-shot B to end once the fade completes", 1f);
+            yield return WaitForRecycle(loop, "the loop to end once the fade completes", 1f);
+            Assert.IsTrue(ui.IsPlaying, "Stop(SFX) must leave the UI player alone.");
+
+            // A cancelled handover that still fired would start a new iteration here.
+            float quietUntil = Time.realtimeSinceStartup + LoopClipSeconds * 3f;
+            while (Time.realtimeSinceStartup < quietUntil)
+            {
+                Assert.IsFalse(BroAudio.HasAnyPlayingInstances(loopId), "The stopped loop must not restart at a later seam.");
+                yield return null;
+            }
+
+        }
     }
 }

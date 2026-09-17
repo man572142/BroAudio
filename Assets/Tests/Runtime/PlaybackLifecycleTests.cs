@@ -349,7 +349,7 @@ namespace Ami.BroAudio.Tests
         // the fade is kept wide (2s) and the "not yet" half polls across a whole second rather than sampling
         // at one instant.
         [UnityTest]
-        [Category("Finding-41")]
+        [Category("Finding_41")]
         public IEnumerator Stop_WithOnFinishedCallback_FiresAfterTheFadeButIsDroppedByARecycledHandle()
         {
             yield return RequireRealtimeAudioClock();
@@ -406,6 +406,44 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsFalse(firedOnRecycled,
                 "characterizes: Stop(onFinished) on a recycled handle is a silent no-op - the callback is dropped, never invoked.");
+        }
+
+        // A resume re-enters PlayControl, whose SetupClipVolume and TryGetFadeIn run on the resume path too:
+        // UnPause() with the clip setting restarts the clip's fade-in from silence, while UnPause(0f)
+        // overrides it and resumes at full volume.
+        [UnityTest]
+        public IEnumerator UnPause_OnClipWithFadeIn_RestartsTheFadeInFromSilenceUnlessOverridden()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipFadeIn = 2f;
+            AudioEntity entity = NewEntity("ResumeFadeInSfx", BroAudioType.SFX, NewClip(20f));
+            entity.Clips[0].FadeIn = ClipFadeIn;
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+            yield return WaitForPlaybackStart(player);
+            yield return WaitUntilOrTimeout(() => player.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the initial clip fade-in to complete", ClipFadeIn + 1.5f);
+
+            player.Pause(0f);
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause");
+            int pausedAt = player.AudioSource.timeSamples;
+
+            player.UnPause();
+            Assert.AreEqual(0f, player.GetVolume(), LinearTolerance,
+                "characterizes: UnPause() with the clip's fade-in setting restarts that fade-in from silence, in the frame of the call.");
+            yield return WaitForPlaybackStart(player, "the player to resume");
+            Assert.GreaterOrEqual(player.AudioSource.timeSamples, pausedAt, "The resume must continue from the paused playhead, fade-in or not.");
+
+            yield return new WaitForSeconds(0.5f);
+            Assert.Less(player.GetVolume(), 0.9f, "0.5s into a 2s resume fade-in the volume should still be ramping.");
+            yield return WaitUntilOrTimeout(() => player.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the resume fade-in to complete", ClipFadeIn + 1.5f);
+
+            player.Pause(0f);
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause a second time");
+            player.UnPause(0f);
+            Assert.AreEqual(AudioConstant.FullVolume, player.GetVolume(), LinearTolerance,
+                "UnPause(0f) overrides the clip fade-in: the resumed player is at full volume in the frame of the call.");
         }
     }
 }

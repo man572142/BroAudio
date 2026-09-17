@@ -169,7 +169,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
-        [Category("Finding-14")]
+        [Category("Finding_14")]
         public IEnumerator CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds()
         {
             // Characterizes TEST_FINDINGS #14: both halves, pinned in one pass of the routine.

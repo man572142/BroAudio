@@ -56,7 +56,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region GetResultClip
         [Test]
-        [Category("Finding-29")]
+        [Category("Finding_29")]
         public void GetResultClip_NoEdit_ReturnsOriginalInstance()
         {
             AudioClip clip = Track(TestAudioLibrary.CreateClip(0.1f, "Untouched"));
@@ -135,7 +135,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region AddSlient
         [Test]
-        [Category("Finding-27")]
+        [Category("Finding_27")]
         public void AddSlient_PrependsSilenceAndShiftsOriginalDataToTail()
         {
             // Characterizes TEST_FINDINGS #27: despite the name giving no indication, the silence goes at the FRONT.
@@ -150,7 +150,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         [Test]
-        [Category("Finding-27")]
+        [Category("Finding_27")]
         public void AddSlient_PadLengthTruncatesInsteadOfRounding()
         {
             // Characterizes TEST_FINDINGS #27: second half - AddSlient sizes the pad with a plain (int)
@@ -198,7 +198,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-26")]
+        [Category("Finding_26")]
         public void Reverse_Stereo_ReversesRawArraySoChannelsAreTransposed()
         {
             // Characterizes TEST_FINDINGS #26: Reverse() flips the raw interleaved array with no channel awareness.
@@ -270,7 +270,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region ConvertToMono
         [Test]
-        [Category("Finding-25")]
+        [Category("Finding_25")]
         public void ConvertToMono_Downmixing_OffsetsGroupingAndDropsFinalGroup()
         {
             // Characterizes TEST_FINDINGS #25: the running sum is only flushed when the NEXT group's boundary is

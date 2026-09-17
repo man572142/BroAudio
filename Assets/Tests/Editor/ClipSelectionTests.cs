@@ -240,7 +240,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding-10")]
+        [Category("Finding_10")]
         public void SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip()
         {
             // Characterizes TEST_FINDINGS #10: in the fallback scan, the loop keeps advancing `index` while
@@ -281,7 +281,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding-9")]
+        [Category("Finding_9")]
         public void SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent()
         {
             // Characterizes TEST_FINDINGS #9: MulticlipsPlayMode.Shuffle's doc comment promises "not repeating
@@ -387,7 +387,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding-10")]
+        [Category("Finding_10")]
         public void SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero()
         {
             // Characterizes TEST_FINDINGS #10: when Value exceeds every threshold, the loop falls through to

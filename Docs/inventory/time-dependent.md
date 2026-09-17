@@ -19,7 +19,7 @@ Legend for **Clock**: DSP = `AudioSettings.dspTime`; Frame = `Time.deltaTime`/`T
 | Behavior | A clip with `FadeIn > 0` and no explicit override ramps clip volume from 0 to target over that duration on every fresh `Play()`. |
 | Observable | Poll `IAudioPlayer.AudioSource` — there is no direct public "clip volume" getter, so the best public-API proxy is the mixer's clip-volume parameter (internal `_clipVolume.Current`) or, more reliably, sample `AudioSource.volume`/mixer send over several frames after Play and assert monotonic increase toward target. `IAudioPlayer.OnUpdate` fires every frame the fade coroutine runs — a test can hook it to sample count and shape. |
 | Clock | Frame (coroutine `_clipVolume.Fade` in `FaderModule.Update()`). Tolerance: allow ±2 frames around expected completion; `Mathf.Lerp` + `Ease` is not sample-accurate. |
-| Edge cases | `FadeIn == 0` (`FadeData.Immediate`) skips the wait entirely (`TryGetFadeIn` returns false); fade-in longer than the clip itself (fade never completes before playback ends — no guard against this in source); resume-from-pause skips fade-in entirely (the `isResuming` branch in `PlayControl`, which never re-enters the fade-in block because `HasStartedPlaying` is already true — the fade-in block runs unconditionally after `StartPlaying()`, but `_clipVolume` is already at target after a resume so `TryGetFadeIn` should still be evaluated — **flagged below as "could not determine statically"**). |
+| Edge cases | `FadeIn == 0` (`FadeData.Immediate`) skips the wait entirely (`TryGetFadeIn` returns false); fade-in longer than the clip itself (fade never completes before playback ends — no guard against this in source); resume-from-pause re-runs the clip fade-in from silence (`SetupClipVolume` and `TryGetFadeIn` both run on the `isResuming` path), unless `UnPause(fadeIn)` overrides it. |
 | Regression risk | High — fade-in is on the hottest path (every `Play()`); a broken ease/duration is silent (no exception, just wrong-sounding audio). |
 
 ## Fade in — explicit override argument
@@ -221,12 +221,10 @@ Covered above under "Fade out — explicit `Stop(fadeOut)` override" for the ram
 ## Conflicts observed
 
 - **`clip.Delay` on subsequent loop iterations with `ChangeClipPerLoop`**: `ResolveScheduledTiming` only consults `clip.Delay` via `SetClipDelayIfNotScheduled` on the very first loop iteration (gated by `isFirstLoopIteration`); `SetClipDelayIfNotScheduled` itself is called unconditionally at the top of `PlayControl` for every handover, including subsequent loop iterations — so it's not obviously true that later iterations ignore a newly-picked clip's `Delay`. This needs a closer read of the interaction between `SetClipDelayIfNotScheduled` (per-play) and `ResolveScheduledTiming`'s `isFirstLoopIteration` gate (per-schedule) than a static pass can fully resolve — flagged for live-Editor probing rather than asserted as a definite bug.
-- **Fade-in on resume-from-pause**: `PlayControl`'s fade-in block is not visibly skipped for the `isResuming` case, yet a resumed player's clip volume should already be at its pre-pause value, not 0. Whether `TryGetFadeIn` naturally returns false here (because no override was set and `_clipVolume` is already at target) or whether resume genuinely re-triggers a fade-in was not something this static read could settle — listed again below.
 
 ## Could not determine statically
 
 - Whether `Stop(fadeOut) → UnPause()` (pause requested mid-fade-out) is a supported/characterized sequence, or whether `IsStopping` blocks it entirely — needs a live trace.
-- Whether resuming from `Pause` (`IAudioStoppable.UnPause`) re-runs the fade-in block in `PlayControl` (see "Conflicts observed" above) — needs either a live Editor probe (breakpoint/log on `TryGetFadeIn` during a resume) or a quick throwaway PlayMode script, since `_stopMode`/`HasStartedPlaying` state at that point in the coroutine is not fully traceable from source alone.
 - Exact interaction of `clip.Delay` with `ChangeClipPerLoop` across loop iterations beyond the first (see "Conflicts observed").
 - Whether any public (non-internal) surface re-exposes `MusicPlayer.OnBGMChanged` — grepped the runtime source and found none, but the search was not exhaustive of generated/partial files outside the ones listed in scope.
 - Whether `AudioSource.SetScheduledStartTime`'s "pause current playback until dspTime" side effect (the documented quirk on `ISchedulable.SetScheduledStartTime`) actually fires the `_onPaused` callback or any pause-related state — the comment describes engine behavior but the surrounding BroAudio code doesn't visibly hook `_stopMode`/`_onPaused` for this path, meaning a test asserting "player looks paused" via `IAudioPlayer` state (as opposed to raw `AudioSource.isPlaying` timing) might not have anything to observe. Needs a live check.
@@ -241,6 +239,7 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | Behavior | Status | Pinned by |
 |---|---|---|
 | Fade in — from clip's own FadeIn setting | covered | `FadeAndTrimTests.Play_WithClipFadeIn_RampsVolumeUpFromSilence` |
+| Fade in — on resume from pause | covered | `PlaybackLifecycleTests.UnPause_OnClipWithFadeIn_RestartsTheFadeInFromSilenceUnlessOverridden` |
 | Fade in — explicit override argument | covered | `FadeAndTrimTests.Play_WithExplicitFadeInOverride_IsConsumedOnceThenFallsBackToClipSetting` — pins the one-shot consume |
 | Fade in — easing curve (`SetFadeInEase`) | partial | `FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_StillReachTargetAndComplete` asserts the fade completes; the curve *shape* at 25/50/75% is not sampled. |
 | Fade out — from clip's own FadeOut setting, natural end | covered | `FadeAndTrimTests.Play_WithClipFadeOut_RampsVolumeDownBeforeNaturalEnd` |
@@ -255,7 +254,7 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | Plain looping (`LoopType.Loop`) | covered | `LoopHandoverTests.Play_WithPlainLoop_NeverSetsAudioSourceLoopAndSurvivesMultipleSeams` |
 | Seamless looping with a transition time | covered | `LoopHandoverTests.Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam` |
 | Chained playback (intro → loop → outro) | covered | `LoopHandoverTests.ChainedPlayMode_HandsOverIntroToLoopToOutro_OutroHandoverFiresSynchronouslyOnStop` |
-| BGM transitions (`SetTransition`) | partial | `SchedulingAndMusicTests.SetTransition_Default_*` and `SetTransition_CrossFade_*` cover the overlap/no-overlap contract for two modes; the remaining `Transition` enum members are untested. |
+| BGM transitions (`SetTransition`) | covered | `SchedulingAndMusicTests.SetTransition_Default_*`, `SetTransition_CrossFade_*`, `SetTransition_OnlyFadeOut_*`, `SetTransition_OnlyFadeIn_*`; `Immediate` through `OnBGMChanged_*` and the `StopMode.Pause`/`Mute` transition tests |
 | `AlwaysPlayMusicAsBGM` (RuntimeSetting) | covered | `SchedulingAndMusicTests.AlwaysPlayMusicAsBGM_Enabled_*`, `_Disabled_*` |
 | `OnBGMChanged` event | covered | `SchedulingAndMusicTests.OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer`; the double-fire quirk is also characterized by this test |
 | Stop with fade — general | covered | The two `FadeAndTrimTests.Stop_*` tests |

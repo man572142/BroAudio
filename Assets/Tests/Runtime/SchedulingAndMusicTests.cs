@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
+using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -357,7 +358,7 @@ namespace Ami.BroAudio.Tests
 
         // 2.8 - BroAudio.OnBGMChanged fires exactly once per actual CurrentBGMPlayer change.
         [UnityTest]
-        [Category("Finding-11")]
+        [Category("Finding_11")]
         public IEnumerator OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer()
         {
             // Characterizes TEST_FINDINGS #11: replacing a BGM raises OnBGMChanged *twice*, and both in the
@@ -444,6 +445,90 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(first.IsPlaying,
                 "characterizes: StopMode.Mute never calls AudioSource.Pause/Stop - the muted BGM keeps AudioSource.isPlaying true, running silently in the background.");
             Assert.IsTrue(first.IsActive, "A muted BGM must stay active, not ended.");
+        }
+
+        /// <summary>
+        /// Long enough that no BGM here reaches its natural end inside a transition window, so only the
+        /// transition can explain a player ending.
+        /// </summary>
+        private const float TransitionBgmClipLength = 9f;
+
+        /// <summary>Wide enough that a 1s-in sample sits ≥1s clear of both ends under any fade ease.</summary>
+        private const float TransitionFadeSeconds = 3f;
+
+        // 2.8 - OnlyFadeOut is sequential like Default (MusicPlayer.HandleCurrentBGM waits on it), but
+        // HandleNewBGM hands the incoming player a zero fade-in, so it starts at full volume.
+        [UnityTest]
+        public IEnumerator SetTransition_OnlyFadeOut_OutgoingFadesWhileIncomingStartsAtFullVolume()
+        {
+            yield return RequireRealtimeAudioClock();
+            // The implicit auto-BGM transition is overwritten by the explicit calls below; pinning it keeps
+            // the explicit transition the only one that can produce a fade.
+            SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
+
+            SoundID firstId = NewSound("OnlyFadeOutBgmA", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+            SoundID secondId = NewSound("OnlyFadeOutBgmB", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+
+            IAudioPlayer first = BroAudio.Play(firstId);
+            first.AsBGM().SetTransition(Transition.Immediate);
+            yield return WaitForPlaybackStart(first, "first BGM to start");
+
+            IAudioPlayer second = BroAudio.Play(secondId);
+            second.AsBGM().SetTransition(Transition.OnlyFadeOut, TransitionFadeSeconds);
+
+            bool overlapped = false;
+            float sampleAt = Time.realtimeSinceStartup + 1f;
+            float midFadeVolume = -1f;
+            float deadline = Time.realtimeSinceStartup + TransitionFadeSeconds + 2f;
+            while (!second.IsPlaying)
+            {
+                Assert.Less(Time.realtimeSinceStartup, deadline, "Timed out waiting for the incoming BGM to start after the outgoing fade-out.");
+                overlapped |= first.IsPlaying && second.IsPlaying;
+                if (midFadeVolume < 0f && Time.realtimeSinceStartup >= sampleAt)
+                {
+                    midFadeVolume = first.GetVolume();
+                }
+                yield return null;
+            }
+
+            Assert.IsFalse(overlapped, "OnlyFadeOut must be sequential - the incoming BGM waits for the outgoing fade-out to finish.");
+            Assert.Greater(midFadeVolume, 0.05f, "1s into a 3s fade-out the outgoing BGM should still be audible - a read near 0 means it was cut, not faded.");
+            Assert.Less(midFadeVolume, 0.95f, "1s into a 3s fade-out the outgoing BGM should already be well below full volume.");
+            Assert.IsFalse(first.IsActive, "The outgoing BGM should have ended by the time the incoming one starts.");
+            Assert.AreEqual(AudioConstant.FullVolume, second.GetVolume(), LinearTolerance,
+                "OnlyFadeOut gives the incoming BGM no fade-in: it must be at full volume on its first playing frame.");
+        }
+
+        // 2.8 - OnlyFadeIn is the mirror: MusicPlayer.StopCurrentPlayer stops the outgoing BGM with no
+        // fade, and HandleCurrentBGM does not wait, so the incoming BGM fades in from silence right away.
+        [UnityTest]
+        public IEnumerator SetTransition_OnlyFadeIn_OutgoingCutsWhileIncomingFadesInFromSilence()
+        {
+            yield return RequireRealtimeAudioClock();
+            SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
+
+            SoundID firstId = NewSound("OnlyFadeInBgmA", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+            SoundID secondId = NewSound("OnlyFadeInBgmB", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+
+            IAudioPlayer first = BroAudio.Play(firstId);
+            first.AsBGM().SetTransition(Transition.Immediate);
+            yield return WaitForPlaybackStart(first, "first BGM to start");
+
+            IAudioPlayer second = BroAudio.Play(secondId);
+            second.AsBGM().SetTransition(Transition.OnlyFadeIn, TransitionFadeSeconds);
+            yield return WaitForPlaybackStart(second, "the incoming BGM to start without waiting on the outgoing one");
+            float startedAt = Time.realtimeSinceStartup;
+
+            Assert.IsFalse(first.IsActive, "OnlyFadeIn stops the outgoing BGM with no fade - it must already be gone when the incoming one starts.");
+
+            yield return new WaitForSeconds(1f);
+            float midFadeVolume = second.GetVolume();
+            Assert.Less(midFadeVolume, 0.5f, "1s into a 3s fade-in the incoming BGM should still be well short of full volume - a full read means the fade-in was skipped.");
+
+            yield return WaitUntilOrTimeout(() => second.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the incoming BGM's fade-in to reach full volume", TransitionFadeSeconds + 1.5f);
+            Assert.Greater(Time.realtimeSinceStartup - startedAt, TransitionFadeSeconds - 1f,
+                "The fade-in should take roughly its stated time, not complete almost at once.");
         }
     }
 }

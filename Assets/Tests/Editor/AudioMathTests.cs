@@ -265,7 +265,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding-8")]
+        [Category("Finding_8")]
         public void IsDefault_LowPass_ParameterlessConstructor_IsNotDefault()
         {
             // Characterizes TEST_FINDINGS #8: the parameterless ctor seeds LowPass with
@@ -284,7 +284,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding-8")]
+        [Category("Finding_8")]
         public void IsDefault_HighPass_ParameterlessConstructor_IsNotDefault()
         {
             // Characterizes TEST_FINDINGS #8: same mismatch as LowPass, mirrored — BroAdvice.HighPassFrequency

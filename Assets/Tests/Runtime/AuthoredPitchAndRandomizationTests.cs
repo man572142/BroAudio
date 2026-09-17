@@ -49,7 +49,7 @@ namespace Ami.BroAudio.Tests
         private const float BoundaryTolerance = 0.0001f;
 
         [UnityTest]
-        [Category("Finding-55")]
+        [Category("Finding_55")]
         public IEnumerator Play_WithAuthoredEntityPitch_ReachesAudioSourceAndIsReplacedNotScaledByTypePitch()
         {
             // Characterizes TEST_FINDINGS #55: 1.5 and 0.5 are chosen so the three outcomes are three
@@ -235,7 +235,7 @@ namespace Ami.BroAudio.Tests
         // So "master pitch" is really "every type's pitch at once", and it reaches a later play through
         // exactly the GetBasePitch branch the first test above characterizes. Nothing covered that path.
         [UnityTest]
-        [Category("Finding-56")]
+        [Category("Finding_56")]
         public IEnumerator SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers()
         {
             const float MasterPitch = 0.5f;

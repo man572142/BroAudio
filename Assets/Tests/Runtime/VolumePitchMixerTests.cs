@@ -194,5 +194,37 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(futureSfxPlayer, "future playback to start");
             Assert.AreEqual(0.5f, futureSfxPlayer.AudioSource.pitch, LinearTolerance, "A freshly played SFX entity should pick up the stored per-type pitch.");
         }
+
+        // SoundManager.SetPitch(SoundID, ...) only pushes to live players with that ID - unlike the per-type
+        // overload it stores nothing, so a later play of the same ID starts from its base pitch again.
+        [UnityTest]
+        public IEnumerator SetPitch_BySoundId_AppliesToThatInstanceOnly()
+        {
+            const float IdPitch = 1.5f;
+            SoundID targetId = NewSound("PitchTargetSfx", BroAudioType.SFX, NewClip(4f));
+            SoundID otherId = NewSound("PitchOtherSfx", BroAudioType.SFX, NewClip(4f));
+
+            IAudioPlayer targetA = BroAudio.Play(targetId);
+            IAudioPlayer targetB = BroAudio.Play(targetId);
+            IAudioPlayer other = BroAudio.Play(otherId);
+            yield return WaitForPlaybackStart(targetA);
+            yield return WaitForPlaybackStart(targetB);
+            yield return WaitForPlaybackStart(other);
+
+            BroAudio.SetPitch(targetId, IdPitch);
+
+            Assert.AreEqual(IdPitch, targetA.AudioSource.pitch, LinearTolerance, "Every live instance of the SoundID should take the pitch.");
+            Assert.AreEqual(IdPitch, targetB.AudioSource.pitch, LinearTolerance, "Every live instance of the SoundID should take the pitch.");
+            Assert.AreEqual(AudioConstant.DefaultPitch, other.AudioSource.pitch, LinearTolerance, "A different SoundID of the same type must be untouched.");
+            Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref pref));
+            Assert.AreEqual(AudioConstant.DefaultPitch, pref.Pitch, LinearTolerance, "A per-SoundID pitch must not leak into the per-type pref.");
+
+            BroAudio.Stop(targetId, 0f);
+            yield return WaitForRecycle(targetA);
+            IAudioPlayer later = BroAudio.Play(targetId);
+            yield return WaitForPlaybackStart(later);
+            Assert.AreEqual(AudioConstant.DefaultPitch, later.AudioSource.pitch, LinearTolerance,
+                "A per-SoundID pitch is not stored: the next play of that ID starts from its base pitch.");
+        }
     }
 }

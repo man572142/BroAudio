@@ -69,7 +69,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-24")]
+        [Category("Finding_24")]
         public void Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
             // Characterizes TEST_FINDINGS #24: naked "+ "/" +" concatenation does not strip a trailing slash.
@@ -83,7 +83,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-24")]
+        [Category("Finding_24")]
         public void Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
             // Characterizes TEST_FINDINGS #24: the same quirk as the 3-arg form, characterized rather than fixed.
