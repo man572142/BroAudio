@@ -69,21 +69,20 @@ namespace Ami.BroAudio.Tests
         /// internal tween coroutine) this suite does not pin down.
         /// <para>
         /// LogAssert.ignoreFailingMessages is scoped to just this call so it never leaks into the rest of the
-        /// test, and it never silently hides an unrelated bug: every captured Error is asserted here to carry
-        /// <see cref="Utility.LogTitle"/> - a message that does not is a genuinely unrelated failure and fails
-        /// the test immediately, right where it happened.
+        /// test, and it never silently hides an unrelated bug: the assertion that every captured Error carries
+        /// <see cref="Utility.LogTitle"/> runs after the collection loop, on the main thread, rather than from
+        /// inside the logMessageReceived callback - Unity's log dispatch does not expect a handler to throw.
+        /// A message that does not carry the tag is a genuinely unrelated failure and fails the test.
         /// </para>
         /// </summary>
         private static IEnumerator RunAndCollectBroAudioErrorLogs(Action action, int waitFrames, List<string> taggedErrors)
         {
             void OnLog(string message, string stackTrace, LogType type)
             {
-                if (type != LogType.Error)
+                if (type == LogType.Error)
                 {
-                    return;
+                    taggedErrors.Add(message);
                 }
-                Assert.IsTrue(message.Contains(Utility.LogTitle), $"An error unrelated to BroAudio's own tagged logging must not be swallowed: {message}");
-                taggedErrors.Add(message);
             }
 
             Application.logMessageReceived += OnLog;
@@ -98,6 +97,11 @@ namespace Ami.BroAudio.Tests
 
             LogAssert.ignoreFailingMessages = previousIgnore;
             Application.logMessageReceived -= OnLog;
+
+            foreach (string message in taggedErrors)
+            {
+                Assert.IsTrue(message.Contains(Utility.LogTitle), $"An error unrelated to BroAudio's own tagged logging must not be swallowed: {message}");
+            }
         }
 
         [UnityTest]
