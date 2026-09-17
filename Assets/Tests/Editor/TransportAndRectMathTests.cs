@@ -141,7 +141,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-32")]
+        [Category("Finding_32")]
         public void HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero()
         {
             // Characterizes TEST_FINDINGS #32: Start and End are both untouched (0), yet a
@@ -185,7 +185,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region EditorScriptingExtension.SplitRectHorizontal / SplitRectVertical — params float[] ratios form
         [Test]
-        [Category("Finding-21")]
+        [Category("Finding_21")]
         public void SplitRectHorizontal_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
             var origin = new Rect(0f, 0f, 120f, 40f);
@@ -206,7 +206,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-21")]
+        [Category("Finding_21")]
         public void SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload()
         {
             // Characterizes TEST_FINDINGS #21: the same origin/gap/50-50 split as
@@ -246,7 +246,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-21")]
+        [Category("Finding_21")]
         public void SplitRectVertical_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
             // Characterizes TEST_FINDINGS #21: the vertical twin of the horizontal three-way split above -
@@ -275,7 +275,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-22")]
+        [Category("Finding_22")]
         public void SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal()
         {
             // Characterizes TEST_FINDINGS #22: unlike SplitRectHorizontal's params-ratios overload, this one does
@@ -351,7 +351,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-23")]
+        [Category("Finding_23")]
         public void GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst()
         {
             // Characterizes TEST_FINDINGS #23: the implementation does

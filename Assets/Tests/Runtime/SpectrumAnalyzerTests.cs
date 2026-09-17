@@ -225,7 +225,7 @@ namespace Ami.BroAudio.Tests
         // with no script. But whether that polling happens at all is decided once, in Start, from whether the
         // field was already assigned - so a SoundSource attached later is ignored for the object's whole life.
         [UnityTest]
-        [Category("Finding-38")]
+        [Category("Finding_38")]
         public IEnumerator Update_TakesThePlayerFromItsSoundSource_ButOnlyIfItWasAssignedBeforeStart()
         {
             yield return RequireRealtimeAudioClock();
@@ -376,7 +376,7 @@ namespace Ami.BroAudio.Tests
         // wrong in the same way - the band stops reporting the signal - so the assertion is that it leaves
         // the floor, and then that whichever end it ran to is the end the ballistics block makes it run to.
         [UnityTest]
-        [Category("Finding-39")]
+        [Category("Finding_39")]
         public IEnumerator Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak()
         {
             yield return RequireRealtimeAudioClock();
@@ -461,7 +461,7 @@ namespace Ami.BroAudio.Tests
         // 0 * 1 == 0 * 20, and the pin would survive the very change it exists to catch. Metering a band
         // that carries real energy, any use of the field at all pulls the two readings apart.
         [UnityTest]
-        [Category("Finding-40")]
+        [Category("Finding_40")]
         public IEnumerator Update_BandWeighting_HasNoEffectOnTheBandOutput()
         {
             yield return RequireRealtimeAudioClock();

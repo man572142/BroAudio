@@ -13,8 +13,8 @@ namespace Ami.BroAudio.Editor.Tests
     /// The link between <c>Docs/TEST_FINDINGS.md</c> and the tests that pin its findings, checked in both
     /// directions so neither side can drift silently.
     /// <para>
-    /// The convention it enforces: a test that pins finding N carries <c>[Category("Finding-N")]</c>, so
-    /// starting work on that finding is <c>-testCategory Finding-N</c> rather than a grep through free-text
+    /// The convention it enforces: a test that pins finding N carries <c>[Category("Finding_N")]</c>, so
+    /// starting work on that finding is <c>-testCategory Finding_N</c> rather than a grep through free-text
     /// comments. A finding that is deliberately left unpinned says so in its own section with an explicit
     /// "Not pinned" note, which is what this check accepts in place of a test - there is no exception list
     /// here to add a finding to, because a list of exceptions is the thing that goes stale.
@@ -32,8 +32,11 @@ namespace Ami.BroAudio.Editor.Tests
     /// </summary>
     public class FindingCoverageTests : BroEditorTestFixture
     {
-        /// <summary>The prefix every pinning category carries, as in <c>[Category("Finding-14")]</c>.</summary>
-        public const string CategoryPrefix = "Finding-";
+        /// <summary>
+        /// The prefix every pinning category carries, as in <c>[Category("Finding_14")]</c>. Don't use '-': NUnit
+        /// rejects a category containing ',', '!', '+' or '-' and fails the test before its body runs.
+        /// </summary>
+        public const string CategoryPrefix = "Finding_";
 
         /// <summary>Repo-relative path of the document this fixture reconciles against.</summary>
         private const string FindingsDocRelativePath = "Docs/TEST_FINDINGS.md";
@@ -57,7 +60,7 @@ namespace Ami.BroAudio.Editor.Tests
         /// </summary>
         private static readonly Regex NotPinnedPattern = new Regex(@"\b[Nn]ot pinned\b");
 
-        /// <summary>Splits "Finding-14" into its number. Anything else under the prefix is malformed.</summary>
+        /// <summary>Splits "Finding_14" into its number. Anything else under the prefix is malformed.</summary>
         private static readonly Regex CategoryPattern = new Regex(@"^" + CategoryPrefix + @"(\d+)$");
 
         /// <summary>One "## N." section of the document.</summary>
@@ -79,7 +82,7 @@ namespace Ami.BroAudio.Editor.Tests
             public override string ToString() => "#" + Number + " (" + Title + ")";
         }
 
-        /// <summary>One <c>[Category("Finding-N")]</c> found on a test, with where it was found.</summary>
+        /// <summary>One <c>[Category("Finding_N")]</c> found on a test, with where it was found.</summary>
         private readonly struct Marker
         {
             public readonly string Category;
@@ -100,7 +103,7 @@ namespace Ami.BroAudio.Editor.Tests
             string path = FindingsDocPath;
             Assert.IsTrue(File.Exists(path),
                 "Could not find " + FindingsDocRelativePath + " at '" + path + "'. This fixture reconciles the " +
-                "document against the suite's Finding-N categories and cannot run without it.");
+                "document against the suite's Finding_N categories and cannot run without it.");
 
             var findings = new List<Finding>();
             int number = 0;
@@ -135,7 +138,7 @@ namespace Ami.BroAudio.Editor.Tests
             return findings;
         }
 
-        /// <summary>Every Finding-* category carried by a test method or a fixture, across both assemblies.</summary>
+        /// <summary>Every Finding_* category carried by a test method or a fixture, across both assemblies.</summary>
         private static List<Marker> ReadMarkers()
         {
             var markers = new List<Marker>();
@@ -165,7 +168,7 @@ namespace Ami.BroAudio.Editor.Tests
                 // silently would let this check pass while covering less than it claims, so surface it.
                 types = exception.Types.Where(t => t != null).ToArray();
                 Assert.Fail("Could not fully load the test assembly '" + assembly.GetName().Name +
-                    "'. Finding-N categories in the types that failed to load would be invisible here.");
+                    "'. Finding_N categories in the types that failed to load would be invisible here.");
             }
 
             const BindingFlags MemberFlags = BindingFlags.Public | BindingFlags.NonPublic |

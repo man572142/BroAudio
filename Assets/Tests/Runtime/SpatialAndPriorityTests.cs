@@ -110,7 +110,7 @@ namespace Ami.BroAudio.Tests
         // keeps a previous sound's 3D attenuation and serves a 2D UI click" scenario from the task. Whatever
         // the reused source carries is pinned as-is, including the part that looks like a bug.
         [UnityTest]
-        [Category("Finding-46")]
+        [Category("Finding_46")]
         public IEnumerator Recycle_AfterA3DSound_ResetsScalarSpatialStateButLeavesTheCustomRolloffCurveBehind()
         {
             SpatialSetting setting3D = Track(ScriptableObject.CreateInstance<SpatialSetting>());

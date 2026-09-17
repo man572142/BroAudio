@@ -262,7 +262,7 @@ namespace Ami.BroAudio.Tests
         // detached from any SoundSource that could stop it. Reachable from object pooling (spawn then
         // immediately despawn).
         [UnityTest]
-        [Category("Finding-35")]
+        [Category("Finding_35")]
         public IEnumerator OnDisable_InTheSameFrameAsOnEnable_LeavesTheQueuedVoicePlaying()
         {
             SoundID id = NewSound("SameFrameDisableSfx", BroAudioType.SFX, NewClip(2f));

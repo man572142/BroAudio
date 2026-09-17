@@ -261,7 +261,7 @@ namespace Ami.BroAudio.Tests
         // them exercises this routing; see Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack
         // below for what those tests actually run.
         [UnityTest]
-        [Category("Finding-42")]
+        [Category("Finding_42")]
         public IEnumerator Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack()
         {
             const float othersVolume = 0.2f;
@@ -322,7 +322,7 @@ namespace Ami.BroAudio.Tests
         // actually run: they pass in both configurations because they only watch the Main_LowPass/Main_HighPass
         // parameter move, which is true either way.
         [UnityTest]
-        [Category("Finding-42")]
+        [Category("Finding_42")]
         public IEnumerator Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack()
         {
             SoundID lateId = NewSound("LateDominatorSfx", BroAudioType.SFX, NewClip(3f));
@@ -344,7 +344,7 @@ namespace Ami.BroAudio.Tests
         // player at BeginHandover, after its SetupAudioTrack already took a generic track, so ducking persists
         // across the seam but the dominator ducks itself.
         [UnityTest]
-        [Category("Finding-44")]
+        [Category("Finding_44")]
         public IEnumerator Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack()
         {
             yield return RequireRealtimeAudioClock();
@@ -451,7 +451,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
-        [Category("Finding-13")]
+        [Category("Finding_13")]
         public IEnumerator HasLoop_TwoArgOverload_TracksDefaultChainedPlayModeLoopSetting()
         {
             // Runtime-only gap: ClipSelectionTests.cs (EditMode) covers the 4-arg HasLoop overload with
@@ -483,6 +483,50 @@ namespace Ami.BroAudio.Tests
         }
 
         #endregion
+
+        // AudioTrackObjectPool.CreateObject returns null once every Dominator group is checked out, so the
+        // player past the pool's capacity plays with no mixer group at all rather than falling back to a
+        // generic track. Pool capacity is the mixer's Dominator group count, read here rather than assumed.
+        [UnityTest]
+        public IEnumerator AsDominator_BeyondThePoolCapacity_PlaysUnroutedAndWarns()
+        {
+            int capacity = SoundManager.Instance.AudioMixer.FindMatchingGroups(BroName.DominatorTrackName).Length;
+            Assert.Greater(capacity, 0, "Precondition: the mixer must have Dominator groups.");
+
+            var players = new List<IAudioPlayer>();
+            for (int i = 0; i <= capacity; i++)
+            {
+                IAudioPlayer player = BroAudio.Play(NewSound($"PoolDominatorSfx{i}", BroAudioType.SFX, NewClip(4f)));
+                player.AsDominator(); // same frame as Play, so SetupAudioTrack sees IsDominator
+                players.Add(player);
+            }
+
+            LogAssert.Expect(LogType.Warning, new Regex(Regex.Escape("used up all the [Dominator] tracks")));
+            foreach (IAudioPlayer player in players)
+            {
+                yield return WaitForPlaybackStart(player, "every dominator, including the one past capacity, to start");
+            }
+
+            var groupNames = new HashSet<string>();
+            for (int i = 0; i < capacity; i++)
+            {
+                AssertHoldsDistinctDominatorTrack(players[i], groupNames);
+            }
+            Assert.AreEqual(capacity, groupNames.Count, "The dominators within capacity should each hold a distinct Dominator track.");
+
+            IAudioPlayer overflow = players[capacity];
+            Assert.IsNull(overflow.AudioSource.outputAudioMixerGroup,
+                "characterizes: the dominator past capacity gets no mixer group - not a generic track.");
+            Assert.IsTrue(overflow.IsPlaying, "The unrouted dominator still plays rather than being rejected.");
+        }
+
+        private static void AssertHoldsDistinctDominatorTrack(IAudioPlayer player, HashSet<string> names)
+        {
+            Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "A dominator within capacity must be routed.");
+            string name = player.AudioSource.outputAudioMixerGroup.name;
+            StringAssert.StartsWith(BroName.DominatorTrackName, name, "A dominator within capacity must hold a Dominator track.");
+            names.Add(name);
+        }
 
         private static List<AudioPlayerDecorator> GetDecorators(IAudioPlayer player)
             => TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(InstanceOf(player), "_decorators");

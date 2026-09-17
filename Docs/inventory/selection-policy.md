@@ -245,7 +245,7 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | Velocity mode selects by highest Weight threshold not exceeded | covered | `ClipSelectionTests.SelectClip_WithValueBelowEveryThreshold_*`, `_WithValueBetweenThresholds_*`, `_WithValueAboveEveryThreshold_*`, `_WithNonMonotonicWeights_*` |
 | Chained mode maps PlaybackStage to a fixed clip index | covered | `ClipSelectionTests.SelectClip_AtStartStage/AtLoopStage/AtEndStage/AtNoneStage_*`, `_WithTooFewClipsForStage_*` |
 | Localization mode selects the row matching the active locale | covered | `LocalizationClipStrategyTests` (behind `PACKAGE_LOCALIZATION`) |
-| ChangeClipPerLoop re-picks a clip on every loop iteration | deferred | No test sets `ChangeClipPerLoop`. `LoopHandoverTests` covers the seam itself but always with one clip. |
+| ChangeClipPerLoop re-picks a clip on every loop iteration | covered | `LoopHandoverTests.Loop_WithChangeClipPerLoopAndSequence_AdvancesClipAtEachSeam` |
 | RandomFlag.Volume / RandomFlag.Pitch apply ± half-range jitter | covered | `ClipSelectionTests.GetRandomValueStatic_*` and `GetRandomValue_*` |
 | MaxPlayableCountRule rejects Play at the limit | covered | `PlaybackGroupTests.Play_BeyondMaxPlayableCount_RejectsThenAcceptsAfterASlotFrees` |
 | The voice-limit count increments at enqueue, not at audible start | covered | `PlaybackGroupTests.Play_TwoPlaysInSameFrame_BothCountAgainstLimitBeforeEitherStartsPlaying` |

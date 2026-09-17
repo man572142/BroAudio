@@ -165,7 +165,7 @@ namespace Ami.BroAudio.Tests
         // _ignoreIfDistanceIsGreaterThan > 0 - even when the positioned play sits at the exact same origin,
         // i.e. not actually "far apart" at all.
         [UnityTest]
-        [Category("Finding-12")]
+        [Category("Finding_12")]
         public IEnumerator Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance()
         {
             DefaultPlaybackGroup group = NewGroup(combFilteringTime: 1f, ignoreDistanceGreaterThan: 5f);

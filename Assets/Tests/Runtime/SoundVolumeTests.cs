@@ -156,7 +156,7 @@ namespace Ami.BroAudio.Tests
         // Characterizes TEST_FINDINGS #36: the control case. Every entry in the settings array is applied on
         // enable, each to its own BroAudioType, which is what makes the defect pinned below legible.
         [UnityTest]
-        [Category("Finding-36")]
+        [Category("Finding_36")]
         public IEnumerator OnEnable_WithSeveralSettings_AppliesEveryOneOfThem()
         {
             SoundVolume.Setting music = NewSetting(BroAudioType.Music, 0.2f);
@@ -175,7 +175,7 @@ namespace Ami.BroAudio.Tests
         // same loop, so the first entry consumes the one allowed apply and every later entry is skipped - on
         // the very first enable, not just on re-enables. Characterized, not fixed.
         [UnityTest]
-        [Category("Finding-36")]
+        [Category("Finding_36")]
         public IEnumerator OnEnable_WithOnlyApplyOnceAndSeveralSettings_AppliesOnlyTheFirstEntry()
         {
             SoundVolume.Setting music = NewSetting(BroAudioType.Music, 0.2f);
@@ -210,7 +210,7 @@ namespace Ami.BroAudio.Tests
         // mixer parameter), while RecordOrigin/ResetToOrigin only ever walk the per-type preferences. So the
         // master volume is written on enable and never restored on disable.
         [UnityTest]
-        [Category("Finding-37")]
+        [Category("Finding_37")]
         public IEnumerator OnEnable_WithAllAudioType_WritesTheMasterVolumeThatResetOnDisableCannotRestore()
         {
             SoundVolume.Setting setting = NewSetting(BroAudioType.All, 0.3f);

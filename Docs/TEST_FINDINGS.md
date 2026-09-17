@@ -5,7 +5,7 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
 
-The tests that pin a finding carry `[Category("Finding-N")]`, so `-testCategory Finding-14` selects
+The tests that pin a finding carry `[Category("Finding_N")]`, so `-testCategory Finding_14` selects
 everything that pins #14, in either suite. A finding left deliberately unpinned says **Not pinned** in
 its own section, with the reason; `FindingCoverageTests` (EditMode) fails if a finding has neither, or
 if a test carries a category this file does not record.
@@ -51,6 +51,7 @@ if a test carries a category this file does not record.
 | 55 | Pitch | A per-type pitch **replaces** the entity's authored pitch instead of scaling it | Open, characterized |
 | 56 | Pitch | Master `SetPitch` writes every concrete type's pref, unlike master `SetVolume` | Open, characterized |
 | 57 | Volume / Fade | A timed per-type `SetVolume` ramps live players but stores the target instantly, so a sound started mid-fade begins at the end value | Open, characterized |
+| 58 | Looping / Stop | `Stop` with a fade on a looping sound goes silent at the current iteration's end, while the handle stays active for the rest of the fade | Open, characterized |
 
 ---
 
@@ -1185,3 +1186,20 @@ stays characterized.
 Status: **Open, characterized.** Pinned by
 `VolumeFadeTests.SetVolume_ByTypeWithFade_RampsLivePlayerOverDuration`, which asserts both halves in the frame
 of the call: the pref already at the target, the live player still exactly at its origin.
+
+## 58. `Stop` with a fade on a looping sound goes silent at the current iteration's end
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `StopControl`
+
+`StopControl` replaces `PlayControl` on the same coroutine slot, cancels `ScheduleNextPlayback` and discards
+the pre-spawned `_nextPlayer`. Nothing then hands the loop over at its next seam, and `AudioSource` itself
+never loops, so the voice ends when the iteration that was playing reaches its clip end. The clip-volume
+ramp keeps running over silence, and the handle reports `IsActive` until the fade completes. For a loop
+shorter than the fade, the requested fade-out is heard as a cut at the seam.
+
+One-shots are unaffected: their clip normally outlasts the fade. A fix has to keep the loop handing over
+(or let the last iteration extend) until the fade finishes, which is a behavior change, so it stays
+characterized.
+
+Status: **Open, characterized.** Pinned by
+`LoopHandoverTests.Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd`.

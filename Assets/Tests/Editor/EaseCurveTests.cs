@@ -146,7 +146,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InQuad, 1.5f, 2.25f)]
         [TestCase(Ease.Linear, -1f, -1f)]
         [TestCase(Ease.InQuad, -1f, 1f)]
-        [Category("Finding-53")]
+        [Category("Finding_53")]
         public void SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01(Ease ease, float t, float expected)
         {
             // Characterizes TEST_FINDINGS #53: SetEase opens with a bare
@@ -159,7 +159,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding-54")]
+        [Category("Finding_54")]
         public void SetEase_UndefinedEaseValue_FallsBackToZero()
         {
             // Characterizes TEST_FINDINGS #54: the `_ => 0` switch arm - an out-of-range cast (e.g. a
@@ -194,7 +194,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InOutQuint, 16)]
         [TestCase(Ease.InOutSine, 17)]
         [TestCase(Ease.InOutCirc, 18)]
-        [Category("Finding-54")]
+        [Category("Finding_54")]
         public void EaseMember_KeepsItsSerializedOrdinal(Ease ease, int expectedOrdinal)
         {
             Assert.That((int)ease, Is.EqualTo(expectedOrdinal),

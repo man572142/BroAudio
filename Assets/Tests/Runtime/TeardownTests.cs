@@ -185,7 +185,7 @@ namespace Ami.BroAudio.Tests
         // AreSilentNoOps above, SetEffect actually throws once the manager is destroyed. Characterizing
         // the actual behavior here; reported as a possible inconsistency (see the report for this task).
         [UnityTest]
-        [Category("Finding-48")]
+        [Category("Finding_48")]
         public IEnumerator SetEffect_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException()
         {
             DestroyManagerImmediate();
@@ -228,7 +228,7 @@ namespace Ami.BroAudio.Tests
         // stop throwing and start silently no-op'ing - this test's Assert.Throws would then fail, which is
         // exactly the signal a future fix (and an updated characterization here) would need.
         [UnityTest]
-        [Category("Finding-49")]
+        [Category("Finding_49")]
         public IEnumerator StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsThrowInsteadOfSilentlyNoOp()
         {
             SoundID id = NewSound("TeardownStaleHandleSfx", BroAudioType.SFX, NewClip(3f));

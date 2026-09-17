@@ -80,7 +80,7 @@ namespace Ami.BroAudio.Tests
         // takes no fadeTime, so the stored per-type volume jumps straight to the target while every live
         // player of that type is handed a fadeTime-long Fader ramp. Asserted in the frame of the call.
         [UnityTest]
-        [Category("Finding-57")]
+        [Category("Finding_57")]
         public IEnumerator SetVolume_ByTypeWithFade_RampsLivePlayerOverDuration()
         {
             yield return RequireRealtimeAudioClock();

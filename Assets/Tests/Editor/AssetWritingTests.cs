@@ -87,7 +87,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding-31")]
+        [Category("Finding_31")]
         public void CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime()
         {
             // Characterizes TEST_FINDINGS #31: the existence check is Resources.Load-based rather than
