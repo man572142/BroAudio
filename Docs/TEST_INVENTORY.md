@@ -19,7 +19,7 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | Tier | Status | Test files |
 |---|---|---|
 | 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
-| 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `PlaybackSmokeTests.cs` |
+| 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs` |
 | 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
 | 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |

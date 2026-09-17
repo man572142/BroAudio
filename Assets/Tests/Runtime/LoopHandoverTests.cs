@@ -80,39 +80,6 @@ namespace Ami.BroAudio.Tests
         /// </summary>
         private static float VolumeOf(AudioPlayer player) => ((IAudioPlayer)player).GetVolume();
 
-        // 2.2 - a looping entity never sets AudioSource.loop; instead a fresh player is handed over at (or
-        // near) the natural end of each iteration. This test confirms survival through
-        // BroAudio.HasAnyPlayingInstances; the handle's own continuity is the next test's subject.
-        [UnityTest]
-        public IEnumerator Play_WithPlainLoop_NeverSetsAudioSourceLoopAndSurvivesMultipleSeams()
-        {
-            const float ClipSeconds = 0.4f;
-            AudioEntity entity = NewEntity("PlainLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
-            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
-            SoundID id = IdOf(entity);
-
-            double? startDsp = null;
-            IAudioPlayer player = BroAudio.Play(id);
-            player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
-
-            yield return WaitForPlaybackStart(player);
-            yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
-
-            Assert.IsFalse(player.AudioSource.loop,
-                "characterizes: BroAudio implements looping via player handover, never via AudioSource.loop.");
-
-            double firstSeamDsp = startDsp.Value + ClipSeconds;
-            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= firstSeamDsp + 0.2,
-                "the dsp clock to pass the first loop seam", 5f);
-            Assert.IsTrue(BroAudio.HasAnyPlayingInstances(id),
-                "The looping sound must still be audible via a handed-over player after the first seam.");
-
-            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= firstSeamDsp + ClipSeconds + 0.2,
-                "the dsp clock to pass a second loop seam", 5f);
-            Assert.IsTrue(BroAudio.HasAnyPlayingInstances(id),
-                "The loop must survive a second seam too, not just the first.");
-        }
-
         // 2.2 (handle continuity) - the other half of the same handover: what the caller is left holding.
         // ScheduleNextPlayback bakes the outgoing player's _trackVolume.Target into
         // PlaybackHandoverData.TrackVolume and ReceiveHandover completes the
@@ -123,6 +90,9 @@ namespace Ami.BroAudio.Tests
         // at the real end. None of that is observable except through the handle the caller kept.
         // A plain loop rather than a seamless one on purpose: with no crossfade, _clipVolume sits completed
         // at its target the whole time, so GetVolume() reads back the track volume alone.
+        // Also covers 2.2's other half: a looping entity never sets AudioSource.loop, instead handing a
+        // fresh player over at (or near) the natural end of each iteration - checked on this same first
+        // player before the first handover, alongside the handle continuity this test is really about.
         [UnityTest]
         public IEnumerator Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams()
         {
@@ -141,6 +111,9 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitForPlaybackStart(player);
             yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", 2f);
+
+            Assert.IsFalse(player.AudioSource.loop,
+                "characterizes: BroAudio implements looping via player handover, never via AudioSource.loop.");
 
             // Both are registered on the first player, well before the first seam. GetVolume() is
             // _clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current;
