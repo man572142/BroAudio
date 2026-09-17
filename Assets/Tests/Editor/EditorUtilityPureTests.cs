@@ -69,9 +69,10 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-24")]
         public void Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
-            // Characterized quirk: naked "+ "/" +" concatenation does not strip a trailing slash.
+            // Characterizes TEST_FINDINGS #24: naked "+ "/" +" concatenation does not strip a trailing slash.
             Assert.AreEqual("a//b/c", BroEditorUtility.Combine("a/", "b", "c"));
         }
 
@@ -82,9 +83,10 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-24")]
         public void Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
-            // Same quirk as the 3-arg form, characterized rather than fixed.
+            // Characterizes TEST_FINDINGS #24: the same quirk as the 3-arg form, characterized rather than fixed.
             Assert.AreEqual("a//b", BroEditorUtility.Combine("a/", "b"));
         }
 

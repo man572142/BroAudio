@@ -159,11 +159,13 @@ namespace Ami.BroAudio.Tests
                 "Two positioned plays farther apart than _ignoreIfDistanceIsGreaterThan are exempt from comb-filtering even inside the time window.");
         }
 
-        // 3.3 - positional asymmetry, part 2: a global (2D) play has no position to compare against a positioned
-        // one. characterizes: DefaultPlaybackGroup skips the distance check entirely for a global/positioned
-        // mix and instead exempts the pair purely because _ignoreIfDistanceIsGreaterThan > 0 - even when the
-        // positioned play sits at the exact same origin, i.e. not actually "far apart" at all.
+        // Characterizes TEST_FINDINGS #12: 3.3 - positional asymmetry, part 2. A global (2D) play has no
+        // position to compare against a positioned one, so DefaultPlaybackGroup skips the distance check
+        // entirely for a global/positioned mix and instead exempts the pair purely because
+        // _ignoreIfDistanceIsGreaterThan > 0 - even when the positioned play sits at the exact same origin,
+        // i.e. not actually "far apart" at all.
         [UnityTest]
+        [Category("Finding-12")]
         public IEnumerator Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance()
         {
             DefaultPlaybackGroup group = NewGroup(combFilteringTime: 1f, ignoreDistanceGreaterThan: 5f);

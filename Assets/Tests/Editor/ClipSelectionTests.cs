@@ -240,14 +240,15 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding-10")]
         public void SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip()
         {
-            // characterizes: in the fallback scan, the loop keeps advancing `index` while probing for an
-            // unused clip, then returns `result` — the clip found at the *earlier* index. So `clips[index]`
-            // is not necessarily the clip that was returned. Same class of defect as
+            // Characterizes TEST_FINDINGS #10: in the fallback scan, the loop keeps advancing `index` while
+            // probing for an unused clip, then returns `result` — the clip found at the *earlier* index. So
+            // `clips[index]` is not necessarily the clip that was returned. Same class of defect as
             // SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero in VelocityClipStrategy.
-            // See Docs/TEST_FINDINGS.md #10. Only the out-index overload is affected, and its only consumers
-            // are Editor preview/inspector code, so runtime playback picks the right clip regardless.
+            // Only the out-index overload is affected, and its only consumers are Editor preview/inspector
+            // code, so runtime playback picks the right clip regardless.
             BroAudioClip[] clips = NewSetClips(4);
             var strategy = new ShuffleClipStrategy();
 
@@ -280,10 +281,11 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding-9")]
         public void SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent()
         {
-            // characterizes: MulticlipsPlayMode.Shuffle's doc comment promises "not repeating with
-            // the previous one", but ShuffleClipStrategy.Use() only ever rejects a pick that equals
+            // Characterizes TEST_FINDINGS #9: MulticlipsPlayMode.Shuffle's doc comment promises "not repeating
+            // with the previous one", but ShuffleClipStrategy.Use() only ever rejects a pick that equals
             // `_lastUsed`, and `_lastUsed` is only refreshed when the pool is exhausted (or via the
             // fallback scan) — never after an ordinary in-cycle hit. So a direct Random.Range hit
             // mid-cycle is never checked against the clip just returned, and two consecutive calls
@@ -385,9 +387,10 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding-10")]
         public void SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero()
         {
-            // characterizes: when Value exceeds every threshold, the loop falls through to
+            // Characterizes TEST_FINDINGS #10: when Value exceeds every threshold, the loop falls through to
             // `return clips[clips.Length - 1]` without ever reassigning `index` — the out
             // parameter stays at its initial 0 even though the returned clip is actually the last
             // one. Callers that trust `index` here would disagree with the returned clip.

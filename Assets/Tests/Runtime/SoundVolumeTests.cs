@@ -153,9 +153,10 @@ namespace Ami.BroAudio.Tests
                 "Only Apply Once must suppress every OnEnable after the first - the volume must stay at what it was set to afterward, not snap back to 0.4.");
         }
 
-        // Every entry in the settings array is applied on enable, each to its own BroAudioType. This is the
-        // control case for the Only Apply Once defect pinned below.
+        // Characterizes TEST_FINDINGS #36: the control case. Every entry in the settings array is applied on
+        // enable, each to its own BroAudioType, which is what makes the defect pinned below legible.
         [UnityTest]
+        [Category("Finding-36")]
         public IEnumerator OnEnable_WithSeveralSettings_AppliesEveryOneOfThem()
         {
             SoundVolume.Setting music = NewSetting(BroAudioType.Music, 0.2f);
@@ -170,10 +171,11 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(0.4f, SystemVolumeOf(BroAudioType.UI), LinearTolerance, "The third setting must be applied.");
         }
 
-        // TEST_FINDINGS #36. _hasApplyOnce is set *inside* the per-setting loop but gates that same loop, so
-        // the first entry consumes the one allowed apply and every later entry is skipped - on the very
-        // first enable, not just on re-enables. Characterized, not fixed.
+        // Characterizes TEST_FINDINGS #36: _hasApplyOnce is set *inside* the per-setting loop but gates that
+        // same loop, so the first entry consumes the one allowed apply and every later entry is skipped - on
+        // the very first enable, not just on re-enables. Characterized, not fixed.
         [UnityTest]
+        [Category("Finding-36")]
         public IEnumerator OnEnable_WithOnlyApplyOnceAndSeveralSettings_AppliesOnlyTheFirstEntry()
         {
             SoundVolume.Setting music = NewSetting(BroAudioType.Music, 0.2f);
@@ -203,11 +205,12 @@ namespace Ami.BroAudio.Tests
                 "SFX is not in the flag and must be left alone.");
         }
 
-        // TEST_FINDINGS #37. BroAudioType.All is a legal inspector choice, but the two halves of the
-        // component read it differently: ApplyVolumeToSystem lands on SoundManager.SetMasterVolume (a mixer
-        // parameter), while RecordOrigin/ResetToOrigin only ever walk the per-type preferences. So the
+        // Characterizes TEST_FINDINGS #37: BroAudioType.All is a legal inspector choice, but the two halves
+        // of the component read it differently: ApplyVolumeToSystem lands on SoundManager.SetMasterVolume (a
+        // mixer parameter), while RecordOrigin/ResetToOrigin only ever walk the per-type preferences. So the
         // master volume is written on enable and never restored on disable.
         [UnityTest]
+        [Category("Finding-37")]
         public IEnumerator OnEnable_WithAllAudioType_WritesTheMasterVolumeThatResetOnDisableCannotRestore()
         {
             SoundVolume.Setting setting = NewSetting(BroAudioType.All, 0.3f);

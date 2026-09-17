@@ -49,11 +49,13 @@ namespace Ami.BroAudio.Tests
         private const float BoundaryTolerance = 0.0001f;
 
         [UnityTest]
+        [Category("Finding-55")]
         public IEnumerator Play_WithAuthoredEntityPitch_ReachesAudioSourceAndIsReplacedNotScaledByTypePitch()
         {
-            // 1.5 and 0.5 are chosen so the three outcomes are three different numbers: "entity pitch wins"
-            // reads 1.5, "type pitch wins" (what the code does) reads 0.5, and "the two multiply" would read
-            // 0.75. All three are further apart than LinearTolerance, so no two can be confused.
+            // Characterizes TEST_FINDINGS #55: 1.5 and 0.5 are chosen so the three outcomes are three
+            // different numbers - "entity pitch wins" reads 1.5, "type pitch wins" (what the code does) reads
+            // 0.5, and "the two multiply" would read 0.75. All three are further apart than LinearTolerance,
+            // so no two can be confused.
             const float EntityPitch = 1.5f;
             const float TypePitch = 0.5f;
             const float MultipliedPitch = EntityPitch * TypePitch; // 0.75 - the value a "make it compose" refactor would produce
@@ -94,7 +96,7 @@ namespace Ami.BroAudio.Tests
                 IAudioPlayer typePitchPlayer = BroAudio.Play(id);
                 yield return WaitForPlaybackStart(typePitchPlayer, "the per-type-pitch playback to start");
 
-                // characterizes: the per-type pitch REPLACES the authored entity pitch. Docs/TEST_FINDINGS.md.
+                // The pinned half of TEST_FINDINGS #55: the per-type pitch REPLACES the authored entity pitch.
                 // Would this pass if GetBasePitch multiplied the two instead? No - it would read 0.75.
                 // Would it pass if GetBasePitch ignored the per-type pitch? No - it would read 1.5.
                 Assert.AreEqual(TypePitch, typePitchPlayer.AudioSource.pitch, LinearTolerance,
@@ -225,13 +227,15 @@ namespace Ami.BroAudio.Tests
                 "its own random value; a constant reading means the randomization never ran or its range collapsed.");
         }
 
-        // SetVolume and SetPitch part company on BroAudioType.All: SoundManager.SetVolume(vol, All, fade)
-        // short-circuits into SetMasterVolume and never touches a per-type pref (pinned by
+        // Characterizes TEST_FINDINGS #56: SetVolume and SetPitch part company on BroAudioType.All.
+        // SoundManager.SetVolume(vol, All, fade) short-circuits into SetMasterVolume and never touches a
+        // per-type pref (pinned by
         // VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct), while
         // SoundManager.SetPitch has no such branch - it runs SetPlaybackPrefByType over every concrete type.
         // So "master pitch" is really "every type's pitch at once", and it reaches a later play through
         // exactly the GetBasePitch branch the first test above characterizes. Nothing covered that path.
         [UnityTest]
+        [Category("Finding-56")]
         public IEnumerator SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers()
         {
             const float MasterPitch = 0.5f;

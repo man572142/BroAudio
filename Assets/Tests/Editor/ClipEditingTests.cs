@@ -56,6 +56,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region GetResultClip
         [Test]
+        [Category("Finding-29")]
         public void GetResultClip_NoEdit_ReturnsOriginalInstance()
         {
             AudioClip clip = Track(TestAudioLibrary.CreateClip(0.1f, "Untouched"));
@@ -63,7 +64,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             AudioClip result = helper.GetResultClip();
 
-            // Characterized: an unedited helper hands back the SAME instance, not a copy.
+            // Characterizes TEST_FINDINGS #29: an unedited helper hands back the SAME instance, not a copy.
             Assert.AreSame(clip, result);
         }
 
@@ -134,9 +135,10 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region AddSlient
         [Test]
+        [Category("Finding-27")]
         public void AddSlient_PrependsSilenceAndShiftsOriginalDataToTail()
         {
-            // Characterized: despite the name giving no indication, the silence goes at the FRONT.
+            // Characterizes TEST_FINDINGS #27: despite the name giving no indication, the silence goes at the FRONT.
             AudioClip clip = CreateRampClip("Ramp4", 4, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -148,9 +150,10 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         [Test]
+        [Category("Finding-27")]
         public void AddSlient_PadLengthTruncatesInsteadOfRounding()
         {
-            // Characterized (TEST_FINDINGS #27, second half): AddSlient sizes the pad with a plain (int)
+            // Characterizes TEST_FINDINGS #27: second half - AddSlient sizes the pad with a plain (int)
             // cast, while FadeIn/FadeOut/GetDataSample all use Math.Round(..., AwayFromZero). This time
             // computes to 3.9999 samples, so the cast yields 3 where every other path would yield 4.
             AudioClip clip = CreateRampClip("Ramp4Trunc", 4, 1);
@@ -195,9 +198,10 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-26")]
         public void Reverse_Stereo_ReversesRawArraySoChannelsAreTransposed()
         {
-            // Characterized bug: Reverse() flips the raw interleaved array with no channel awareness.
+            // Characterizes TEST_FINDINGS #26: Reverse() flips the raw interleaved array with no channel awareness.
             // On a stereo clip this doesn't just time-reverse - it also SWAPS L and R, because index 0
             // (a left slot) ends up holding what was the last RIGHT sample.
             AudioClip clip = CreateRampClip("Ramp3Stereo", 3, 2);
@@ -266,9 +270,10 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region ConvertToMono
         [Test]
+        [Category("Finding-25")]
         public void ConvertToMono_Downmixing_OffsetsGroupingAndDropsFinalGroup()
         {
-            // Characterized bug: the running sum is only flushed when the NEXT group's boundary is
+            // Characterizes TEST_FINDINGS #25: the running sum is only flushed when the NEXT group's boundary is
             // reached, so the final group of the clip never gets flushed - output length is
             // (totalSamples / channels) - 1, not totalSamples / channels, and the last group is lost.
             AudioClip clip = CreateRampClip("Ramp3Stereo", 3, 2); // interleaved: 0, 1/3, 2/3, 1, 4/3, 5/3
