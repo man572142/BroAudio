@@ -87,9 +87,10 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-31")]
         public void CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime()
         {
-            // Characterized, not fixed. The existence check is Resources.Load-based rather than
+            // Characterizes TEST_FINDINGS #31: the existence check is Resources.Load-based rather than
             // AssetDatabase-based, so outside a Resources folder the guard never fires and the asset is
             // silently overwritten. Every production caller passes a Resources path, so this stays latent.
             string path = EnsureTempFolder() + "/BroTestNotInResources.asset";

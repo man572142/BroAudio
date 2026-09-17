@@ -237,7 +237,7 @@ namespace Ami.BroAudio.Tests
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
 
             // characterizes: this is NOT silent. AudioExtension.IsValidFrequency itself calls Debug.LogError
-            // (with the standard Utility.LogTitle prefix, per TEST_FINDINGS #15) before
+            // (with the standard Utility.LogTitle prefix, per Docs/FIXED_ISSUES.md #15) before
             // DominatorPlayer.LowPassOthers even reaches SetAllEffectExceptDominator.
             LogAssert.Expect(LogType.Error, new Regex("frequency should be in"));
             dominator.LowPassOthers(0f, 0f);
@@ -253,13 +253,15 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(2);
         }
 
-        // AudioPlayer.SetupAudioTrack is the only place TrackType becomes
-        // Dominator, and it reads IsDominator - i.e. whether a DominatorPlayer decorator is already attached -
-        // at play time, when SoundManager.LateUpdate drains the queue. AsDominator() must therefore be chained
-        // in the same frame as Play() to reach the dominator track at all. Every other dominator test in this
-        // file decorates *after* WaitForPlaybackStart, so none of them exercises this routing; see
-        // Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack below for what those tests actually run.
+        // Characterizes TEST_FINDINGS #42: the correct-routing half. AudioPlayer.SetupAudioTrack is the only
+        // place TrackType becomes Dominator, and it reads IsDominator - i.e. whether a DominatorPlayer
+        // decorator is already attached - at play time, when SoundManager.LateUpdate drains the queue.
+        // AsDominator() must therefore be chained in the same frame as Play() to reach the dominator track at
+        // all. Every other dominator test in this file decorates *after* WaitForPlaybackStart, so none of
+        // them exercises this routing; see Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack
+        // below for what those tests actually run.
         [UnityTest]
+        [Category("Finding-42")]
         public IEnumerator Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack()
         {
             const float othersVolume = 0.2f;
@@ -313,13 +315,14 @@ namespace Ami.BroAudio.Tests
             }, "Main to return to full volume once the dominator stops", 3f);
         }
 
-        // characterizes: AsDominator() after playback has started attaches the decorator but cannot move the
-        // player - SetupAudioTrack already ran and already took a generic track from the pool. The player stays
-        // under Main, which means it filters and ducks *itself* along with everything else. This is the
-        // configuration LowPassOthers_MovesDominatorLowPassParameter_* and its HighPass twin above actually run:
-        // they pass in both configurations because they only watch the Main_LowPass/Main_HighPass parameter move,
-        // which is true either way. See Docs/TEST_FINDINGS.md #42.
+        // Characterizes TEST_FINDINGS #42: AsDominator() after playback has started attaches the decorator but
+        // cannot move the player - SetupAudioTrack already ran and already took a generic track from the pool.
+        // The player stays under Main, which means it filters and ducks *itself* along with everything else.
+        // This is the configuration LowPassOthers_MovesDominatorLowPassParameter_* and its HighPass twin above
+        // actually run: they pass in both configurations because they only watch the Main_LowPass/Main_HighPass
+        // parameter move, which is true either way.
         [UnityTest]
+        [Category("Finding-42")]
         public IEnumerator Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack()
         {
             SoundID lateId = NewSound("LateDominatorSfx", BroAudioType.SFX, NewClip(3f));
@@ -337,10 +340,11 @@ namespace Ami.BroAudio.Tests
                 "consulted by SetupAudioTrack, which has already run. Nothing re-routes it.");
         }
 
-        // 3.6 x 2.2 - a dominator that loops. characterizes: decorators reach the incoming player at
-        // BeginHandover, after its SetupAudioTrack already took a generic track, so ducking persists across
-        // the seam but the dominator ducks itself. Mechanism in Docs/TEST_FINDINGS.md #44.
+        // Characterizes TEST_FINDINGS #44: 3.6 x 2.2 - a dominator that loops. Decorators reach the incoming
+        // player at BeginHandover, after its SetupAudioTrack already took a generic track, so ducking persists
+        // across the seam but the dominator ducks itself.
         [UnityTest]
+        [Category("Finding-44")]
         public IEnumerator Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack()
         {
             yield return RequireRealtimeAudioClock();
@@ -447,6 +451,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
+        [Category("Finding-13")]
         public IEnumerator HasLoop_TwoArgOverload_TracksDefaultChainedPlayModeLoopSetting()
         {
             // Runtime-only gap: ClipSelectionTests.cs (EditMode) covers the 4-arg HasLoop overload with
@@ -468,8 +473,8 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(hasLoopWhenOff, "With the default turned off and no explicit flag, a Chained entity has no loop at all.");
             Assert.AreEqual(LoopType.None, loopTypeOff);
 
-            // characterizes: HasLoop's Chained branch writes transitionTime *before* deciding the return
-            // value, so a false return still hands back the configured transition time rather than 0.
+            // Characterizes TEST_FINDINGS #13: HasLoop's Chained branch writes transitionTime *before* deciding
+            // the return value, so a false return still hands back the configured transition time rather than 0.
             // Callers must not read the out parameter unless the method returned true.
             Assert.AreEqual(1.5f, transitionTimeOff,
                 "The out parameter is populated even though HasLoop returned false.");

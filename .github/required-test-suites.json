@@ -13,6 +13,7 @@
       "ClipSelectionTests",
       "EaseCurveTests",
       "EditorUtilityPureTests",
+      "FindingCoverageTests",
       "IsolationContractTests",
       "IssueReportMarkdownTests",
       "LocalizationClipStrategyTests",

@@ -146,9 +146,10 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InQuad, 1.5f, 2.25f)]
         [TestCase(Ease.Linear, -1f, -1f)]
         [TestCase(Ease.InQuad, -1f, 1f)]
+        [Category("Finding-53")]
         public void SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01(Ease ease, float t, float expected)
         {
-            // characterizes TEST_FINDINGS #53: SetEase opens with a bare
+            // Characterizes TEST_FINDINGS #53: SetEase opens with a bare
             // `Mathf.Clamp01(value);` whose return value is discarded - Mathf.Clamp01 is pure, so the clamp
             // does nothing and out-of-range t flows straight into the curve. t > 1 therefore overshoots the
             // target volume and a negative t can come back POSITIVE through the even powers (-1 -> 1).
@@ -158,9 +159,10 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding-54")]
         public void SetEase_UndefinedEaseValue_FallsBackToZero()
         {
-            // characterizes TEST_FINDINGS #54, the `_ => 0` switch arm: an out-of-range cast (e.g. a
+            // Characterizes TEST_FINDINGS #54: the `_ => 0` switch arm - an out-of-range cast (e.g. a
             // saved ordinal from a newer build) silently yields 0 for the whole fade rather than
             // throwing, which pins the volume at the fade's origin for its entire duration.
             Assert.That(Half.SetEase((Ease)9999), Is.EqualTo(0f).Within(Tolerance));
@@ -170,6 +172,9 @@ namespace Ami.BroAudio.Tests
 
         #region Enum ordinals
 
+        // Characterizes TEST_FINDINGS #54: the exposure half - Ease carries no explicit values and Unity
+        // serializes it BY ORDINAL, which is how a saved asset hands SetEase an undefined member and
+        // reaches the `_ => 0` arm at all. Pinning the ordinals keeps that route closed.
         [TestCase(Ease.Linear, 0)]
         [TestCase(Ease.InQuad, 1)]
         [TestCase(Ease.InCubic, 2)]
@@ -189,6 +194,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InOutQuint, 16)]
         [TestCase(Ease.InOutSine, 17)]
         [TestCase(Ease.InOutCirc, 18)]
+        [Category("Finding-54")]
         public void EaseMember_KeepsItsSerializedOrdinal(Ease ease, int expectedOrdinal)
         {
             Assert.That((int)ease, Is.EqualTo(expectedOrdinal),

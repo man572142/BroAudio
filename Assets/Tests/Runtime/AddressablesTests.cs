@@ -169,9 +169,10 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
+        [Category("Finding-14")]
         public IEnumerator CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds()
         {
-            // TEST_FINDINGS #14, both halves, pinned in one pass of the routine.
+            // Characterizes TEST_FINDINGS #14: both halves, pinned in one pass of the routine.
             //
             // (a) Nothing in production ever registers an entity with the cleanup routine.
             //     UpdateLoadedEntityLastPlayedTime is guarded by `if (_loadedEntityLastPlayedTime.ContainsKey(id))`,

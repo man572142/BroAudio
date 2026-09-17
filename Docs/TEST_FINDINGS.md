@@ -4,6 +4,11 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 
 Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
+
+The tests that pin a finding carry `[Category("Finding-N")]`, so `-testCategory Finding-14` selects
+everything that pins #14, in either suite. A finding left deliberately unpinned says **Not pinned** in
+its own section, with the reason; `FindingCoverageTests` (EditMode) fails if a finding has neither, or
+if a test carries a category this file does not record.
 | # | Area | Finding | Status |
 |---|---|---|---|
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
@@ -1066,8 +1071,9 @@ fade resumes against the caller's wishes as soon as the game unpauses.
 Status: **Open, characterized by its consequence rather than by a dedicated test.** Found when
 `UpdateModeClockTests` left a deliberately frozen master fade behind and it turned
 `VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct` red one fixture
-later (CI run 20). `UpdateModeClockTests.RestoreTimeScaleAndDrainTheMasterFade` now drains the fade rather
-than relying on the reset, so the suite no longer depends on the broken cancellation. A fix would stop the
+later (CI run 20). `BroAudioTestFixture.DrainMasterVolumeFade` now drains the fade in teardown rather
+than relying on the reset, so the suite no longer depends on the broken cancellation. Not pinned: this is
+recorded from that consequence, and no test asserts the failed cancellation itself. A fix would stop the
 stored coroutine on both the zero-fade branch and the early return.
 
 ## 53. `SetEase` discards `Mathf.Clamp01`'s return value

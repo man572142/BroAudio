@@ -255,13 +255,14 @@ namespace Ami.BroAudio.Tests
             yield return WaitForRecycle(player, "the override fade-out to finish and recycle the player", fadeOut + 1f);
         }
 
-        // characterizes: Stop On Disable is skipped entirely when the object is disabled in the same frame it
-        // was enabled. OnDisable's guard is CurrentPlayer.IsPlaying, but Play has only *enqueued* by then -
-        // SoundManager.LateUpdate has not run, so AudioSource.isPlaying is still false and the queued voice
-        // is never stopped. It starts on the next LateUpdate and plays out in full, detached from any
-        // SoundSource that could stop it. Reachable from object pooling (spawn then immediately despawn).
-        // See Docs/TEST_FINDINGS.md #35.
+        // Characterizes TEST_FINDINGS #35: Stop On Disable is skipped entirely when the object is disabled in
+        // the same frame it was enabled. OnDisable's guard is CurrentPlayer.IsPlaying, but Play has only
+        // *enqueued* by then - SoundManager.LateUpdate has not run, so AudioSource.isPlaying is still false
+        // and the queued voice is never stopped. It starts on the next LateUpdate and plays out in full,
+        // detached from any SoundSource that could stop it. Reachable from object pooling (spawn then
+        // immediately despawn).
         [UnityTest]
+        [Category("Finding-35")]
         public IEnumerator OnDisable_InTheSameFrameAsOnEnable_LeavesTheQueuedVoicePlaying()
         {
             SoundID id = NewSound("SameFrameDisableSfx", BroAudioType.SFX, NewClip(2f));

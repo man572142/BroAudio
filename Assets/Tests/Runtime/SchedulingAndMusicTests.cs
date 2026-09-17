@@ -357,11 +357,12 @@ namespace Ami.BroAudio.Tests
 
         // 2.8 - BroAudio.OnBGMChanged fires exactly once per actual CurrentBGMPlayer change.
         [UnityTest]
+        [Category("Finding-11")]
         public IEnumerator OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer()
         {
-            // characterizes: replacing a BGM raises OnBGMChanged *twice*, and both in the same frame —
-            // first with null as the outgoing player clears itself in Recycle(), then with the incoming
-            // player. A subscriber that dereferences the argument without a null check will throw.
+            // Characterizes TEST_FINDINGS #11: replacing a BGM raises OnBGMChanged *twice*, and both in the
+            // same frame — first with null as the outgoing player clears itself in Recycle(), then with the
+            // incoming player. A subscriber that dereferences the argument without a null check will throw.
             // Poll for the meaningful arrival rather than an exact count: an == comparison on the count
             // is never satisfiable, because it skips straight past 2 within a single frame.
             List<IAudioPlayer> received = new List<IAudioPlayer>();

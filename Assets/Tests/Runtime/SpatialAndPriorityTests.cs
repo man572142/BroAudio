@@ -105,11 +105,12 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Recycle: what actually resets, and what does not
-        // The valuable test in this file. Plays a fully-configured 3D sound, recycles it, then plays a plain
-        // 2D sound on the same pooled AudioSource - the exact "pooled player keeps a previous sound's 3D
-        // attenuation and serves a 2D UI click" scenario from the task. Whatever the reused source carries is
-        // pinned as-is, including the part that looks like a bug.
+        // Characterizes TEST_FINDINGS #46: the valuable test in this file. Plays a fully-configured 3D sound,
+        // recycles it, then plays a plain 2D sound on the same pooled AudioSource - the exact "pooled player
+        // keeps a previous sound's 3D attenuation and serves a 2D UI click" scenario from the task. Whatever
+        // the reused source carries is pinned as-is, including the part that looks like a bug.
         [UnityTest]
+        [Category("Finding-46")]
         public IEnumerator Recycle_AfterA3DSound_ResetsScalarSpatialStateButLeavesTheCustomRolloffCurveBehind()
         {
             SpatialSetting setting3D = Track(ScriptableObject.CreateInstance<SpatialSetting>());
@@ -169,14 +170,14 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(AudioConstant.DefaultRolloffMode, sourceB.rolloffMode, "rolloffMode should have been reset by ResetSpatial.");
             Assert.AreEqual(AudioConstant.SpatialBlend_2D, sourceB.spatialBlend, FloatTolerance, "spatialBlend should have been reset by ResetSpatial (entityB was also played without a position).");
 
-            // The actual finding. ResetSpatial resets AudioSource.rolloffMode away from Custom (asserted
-            // above as passing), but it never calls SetCustomCurve(CustomRolloff, ...) to clear the curve
-            // DATA underneath, and there is no scalar shortcut for it: Utility.SetCustomCurveOrResetDefault
-            // explicitly refuses to touch AudioSourceCurveType.CustomRolloff and says to
-            // use RolloffMode to detect "is default" instead. So entityA's raw CustomRolloff keyframes are
-            // still sitting on the AudioSource entityB now plays through - inert only because rolloffMode
-            // itself no longer reads Custom. This pins the actual (leaky) behavior, not the intended one;
-            // see Docs/TEST_FINDINGS.md #46.
+            // The actual finding, TEST_FINDINGS #46. ResetSpatial resets AudioSource.rolloffMode away from
+            // Custom (asserted above as passing), but it never calls SetCustomCurve(CustomRolloff, ...) to
+            // clear the curve DATA underneath, and there is no scalar shortcut for it:
+            // Utility.SetCustomCurveOrResetDefault explicitly refuses to touch
+            // AudioSourceCurveType.CustomRolloff and says to use RolloffMode to detect "is default" instead. So
+            // entityA's raw CustomRolloff keyframes are still sitting on the AudioSource entityB now plays
+            // through - inert only because rolloffMode itself no longer reads Custom. This pins the actual
+            // (leaky) behavior, not the intended one.
             AssertCurveEquals(setting3D.CustomRolloff, sourceB.GetCustomCurve(AudioSourceCurveType.CustomRolloff),
                 "characterizes a defect: CustomRolloff curve DATA survives recycling untouched even though rolloffMode itself was correctly reset - see AudioPlayer.ResetSpatial().");
         }

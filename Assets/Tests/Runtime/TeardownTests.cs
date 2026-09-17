@@ -177,7 +177,7 @@ namespace Ami.BroAudio.Tests
         }
 
 #if !UNITY_WEBGL
-        // Finding, not part of the task's original item list: BroAudio.SetEffect (guarded by
+        // Characterizes TEST_FINDINGS #48: BroAudio.SetEffect (guarded by
         // #if !UNITY_WEBGL) is grouped with Stop/Pause/SetVolume/SetPitch as a "release verb" by
         // CLAUDE.md's teardown note, but the source does not treat it that way - both overloads read
         // `SoundManager.Instance.SetEffect(...)` directly, the same throwing accessor Play uses, not
@@ -185,6 +185,7 @@ namespace Ami.BroAudio.Tests
         // AreSilentNoOps above, SetEffect actually throws once the manager is destroyed. Characterizing
         // the actual behavior here; reported as a possible inconsistency (see the report for this task).
         [UnityTest]
+        [Category("Finding-48")]
         public IEnumerator SetEffect_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException()
         {
             DestroyManagerImmediate();
@@ -196,7 +197,7 @@ namespace Ami.BroAudio.Tests
         }
 #endif
 
-        // Item 3, and the most consequential finding in this file. The task's premise was that a release
+        // Characterizes TEST_FINDINGS #49: the most consequential finding in this file. The task's premise was that a release
         // verb called on an IAudioPlayer handle held from before the manager died would mirror the
         // facade's no-op contract (PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal already
         // pins that shape for a merely-*recycled* handle, with SoundManager still alive). That is NOT what
@@ -227,6 +228,7 @@ namespace Ami.BroAudio.Tests
         // stop throwing and start silently no-op'ing - this test's Assert.Throws would then fail, which is
         // exactly the signal a future fix (and an updated characterization here) would need.
         [UnityTest]
+        [Category("Finding-49")]
         public IEnumerator StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsThrowInsteadOfSilentlyNoOp()
         {
             SoundID id = NewSound("TeardownStaleHandleSfx", BroAudioType.SFX, NewClip(3f));

@@ -141,9 +141,10 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-32")]
         public void HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero()
         {
-            // Characterized, and logged as TEST_FINDINGS #32: Start and End are both untouched (0), yet a
+            // Characterizes TEST_FINDINGS #32: Start and End are both untouched (0), yet a
             // positive Delay alone flips HasDifferentPosition to true via the "Delay > StartPosition" term
             // (0 > 0 is false, but any positive Delay clears that bar). Whether a delay alone should count
             // as a different *position* is the open question; this test pins today's answer.
@@ -184,6 +185,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region EditorScriptingExtension.SplitRectHorizontal / SplitRectVertical — params float[] ratios form
         [Test]
+        [Category("Finding-21")]
         public void SplitRectHorizontal_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
             var origin = new Rect(0f, 0f, 120f, 40f);
@@ -196,7 +198,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(new Rect(30f, 0f, 27f, 40f), rects[1]);
             Assert.AreEqual(new Rect(63f, 0f, 54f, 40f), rects[2]);
 
-            // characterizes TEST_FINDINGS #21: with 3 segments the accounting falls short of origin.xMax by half
+            // Characterizes TEST_FINDINGS #21: with 3 segments the accounting falls short of origin.xMax by half
             // a gap (117 vs 120) — unlike the dedicated 2-way ratio overload above, this form does not land
             // exactly on the origin's far edge except at specific segment counts (N=4 lands exactly; N=2 and
             // N=3 fall short; N>=5 would overshoot past origin.xMax by this same formula).
@@ -204,10 +206,12 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-21")]
         public void SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload()
         {
-            // Same origin/gap/50-50 split as SplitRectHorizontal_RatioForm_..., but through the
-            // params-ratios overload instead of the dedicated (out, out) 2-way overload.
+            // Characterizes TEST_FINDINGS #21: the same origin/gap/50-50 split as
+            // SplitRectHorizontal_RatioForm_..., but through the params-ratios overload instead of the
+            // dedicated (out, out) 2-way overload.
             var origin = new Rect(0f, 0f, 120f, 40f);
             var rects = new Rect[2];
 
@@ -242,8 +246,12 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-21")]
         public void SplitRectVertical_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
+            // Characterizes TEST_FINDINGS #21: the vertical twin of the horizontal three-way split above -
+            // the same per-segment offset rule, so the last segment's yMax lands on 117 (63 + 54) rather
+            // than the origin's 120.
             var origin = new Rect(0f, 0f, 40f, 120f);
             var rects = new Rect[3];
 
@@ -267,9 +275,10 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-22")]
         public void SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal()
         {
-            // characterizes TEST_FINDINGS #22: unlike SplitRectHorizontal's params-ratios overload, this one does
+            // Characterizes TEST_FINDINGS #22: unlike SplitRectHorizontal's params-ratios overload, this one does
             // `resultRects ??= new Rect[ratios.Length]` instead of logging+returning on null. That
             // reassignment is local to the method (arrays pass by reference-value, no `ref` here), so
             // the caller's own null reference is completely unaffected — the call computes into a
@@ -342,11 +351,13 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        [Category("Finding-23")]
         public void GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst()
         {
-            // characterizes TEST_FINDINGS #23: the implementation does propertyName.Replace(firstChar, lowerFirstChar) — a
-            // global string.Replace(char,char) — not a single-position substitution. Any later
-            // occurrence of the same uppercase leading letter elsewhere in the name is lowercased too.
+            // Characterizes TEST_FINDINGS #23: the implementation does
+            // propertyName.Replace(firstChar, lowerFirstChar) — a global string.Replace(char,char) — not a
+            // single-position substitution. Any later occurrence of the same uppercase leading letter
+            // elsewhere in the name is lowercased too.
             Assert.AreEqual("_foof", EditorScriptingExtension.GetFieldName("FooF"));
         }
 

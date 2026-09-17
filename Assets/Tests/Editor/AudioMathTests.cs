@@ -265,12 +265,14 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding-8")]
         public void IsDefault_LowPass_ParameterlessConstructor_IsNotDefault()
         {
-            // characterizes: the parameterless ctor seeds LowPass with BroAdvice.LowPassFrequency (300Hz, a
-            // "recommended starting point"), but IsDefault() compares against AudioConstant.MaxFrequency
-            // (22000Hz, "no filtering" / neutral). Those are two different constants, so a freshly-constructed
-            // `new Effect(EffectType.LowPass)` reads as NOT default. Likely surprising — reported as a finding.
+            // Characterizes TEST_FINDINGS #8: the parameterless ctor seeds LowPass with
+            // BroAdvice.LowPassFrequency (300Hz, a "recommended starting point"), but IsDefault() compares
+            // against AudioConstant.MaxFrequency (22000Hz, "no filtering" / neutral). Those are two different
+            // constants, so a freshly-constructed `new Effect(EffectType.LowPass)` reads as NOT default.
+            // Likely surprising.
             Assert.IsFalse(new Effect(EffectType.LowPass).IsDefault());
         }
 
@@ -282,10 +284,12 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding-8")]
         public void IsDefault_HighPass_ParameterlessConstructor_IsNotDefault()
         {
-            // characterizes: same mismatch as LowPass, mirrored — BroAdvice.HighPassFrequency (2000Hz) vs.
-            // AudioConstant.MinFrequency (10Hz, the neutral value IsDefault() actually checks against).
+            // Characterizes TEST_FINDINGS #8: same mismatch as LowPass, mirrored — BroAdvice.HighPassFrequency
+            // (2000Hz) vs. AudioConstant.MinFrequency (10Hz, the neutral value IsDefault() actually checks
+            // against).
             Assert.IsFalse(new Effect(EffectType.HighPass).IsDefault());
         }
 

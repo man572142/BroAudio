@@ -220,11 +220,12 @@ namespace Ami.BroAudio.Tests
             Assert.AreSame(analyzer.Bands, recorder.LastBands, "OnUpdate hands out the analyzer's own band array, not a copy.");
         }
 
-        // The serialized SoundSource is polled every frame until it yields a player, which is what lets a
-        // Play On Enable source and an analyzer be wired up in the inspector with no script. But whether
-        // that polling happens at all is decided once, in Start, from whether the field was already
-        // assigned - so a SoundSource attached later is ignored for the object's whole life.
+        // Characterizes TEST_FINDINGS #38: the serialized SoundSource is polled every frame until it yields
+        // a player, which is what lets a Play On Enable source and an analyzer be wired up in the inspector
+        // with no script. But whether that polling happens at all is decided once, in Start, from whether the
+        // field was already assigned - so a SoundSource attached later is ignored for the object's whole life.
         [UnityTest]
+        [Category("Finding-38")]
         public IEnumerator Update_TakesThePlayerFromItsSoundSource_ButOnlyIfItWasAssignedBeforeStart()
         {
             yield return RequireRealtimeAudioClock();
@@ -366,15 +367,16 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Band ranges
-        // TEST_FINDINGS #39. A band whose frequency window is narrower than one FFT bin has start == end, so
-        // RangeInt.length is 0, and RMS/Average divide the summed magnitude by it. Which way that breaks is
-        // decided by the one bin the band covers, and the test may not assume either: an exactly-zero bin
-        // gives 0/0 = NaN, which loses every comparison in the ballistics block and leaves the band
-        // subtracting a step forever, while a bin holding any energy at all gives x/0 = +Infinity, which
-        // ClampNormalize pins to MaxVolume and the band climbs to the ceiling instead. Both ends are wrong in
-        // the same way - the band stops reporting the signal - so the assertion is that it leaves the floor,
-        // and then that whichever end it ran to is the end the ballistics block makes it run to.
+        // Characterizes TEST_FINDINGS #39: a band whose frequency window is narrower than one FFT bin has
+        // start == end, so RangeInt.length is 0, and RMS/Average divide the summed magnitude by it. Which
+        // way that breaks is decided by the one bin the band covers, and the test may not assume either: an
+        // exactly-zero bin gives 0/0 = NaN, which loses every comparison in the ballistics block and leaves
+        // the band subtracting a step forever, while a bin holding any energy at all gives x/0 = +Infinity,
+        // which ClampNormalize pins to MaxVolume and the band climbs to the ceiling instead. Both ends are
+        // wrong in the same way - the band stops reporting the signal - so the assertion is that it leaves
+        // the floor, and then that whichever end it ran to is the end the ballistics block makes it run to.
         [UnityTest]
+        [Category("Finding-39")]
         public IEnumerator Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak()
         {
             yield return RequireRealtimeAudioClock();
@@ -452,13 +454,14 @@ namespace Ami.BroAudio.Tests
                 "The normalized amplitude a meter binds to must rise with the decibel value.");
         }
 
-        // TEST_FINDINGS #40. Every Band carries a serialized, inspector-drawn "Weighted" value that
-        // UpdateSpectrum never reads, so two analyzers that differ only in it produce the same numbers.
+        // Characterizes TEST_FINDINGS #40: every Band carries a serialized, inspector-drawn "Weighted" value
+        // that UpdateSpectrum never reads, so two analyzers that differ only in it produce the same numbers.
         // Driven by the tone rather than by silence deliberately: on an all-zero spectrum the obvious fix -
         // scaling the metered amplitude by the weight - would still leave the two bands identical, because
         // 0 * 1 == 0 * 20, and the pin would survive the very change it exists to catch. Metering a band
         // that carries real energy, any use of the field at all pulls the two readings apart.
         [UnityTest]
+        [Category("Finding-40")]
         public IEnumerator Update_BandWeighting_HasNoEffectOnTheBandOutput()
         {
             yield return RequireRealtimeAudioClock();

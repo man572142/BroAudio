@@ -97,7 +97,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(1f, livePlayer.GetVolume(), LinearTolerance, "Live players are pushed even when the new value equals the default.");
 
             // PlayControl applies the stored pref to a freshly-started player unconditionally, so the pref
-            // and live players agree at every value including the default (Docs/TEST_FINDINGS.md finding #7).
+            // and live players agree at every value including the default (Docs/FIXED_ISSUES.md #7).
             Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref pref));
             Assert.AreEqual(1f, pref.Volume, LinearTolerance);
 
