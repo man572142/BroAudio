@@ -10,8 +10,8 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory 2.4, 2.6, 2.10 (Docs/inventory/time-dependent.md): fade-in/fade-out (clip setting, explicit
-    /// one-shot override, custom ease), clip StartPosition/EndPosition trims, and the Stop() re-entrancy guard.
+    /// Fade-in/fade-out (clip setting, explicit one-shot override, custom ease), clip StartPosition/EndPosition
+    /// trims, and the Stop() re-entrancy guard. See Docs/inventory/time-dependent.md.
     /// <para>
     /// Two clocks are mixed throughout this file, per the inventory doc: fade *progress* runs on the frame
     /// clock (Fader.Update accumulates Utility.GetDeltaTime()), while the wait-to-start-fading gate on a
@@ -163,9 +163,10 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetFadeInEase_AndSetFadeOutEase_StillReachTargetAndComplete()
         {
+            const float FadeSeconds = 0.4f;
             AudioClip clip = NewClip(2f);
             AudioEntity entity = NewEntity("EaseSfx", BroAudioType.SFX, clip);
-            entity.Clips[0].FadeIn = 0.4f;
+            entity.Clips[0].FadeIn = FadeSeconds;
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id);
@@ -176,12 +177,12 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitForPlaybackStart(player);
             yield return WaitUntilOrTimeout(() => player.GetVolume() >= NearTargetThreshold,
-                "a fade-in with a custom ease to still reach its target", 1.5f);
+                "a fade-in with a custom ease to still reach its target", FadeSeconds + 1.1f);
 
             player.SetFadeOutEase(Ease.InCubic);
-            player.Stop(0.4f);
+            player.Stop(FadeSeconds);
             yield return WaitForRecycle(player,
-                "a fade-out with a custom ease to still complete", 1.5f);
+                "a fade-out with a custom ease to still complete", FadeSeconds + 1.1f);
         }
 
         [UnityTest]

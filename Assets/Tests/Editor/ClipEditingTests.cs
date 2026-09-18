@@ -117,9 +117,10 @@ namespace Ami.BroAudio.Editor.Tests
         public void Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround()
         {
             // AudioClip.GetData wraps back to the start of the clip when the requested range runs past
-            // the end rather than failing, so an oversized range used to splice the clip with its own
-            // beginning, silently. TryGetSampleData now clamps the read to the samples that remain.
-            // A negative end position is the simplest way to ask for more than the clip holds.
+            // the end rather than failing, so an oversized range would silently splice the clip with its
+            // own beginning if nothing guarded it. TryGetSampleData clamps the read to the samples that
+            // remain, which is the invariant this test pins. A negative end position is the simplest way
+            // to ask for more than the clip holds.
             AudioClip clip = CreateRampClip("Ramp5", 5, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -163,7 +164,8 @@ namespace Ami.BroAudio.Editor.Tests
 
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             Assert.AreEqual(4 + 3, actual.Length,
-                "AddSlient no longer truncates its pad length - it now rounds, like the rest of the sample math.");
+                "characterizes: AddSlient's pad length truncates via a plain (int) cast, unlike FadeIn/FadeOut/" +
+                "GetDataSample which round - a 3.9999-sample pad yields 3, not 4.");
         }
         #endregion
 
@@ -237,8 +239,10 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit()
         {
-            // A zero fade window used to compute volIncrement = 1f/0 = Infinity and still flip
-            // HasEdited, which made GetResultClip mint a copy of an unchanged clip. It now returns early.
+            // A zero fade window divides by it (volIncrement = 1f/fadeSamples), which would compute
+            // Infinity and still flip HasEdited, making GetResultClip mint a copy of an unchanged clip if
+            // nothing guarded it. FadeIn returns early on a zero window instead, which is the invariant
+            // this test pins.
             AudioClip clip = CreateRampClip("Ramp3", 3, 1);
             using var helper = new AudioClipEditingHelper(clip);
 

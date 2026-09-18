@@ -7,9 +7,9 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 2.8: <c>RuntimeSetting.AlwaysPlayMusicAsBGM</c> (default true) - a Music-typed
-    /// Play() is auto-wrapped with AsBGM()+SetTransition even when the caller never calls AsBGM()
-    /// themselves. See Docs/inventory/time-dependent.md.
+    /// <c>RuntimeSetting.AlwaysPlayMusicAsBGM</c> (default true) - a Music-typed Play() is auto-wrapped with
+    /// AsBGM()+SetTransition even when the caller never calls AsBGM() themselves. See
+    /// Docs/inventory/time-dependent.md.
     /// </summary>
     public class AlwaysPlayMusicAsBGMTests : BroAudioTestFixture
     {
@@ -20,11 +20,12 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = true;
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
-            // The first clip's length is load-bearing: at 2s it used to reach its own natural end within
-            // the 2s deactivation wait below, so the assertion passed even with the auto-BGM feature
-            // deleted. 9s puts the clip's natural end far outside the 3s wait, so only the auto-transition
-            // can explain the first player deactivating.
-            SoundID firstId = NewSound("AutoBgmA", BroAudioType.Music, NewClip(9f));
+            // The first clip's length is load-bearing: its natural end has to sit far outside the recycle
+            // wait below, so only the auto-transition can explain the first player deactivating. A clip
+            // short enough to end on its own within that wait would satisfy the assertion even with the
+            // auto-BGM feature deleted - the two causes would be indistinguishable.
+            const float FirstClipSeconds = 9f;
+            SoundID firstId = NewSound("AutoBgmA", BroAudioType.Music, NewClip(FirstClipSeconds));
             SoundID secondId = NewSound("AutoBgmB", BroAudioType.Music, NewClip(2f));
 
             IAudioPlayer first = BroAudio.Play(firstId); // never calls AsBGM() explicitly
@@ -32,10 +33,12 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer second = BroAudio.Play(secondId); // also never calls AsBGM() explicitly
 
-            // 3s is well under the 9s clip length, so this stays discriminating; the transition itself is
-            // Immediate, so 3s is a generous CI-safe margin rather than a tight bound on the transition.
+            // Derived from the clip rather than from a shared budget: the bound is only decisive while it
+            // stays well under FirstClipSeconds, so it has to move with the clip. The transition itself is
+            // Immediate, so a third of the clip is a generous CI margin, not a tight bound on the transition.
             yield return WaitForRecycle(first,
-                "the first Music player to be auto-transitioned off by SoundManager's implicit AsBGM()+SetTransition", 3f);
+                "the first Music player to be auto-transitioned off by SoundManager's implicit AsBGM()+SetTransition",
+                FirstClipSeconds / 3f);
             yield return WaitForPlaybackStart(second, "the second Music player to take over as BGM");
         }
 

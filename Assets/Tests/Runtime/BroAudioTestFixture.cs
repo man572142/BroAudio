@@ -551,8 +551,38 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        /// <summary>The shared timeout for <see cref="WaitForPlaybackStart"/> and <see cref="WaitForRecycle"/>.</summary>
+        /// <summary>
+        /// The shared timeout for <see cref="WaitForPlaybackStart"/> and <see cref="WaitForRecycle"/>, and the
+        /// default budget for a short state flip elsewhere in the suite (IsPlaying/IsActive toggling, a mixer
+        /// parameter landing on a requested value) that is not itself gated by a fade, a handover seam or an
+        /// Addressables load. Name a call site's own arithmetic (e.g. <c>fadeTime + 1f</c>) instead of this
+        /// constant whenever the wait is genuinely bounded by the test's own timed data - this one is for
+        /// everything that budget doesn't cover.
+        /// </summary>
         protected const float DefaultPlaybackWaitSeconds = 2f;
+
+        /// <summary>
+        /// Budget for a value that ramps or converges rather than flipping in one frame and is not bounded by
+        /// a test-local duration - a SpectrumAnalyzer band settling into its attack/decay target, an explicit
+        /// schedule racing a longer clip.Delay. Wider than <see cref="DefaultPlaybackWaitSeconds"/> because the
+        /// target is approached over several frames, not reached in the one right after a state change.
+        /// </summary>
+        protected const float RampConvergenceWaitSeconds = 3f;
+
+        /// <summary>
+        /// Budget for a loop/BGM/dominator handover or crossfade to complete - spans at least one seam
+        /// (<c>AudioConstant.MixerWarmUpTime</c> plus however long the transition itself runs), so it needs
+        /// more headroom than a plain state flip. Multiply it (rather than inventing a new constant) for a
+        /// wait that has to outlast more than one seam, e.g. <c>HandoverWaitSeconds * 2</c>.
+        /// </summary>
+        protected const float HandoverWaitSeconds = 5f;
+
+        /// <summary>
+        /// Budget for an Addressables load, preload handle or group preload to finish - network/IO-bound, so
+        /// the most generous budget in the suite. Tests that wait on this belong under
+        /// <c>[Category("Slow")]</c>.
+        /// </summary>
+        protected const float SlowAddressableWaitSeconds = 10f;
 
         /// <summary>Shorthand for <see cref="WaitUntilOrTimeout"/> on <paramref name="player"/>.IsPlaying — the most common wait in this suite.</summary>
         protected static IEnumerator WaitForPlaybackStart(IAudioPlayer player, string what = "playback to start", float timeout = DefaultPlaybackWaitSeconds)

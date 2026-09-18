@@ -7,7 +7,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 3.1-3.4: PlaybackGroup voice limiting and comb-filtering rejection, and how a custom
+    /// PlaybackGroup voice limiting and comb-filtering rejection, and how a custom
     /// IPlayableValidator overrides the group entirely. See Docs/inventory/selection-policy.md,
     /// "Playback-group voice limiting and rejection".
     /// <para>
@@ -33,7 +33,7 @@ namespace Ami.BroAudio.Tests
             return IdOf(entity);
         }
 
-        // 3.1 - the (N+1)th concurrent play is rejected once the limit is reached; when an accepted play ends
+        // The (N+1)th concurrent play is rejected once the limit is reached; when an accepted play ends
         // (here via Stop, which recycles and fires OnEnd same as natural completion) the count decrements and
         // a new play succeeds again.
         [UnityTest]
@@ -57,13 +57,13 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(2);
 
             player1.Stop(0f);
-            yield return WaitForRecycle(player1, "the stopped player to recycle and free its slot", 3f);
+            yield return WaitForRecycle(player1, "the stopped player to recycle and free its slot", RampConvergenceWaitSeconds);
 
             IAudioPlayer player4 = BroAudio.Play(id4);
             Assert.IsTrue(player4.IsActive, "Once a slot frees (OnEnd decrements the group's count), a new play must succeed again.");
         }
 
-        // 3.2 - characterizes: MaxPlayableCountRule.OnGetPlayer increments inside SoundManager.IsPlayable,
+        // characterizes: MaxPlayableCountRule.OnGetPlayer increments inside SoundManager.IsPlayable,
         // synchronously during Play(), before LateUpdate drains the queue. Two plays issued in the same frame -
         // neither yet audible - already exhaust the limit.
         [UnityTest]
@@ -84,7 +84,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // 3.3 - baseline: two plays of the same SoundID within _combFilteringTime, in different frames
+        // Baseline: two plays of the same SoundID within _combFilteringTime, in different frames
         // (neither exemption applies), reject the second.
         [UnityTest]
         public IEnumerator Play_SameID_WithinCombFilteringWindow_RejectsSecond()
@@ -104,7 +104,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(player2.IsActive, "A same-ID replay inside the comb-filtering window must be rejected.");
         }
 
-        // 3.3 - _ignoreCombFilteringIfSameFrame == true: two same-ID plays enqueued in the same frame
+        // _ignoreCombFilteringIfSameFrame == true: two same-ID plays enqueued in the same frame
         // (still queued, neither started) are exempt.
         [UnityTest]
         public IEnumerator Play_SameID_SameFrameWithIgnoreFlagTrue_BothSucceed()
@@ -122,7 +122,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // 3.3 - _ignoreCombFilteringIfSameFrame == false: the same same-frame scenario now rejects the second
+        // _ignoreCombFilteringIfSameFrame == false: the same same-frame scenario now rejects the second
         // play. characterizes: "still queued" (PlaybackStartingTime == 0) counts as the same frame internally
         // regardless of the flag - the flag only controls whether that same-frame case is forgiven.
         [UnityTest]
@@ -141,7 +141,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // 3.3 - positional asymmetry, part 1: two positioned plays farther apart than
+        // Positional asymmetry, part 1: two positioned plays farther apart than
         // _ignoreIfDistanceIsGreaterThan are exempt even inside the time window.
         [UnityTest]
         public IEnumerator Play_PositionedFarApart_WithinCombFilteringWindow_BothSucceed()
@@ -159,7 +159,7 @@ namespace Ami.BroAudio.Tests
                 "Two positioned plays farther apart than _ignoreIfDistanceIsGreaterThan are exempt from comb-filtering even inside the time window.");
         }
 
-        // Characterizes TEST_FINDINGS #12: 3.3 - positional asymmetry, part 2. A global (2D) play has no
+        // Characterizes TEST_FINDINGS #12: positional asymmetry, part 2. A global (2D) play has no
         // position to compare against a positioned one, so DefaultPlaybackGroup skips the distance check
         // entirely for a global/positioned mix and instead exempts the pair purely because
         // _ignoreIfDistanceIsGreaterThan > 0 - even when the positioned play sits at the exact same origin,
@@ -181,7 +181,7 @@ namespace Ami.BroAudio.Tests
                 "A global/positioned mix is exempted purely because _ignoreIfDistanceIsGreaterThan > 0, with no actual distance comparison possible.");
         }
 
-        // 3.4 - a custom IPlayableValidator passed to Play() replaces the entity's own PlaybackGroup entirely
+        // A custom IPlayableValidator passed to Play() replaces the entity's own PlaybackGroup entirely
         // (SoundManager.IsPlayable: customValidator ?? entity.PlaybackGroup) - it wins outright, even when it
         // allows a play the group would have rejected.
         [UnityTest]

@@ -8,7 +8,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 2.8: <see cref="IMusicPlayer.SetTransition(Transition, float)"/> and its
+    /// <see cref="IMusicPlayer.SetTransition(Transition, float)"/> and its
     /// <see cref="StopMode"/> overload - the sequencing/overlap rule per <see cref="Transition"/> mode, and
     /// how a caller-supplied StopMode changes what happens to the outgoing BGM. See
     /// Docs/inventory/time-dependent.md.
@@ -70,7 +70,7 @@ namespace Ami.BroAudio.Tests
             second.AsBGM().SetTransition(Transition.CrossFade, 0.5f);
 
             yield return WaitUntilOrTimeout(() => first.IsPlaying && second.IsPlaying,
-                "both the outgoing and incoming BGM to be audible at once during a CrossFade transition", 2f);
+                "both the outgoing and incoming BGM to be audible at once during a CrossFade transition", DefaultPlaybackWaitSeconds);
         }
 
         // SetTransition(Transition, StopMode) overload: MusicPlayer.DoTransition's StopCurrentPlayer
@@ -92,7 +92,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer second = BroAudio.Play(secondId);
             second.AsBGM().SetTransition(Transition.Immediate, StopMode.Pause);
 
-            yield return WaitUntilOrTimeout(() => !first.IsPlaying, "the outgoing BGM to pause rather than stop", 2f);
+            yield return WaitUntilOrTimeout(() => !first.IsPlaying, "the outgoing BGM to pause rather than stop", DefaultPlaybackWaitSeconds);
             Assert.IsTrue(first.IsActive, "StopMode.Pause must leave the outgoing BGM active, not ended.");
             yield return WaitForPlaybackStart(second, "the incoming BGM to be playing");
 
@@ -124,7 +124,7 @@ namespace Ami.BroAudio.Tests
             second.AsBGM().SetTransition(Transition.Immediate, StopMode.Mute);
 
             yield return WaitForPlaybackStart(second, "the incoming BGM to be playing");
-            yield return WaitUntilOrTimeout(() => first.GetVolume() < 0.05f, "the outgoing BGM's linear volume to drop to (near) zero", 2f);
+            yield return WaitUntilOrTimeout(() => first.GetVolume() < 0.05f, "the outgoing BGM's linear volume to drop to (near) zero", DefaultPlaybackWaitSeconds);
 
             Assert.IsTrue(first.IsPlaying,
                 "characterizes: StopMode.Mute never calls AudioSource.Pause/Stop - the muted BGM keeps AudioSource.isPlaying true, running silently in the background.");

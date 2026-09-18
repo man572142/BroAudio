@@ -7,7 +7,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization for inventory 3.5: clip-selection state lives on the
+    /// Runtime-only characterization: clip-selection state lives on the
     /// <see cref="AudioEntity"/>, not on the player. The pure per-strategy behavior already lives in
     /// ClipSelectionTests.cs (EditMode) — this file only covers what needs a live SoundManager: the shared
     /// cursor across concurrent plays, its explicit reset, and the SetVelocity/SetSequenceId wiring that has
