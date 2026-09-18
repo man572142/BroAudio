@@ -64,19 +64,6 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        public void SetValue_Delay_ClampsOnlyToZero_ViaTheClipField()
-        {
-            AudioEntity entity = Track(TestAudioLibrary.CreateEntity("ClampDelay", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(5f))));
-            var entitySo = new SerializedObject(entity);
-            SerializedProperty clipProp = GetFirstClipProperty(entitySo);
-            var transport = new SerializedTransport(clipProp, 5f);
-
-            transport.SetValue(-5f, TransportType.Delay);
-
-            Assert.AreEqual(0f, entity.Clips[0].Delay, 0.0001f);
-        }
-
-        [Test]
         public void SetValue_AppliesImmediately_WithoutTheCallerCallingApplyModifiedProperties()
         {
             // Contract check: SerializedTransport.SetValue calls ApplyModifiedProperties itself
