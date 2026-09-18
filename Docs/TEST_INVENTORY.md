@@ -20,8 +20,8 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 |---|---|---|
 | 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
 | 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs` |
-| 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `SchedulingAndMusicTests.cs` |
-| 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `SelectionStateAndDecoratorTests.cs` |
+| 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `ClipDelayAndSchedulingTests.cs`, `ScheduledPlaybackContractTests.cs`, `BGMTransitionTests.cs`, `AlwaysPlayMusicAsBGMTests.cs`, `BGMChangedEventTests.cs` |
+| 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 | 6 — MonoComponents | **covered** | `SoundSourceTests.cs`, `SoundVolumeTests.cs`, `SpectrumAnalyzerTests.cs` |
 | 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `SpatialAndPriorityTests.cs` |
@@ -120,8 +120,10 @@ deliberately left red — `SoundSource_PositionMode` had no shipped text, and a 
 a deleted enum member — have both since been fixed; see [FIXED_ISSUES.md](FIXED_ISSUES.md).
 
 Per-file test files, each verified passing in isolation: `IsolationContractTests`,
-`EditorUtilityPureTests`, `TransportAndRectMathTests`, `ShippedDataTests`, `IssueReportMarkdownTests`,
-`SerializedPropertyResetTests`, `SerializedTransportTests`, `ClipEditingTests`, `AssetWritingTests`,
+`EditorUtilityPureTests`, `TransportSetValueTests`, `TransportHasDifferentPositionTests`,
+`RectSplitRatioTests`, `RectScopingTests`, `EditorReflectionNamingTests`, `ShippedDataTests`,
+`IssueReportMarkdownTests`, `SerializedPropertyResetTests`, `SerializedTransportTests`, `ClipEditingTests`,
+`AssetWritingTests`,
 plus the relocated `ClipSelectionTests`, `AudioMathTests`, `LocalizationClipStrategyTests` (the last
 behind `PACKAGE_LOCALIZATION`).
 
@@ -141,7 +143,7 @@ developer's real path in TearDown.
 
 | Tier | Status | Test files |
 |---|---|---|
-| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportAndRectMathTests.cs`, `IssueReportMarkdownTests.cs`. One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted (see [FIXED_ISSUES.md](FIXED_ISSUES.md)), so there is nothing left to test. |
+| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportSetValueTests.cs`, `TransportHasDifferentPositionTests.cs`, `RectSplitRatioTests.cs`, `RectScopingTests.cs`, `EditorReflectionNamingTests.cs`, `IssueReportMarkdownTests.cs`. One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted (see [FIXED_ISSUES.md](FIXED_ISSUES.md)), so there is nothing left to test. |
 | E1 — shipped-data integrity | **covered** | `ShippedDataTests.cs` |
 | E2 — SerializedProperty operations | **covered** | `SerializedPropertyResetTests.cs`, `SerializedTransportTests.cs` |
 | E3 — clip editing | **covered** | `ClipEditingTests.cs` |

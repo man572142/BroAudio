@@ -182,7 +182,7 @@ Two consequences for anyone writing against this:
 
 - Always null-check the argument.
 - Do not count invocations to detect a swap. Both raises land in one frame, so a per-frame poll for
-  "exactly N events" can never observe the intermediate value. `SchedulingAndMusicTests` polls for the arrival
+  "exactly N events" can never observe the intermediate value. `BGMChangedEventTests` polls for the arrival
   of a player with the expected `SoundID` instead, and that is the pattern to copy.
 
 `UpdateInstance` deliberately writes the backing field rather than the property when a loop or chain hands over
@@ -243,7 +243,7 @@ The usual C# contract for a `bool TryX(out ...)` shape is that the out parameter
 Callers here happen to respect that (`SoundManager.Playback.cs` discards both with `out _, out _`), so nothing
 is broken today. It is a trap for the next caller that reads the out value without checking the return first.
 
-Characterized by `SelectionStateAndDecoratorTests`.
+Characterized by `ChainedLoopDefaultSettingTests`.
 
 ## 14. The addressable unload setting does not control the unload delay
 
@@ -308,7 +308,7 @@ half a gap short, and 5 or more overshoot. The dedicated two-way `out Rect, out 
 in the same file applies a clean `halfGap` to both sides and lands on the edge exactly, for any gap — so
 the two forms contradict each other for the same inputs.
 
-Characterized in `TransportAndRectMathTests` (`SplitRectHorizontal_RatiosArrayForm_ThreeWay_...`,
+Characterized in `RectSplitRatioTests` (`SplitRectHorizontal_RatiosArrayForm_ThreeWay_...`,
 `SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload`,
 `SplitRectVertical_RatiosArrayForm_ThreeWay_...`).
 
@@ -324,7 +324,7 @@ resultRects ??= new Rect[ratios.Length];
 It reassigns `resultRects` into a throwaway local array the caller never sees — no exception, no log.
 `SplitRectHorizontal`'s equivalent overload guards the same case in its shared `SplitHorizontal` helper
 by logging `"Rects array is null!"` and returning. Characterized in
-`TransportAndRectMathTests.SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal`.
+`RectSplitRatioTests.SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal`.
 
 ## 23. `GetFieldName` lowercases every occurrence of the leading letter
 
@@ -340,7 +340,7 @@ return $"_{propertyName}";
 
 It calls `propertyName.Replace(firstChar, lowerFirstChar)` — the global `string.Replace(char, char)`
 overload, not a single-position substitution — so `"FooF"` becomes `"_foof"` rather than `"_fooF"`.
-Characterized in `TransportAndRectMathTests.GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst`.
+Characterized in `EditorReflectionNamingTests.GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst`.
 
 ## 24. `BroEditorUtility.Combine` is naked concatenation
 
@@ -426,7 +426,7 @@ clip it starts, so counting it as a position difference is at least surprising. 
 to misbehave because of it today, which is why it is characterized rather than fixed.
 
 Status: Open, characterized. Pinned by
-`TransportAndRectMathTests.HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero`.
+`TransportHasDifferentPositionTests.HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero`.
 
 ---
 
@@ -748,9 +748,9 @@ never caught it: both decorate after `WaitForPlaybackStart`, and both only asser
 `Main_LowPass`/`Main_HighPass` parameter moved, which is true whichever track the dominator itself is on.
 
 Status: Open, characterized. Pinned by
-`SelectionStateAndDecoratorTests.Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack`, with the
+`DominatorTrackRoutingTests.Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack`, with the
 correct same-frame routing asserted by
-`SelectionStateAndDecoratorTests.Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack`.
+`DominatorTrackRoutingTests.Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack`.
 
 ---
 
@@ -835,7 +835,7 @@ A fix would be for `ReceiveHandover` (or `PlaybackHandoverData`) to carry the ou
 or for the decorators to be transferred at handover-request time rather than at `BeginHandover`.
 
 Status: Open, characterized. Pinned by
-`SelectionStateAndDecoratorTests.Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack`,
+`DominatorTrackRoutingTests.Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack`,
 which asserts the decorator survives, the duck survives, and the track does not.
 
 ---
