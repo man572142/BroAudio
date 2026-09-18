@@ -251,12 +251,12 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | The voice-limit count increments at enqueue, not at audible start | covered | `PlaybackGroupTests.Play_TwoPlaysInSameFrame_BothCountAgainstLimitBeforeEitherStartsPlaying` |
 | CombFilteringRule rejects a same-ID replay in the window | covered | `PlaybackGroupTests.Play_SameID_WithinCombFilteringWindow_RejectsSecond` and the three flag/position variants |
 | A custom IPlayableValidator overrides the entity's PlaybackGroup | covered | `PlaybackGroupTests.Play_WithCustomValidator_OverridesGroupEntirely` |
-| AsBGM() attaches a MusicPlayer decorator — composition, not a subtype swap | covered | `SelectionStateAndDecoratorTests.AsBGM_CalledTwice_ReturnsTheSameMusicPlayerDecoratorInstance` (asserts via the private `_decorators` list) |
+| AsBGM() attaches a MusicPlayer decorator — composition, not a subtype swap | covered | `DecoratorAttachmentTests.AsBGM_CalledTwice_ReturnsTheSameMusicPlayerDecoratorInstance` (asserts via the private `_decorators` list) |
 | Calling AsBGM() twice returns the same decorator instance | covered | Same test |
-| AsDominator() attaches independently of AsBGM() | covered | `SelectionStateAndDecoratorTests.AsBGM_AndAsDominator_CoexistOnTheSamePlayer` |
-| AlwaysPlayMusicAsBGM auto-attaches the BGM decorator | covered | `SchedulingAndMusicTests.AlwaysPlayMusicAsBGM_Enabled_*` and `_Disabled_*` |
-| Every chaining method is null-safe on a recycled/invalid player | partial | `SelectionStateAndDecoratorTests.AudioSource_AccessedAfterRecycle_*` and `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` cover the stale-handle path; the full fluent surface is not swept method by method. |
-| SetVelocity and SetSequenceId are guarded no-ops outside their own mode | covered | `SelectionStateAndDecoratorTests.SetVelocity_CalledBeforeQueueDrains_*`, `SetSequenceId_WithDifferentIds_*` |
+| AsDominator() attaches independently of AsBGM() | covered | `DecoratorAttachmentTests.AsBGM_AndAsDominator_CoexistOnTheSamePlayer` |
+| AlwaysPlayMusicAsBGM auto-attaches the BGM decorator | covered | `AlwaysPlayMusicAsBGMTests.AlwaysPlayMusicAsBGM_Enabled_*` and `_Disabled_*` |
+| Every chaining method is null-safe on a recycled/invalid player | partial | `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` covers the stale-handle path; the full fluent surface is not swept method by method. |
+| SetVelocity and SetSequenceId are guarded no-ops outside their own mode | covered | `ClipSelectionCursorTests.SetVelocity_CalledBeforeQueueDrains_*`, `SetSequenceId_WithDifferentIds_*` |
 | RuntimeSetting toggles that change Play behavior | partial | `AlwaysPlayMusicAsBGM` is covered above. `DefaultAudioPlayerPoolSize` is **out of scope** — it is read once at `SoundManager` bootstrap, which the persistent singleton passes before any test runs. |
 
 "EditMode unit-test candidates", "Conflicts observed" and "Could not determine statically" elsewhere in this file
