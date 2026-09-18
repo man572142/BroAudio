@@ -434,10 +434,11 @@ namespace Ami.BroAudio.Tests
 
         /// <summary>
         /// SoundManager's live player list: every AudioPlayer currently checked out of the pool, whether it
-        /// is playing, scheduled, paused or mid-handover. The method is private on SoundManager, and
-        /// Assets/Tests/Editor/SerializedTransportTests.cs carries a canary for the string literal below.
+        /// is playing, scheduled, paused or mid-handover. The method is private on SoundManager; the string
+        /// literal it is looked up by lives once, in <see cref="TestAudioLibrary.Reflected.SoundManager"/>.
         /// Returns false only if that reflection lookup fails, so the caller can report it instead of
-        /// throwing out of the middle of TearDown.
+        /// throwing out of the middle of TearDown - deliberately NOT the throwing TestAudioLibrary.Reflected.Method,
+        /// which would replace a leak report with a TearDown exception.
         /// </summary>
         private static bool TryGetCurrentAudioPlayers(out IReadOnlyList<AudioPlayer> players)
         {
@@ -450,7 +451,7 @@ namespace Ami.BroAudio.Tests
             }
 
             _getCurrentAudioPlayersMethod ??= typeof(SoundManager).GetMethod(
-                "GetCurrentAudioPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
+                TestAudioLibrary.Reflected.SoundManager.GetCurrentAudioPlayers, BindingFlags.Instance | BindingFlags.NonPublic);
             if (_getCurrentAudioPlayersMethod == null)
             {
                 return false;
@@ -496,11 +497,11 @@ namespace Ami.BroAudio.Tests
             bool ignoreSameFrame = false, float ignoreDistanceGreaterThan = 0f)
         {
             DefaultPlaybackGroup group = Track(ScriptableObject.CreateInstance<DefaultPlaybackGroup>());
-            TestAudioLibrary.SetPrivateField(group, "_maxPlayableCount", (MaxPlayableCountRule)maxPlayableCount);
-            TestAudioLibrary.SetPrivateField(group, "_combFilteringTime", (CombFilteringRule)combFilteringTime);
-            TestAudioLibrary.SetPrivateField(group, "_ignoreCombFilteringIfSameFrame", ignoreSameFrame);
-            TestAudioLibrary.SetPrivateField(group, "_ignoreIfDistanceIsGreaterThan", ignoreDistanceGreaterThan);
-            TestAudioLibrary.SetPrivateField(group, "_logCombFilteringWarning", false);
+            TestAudioLibrary.SetPrivateField(group, TestAudioLibrary.Reflected.DefaultPlaybackGroup.MaxPlayableCount, (MaxPlayableCountRule)maxPlayableCount);
+            TestAudioLibrary.SetPrivateField(group, TestAudioLibrary.Reflected.DefaultPlaybackGroup.CombFilteringTime, (CombFilteringRule)combFilteringTime);
+            TestAudioLibrary.SetPrivateField(group, TestAudioLibrary.Reflected.DefaultPlaybackGroup.IgnoreCombFilteringIfSameFrame, ignoreSameFrame);
+            TestAudioLibrary.SetPrivateField(group, TestAudioLibrary.Reflected.DefaultPlaybackGroup.IgnoreIfDistanceIsGreaterThan, ignoreDistanceGreaterThan);
+            TestAudioLibrary.SetPrivateField(group, TestAudioLibrary.Reflected.DefaultPlaybackGroup.LogCombFilteringWarning, false);
             return group;
         }
 
