@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.Extension;
@@ -24,19 +25,28 @@ namespace Ami.BroAudio.Tests
         }
 
         // 1.1 - the single most important test in this file: a caller that keeps a completed
-        // IAudioPlayer reference around (a very common real-world pattern) must never crash.
+        // IAudioPlayer reference around (a very common real-world pattern) must never crash. Stale-handle-
+        // after-recycle is a lifecycle concern regardless of which RuntimeSetting toggle produced the log.
         [UnityTest]
         public IEnumerator StaleHandle_AfterRecycle_IsInertNotFatal()
         {
-            // Silence AudioPlayerInstanceWrapper's stale-access warning; this is log suppression, not
-            // the behavior under test. The fixture restores RuntimeSetting in TearDown.
-            SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = false;
+            // LogAccessRecycledPlayerWarning changes nothing but whether a warning is emitted, and
+            // asserting on log text is an anti-goal here — so AudioSource is checked with the warning both
+            // on and off to pin that it resolves to null whichever way the flag is set, while the warning
+            // itself is consumed (LogAssert.Expect) rather than tested.
+            SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = true;
 
             SoundID id = NewSound("StaleHandleSfx", BroAudioType.SFX, NewClip(0.2f));
             IAudioPlayer player = BroAudio.Play(id);
 
             yield return WaitForPlaybackStart(player);
             yield return WaitForRecycle(player, "the short clip to finish and the player to recycle");
+
+            LogAssert.Expect(LogType.Warning, new Regex("has been recycled after playback"));
+            Assert.IsNull(player.AudioSource, "A recycled wrapper resolves AudioSource to null with the warning enabled.");
+
+            SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = false;
+            Assert.IsNull(player.AudioSource, "Still null with the warning turned off.");
 
             IAudioPlayer afterSetVolume = null;
             IMusicPlayer afterBGM = null;
