@@ -7,7 +7,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 2.5: clip.Delay vs. explicit scheduling priority. See Docs/inventory/time-dependent.md.
+    /// clip.Delay vs. explicit scheduling priority. See Docs/inventory/time-dependent.md.
     /// An explicit schedule set before the queued Play() drains must win outright over clip.Delay, not add to
     /// it — both ISchedulable.SetScheduledStartTime and its SetDelay sugar inherit that override-not-additive
     /// relationship.
@@ -36,7 +36,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitDspSeconds(delay - 1.0);
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Still inside clip.Delay - playback must not have started audibly.");
 
-            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "audible playback to start once clip.Delay elapses", 2f);
+            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "audible playback to start once clip.Delay elapses", DefaultPlaybackWaitSeconds);
         }
 
         // An explicit schedule set before the queued Play() drains must win outright over clip.Delay,
@@ -51,9 +51,10 @@ namespace Ami.BroAudio.Tests
             entity.Clips[0].Delay = 5f;
             SoundID id = IdOf(entity);
 
-            IAudioPlayer player = BroAudio.Play(id); // only enqueued - SoundManager.LateUpdate hasn't drained it yet
             // 1.5s: long enough to observe the voice being *held*, not merely to observe it starting.
-            double target = AudioSettings.dspTime + 1.5;
+            const double ScheduleAheadSeconds = 1.5;
+            IAudioPlayer player = BroAudio.Play(id); // only enqueued - SoundManager.LateUpdate hasn't drained it yet
+            double target = AudioSettings.dspTime + ScheduleAheadSeconds;
             player.SetScheduledStartTime(target); // SetClipDelayIfNotScheduled will see ScheduledStartTime > 0 and skip the 5s clip.Delay
 
             // SetScheduledStartTime -> PlayInternal -> SchedulePlayback runs AudioSource.PlayScheduled synchronously,
@@ -69,10 +70,11 @@ namespace Ami.BroAudio.Tests
             yield return WaitDspSeconds(0.5);
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Still held 0.5s in - the explicit schedule must not have been ignored.");
 
-            // 3s covers the ~1s of schedule that is left with 2s to spare, yet stays 1.5s short of an
-            // un-overridden 5s clip.Delay (3.5s short of an additive 6.5s), so either regression fails loudly.
+            // ScheduleAheadSeconds + 1.5s covers the ~1s of schedule that is left with 2s to spare, yet stays
+            // 1.5s short of an un-overridden 5s clip.Delay (3.5s short of an additive 6.5s), so either
+            // regression fails loudly.
             yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0,
-                "the 1.5s explicit schedule to win over the 5s clip.Delay", 3f);
+                "the 1.5s explicit schedule to win over the 5s clip.Delay", (float)ScheduleAheadSeconds + 1.5f);
         }
 
         // SetDelay (ISchedulable.SetDelay) is sugar for SetScheduledStartTime(dspTime + delay), so
@@ -88,8 +90,9 @@ namespace Ami.BroAudio.Tests
             entity.Clips[0].Delay = 5f;
             SoundID id = IdOf(entity);
 
+            const float SetDelaySeconds = 1.5f;
             IAudioPlayer player = BroAudio.Play(id); // only enqueued - SoundManager.LateUpdate hasn't drained it yet
-            player.SetDelay(1.5f); // SetClipDelayIfNotScheduled will see ScheduledStartTime > 0 and skip the 5s clip.Delay
+            player.SetDelay(SetDelaySeconds); // SetClipDelayIfNotScheduled will see ScheduledStartTime > 0 and skip the 5s clip.Delay
 
             // 1.5s so the held voice can be observed, not just its eventual start. SetDelay resolves to
             // SetScheduledStartTime(dspTime + delay), which arms AudioSource.PlayScheduled synchronously and makes
@@ -104,10 +107,11 @@ namespace Ami.BroAudio.Tests
             yield return WaitDspSeconds(0.5);
             Assert.AreEqual(0, player.AudioSource.timeSamples, "Still held 0.5s in - the explicit SetDelay must not have been ignored.");
 
-            // 3s covers the ~1s of delay that is left with 2s to spare, yet stays 1.5s short of an un-overridden
-            // 5s clip.Delay (3.5s short of an additive 6.5s), so either regression fails loudly.
+            // SetDelaySeconds + 1.5s covers the ~1s of delay that is left with 2s to spare, yet stays 1.5s
+            // short of an un-overridden 5s clip.Delay (3.5s short of an additive 6.5s), so either regression
+            // fails loudly.
             yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0,
-                "the 1.5s explicit SetDelay to win over the 5s clip.Delay", 3f);
+                "the 1.5s explicit SetDelay to win over the 5s clip.Delay", SetDelaySeconds + 1.5f);
         }
     }
 }

@@ -98,7 +98,7 @@ namespace Ami.BroAudio.Tests
 
         /// <summary>Start allocates the spectrum buffer, so nothing may be asserted before it has run.</summary>
         private static IEnumerator WaitForStart(SpectrumAnalyzer analyzer)
-            => WaitUntilOrTimeout(() => analyzer.Spectrum != null, "SpectrumAnalyzer.Start to allocate the spectrum buffer", 2f);
+            => WaitUntilOrTimeout(() => analyzer.Spectrum != null, "SpectrumAnalyzer.Start to allocate the spectrum buffer", DefaultPlaybackWaitSeconds);
 
         /// <summary>Counts OnUpdate invocations and records the last payload the analyzer handed out.</summary>
         private sealed class UpdateRecorder
@@ -226,7 +226,7 @@ namespace Ami.BroAudio.Tests
             yield return RequireRealtimeAudioClock();
             SoundID id = NewSound("SourcedSpectrumSfx", BroAudioType.SFX, NewSilentClip(20f));
             SoundSource source = NewPlayingSource(id);
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", DefaultPlaybackWaitSeconds);
 
             SpectrumAnalyzer wiredBeforeStart = NewAnalyzer(new[] { 1000f }, soundSource: source);
             SpectrumAnalyzer wiredAfterStart = NewAnalyzer(new[] { 1000f });
@@ -295,7 +295,7 @@ namespace Ami.BroAudio.Tests
             PinBandTo(slow.Bands[0], AudioConstant.FullDecibelVolume);
 
             yield return WaitUntilOrTimeout(() => fast.Bands[0].DecibelVolume <= AudioConstant.MinDecibelVolume + DecibelTolerance,
-                "the fast-decay band to reach the floor", 3f);
+                "the fast-decay band to reach the floor", RampConvergenceWaitSeconds);
 
             Assert.Less(slow.Bands[0].DecibelVolume, AudioConstant.FullDecibelVolume,
                 "The slow band must still be falling - Decay limits the rate, it does not stop the fall.");
@@ -324,7 +324,7 @@ namespace Ami.BroAudio.Tests
             PinBandTo(slow.Bands[0], StartDecibel);
 
             yield return WaitUntilOrTimeout(() => fast.Bands[0].DecibelVolume >= AudioConstant.MinDecibelVolume - DecibelTolerance,
-                "the fast-attack band to climb to the target", 3f);
+                "the fast-attack band to climb to the target", RampConvergenceWaitSeconds);
 
             Assert.AreEqual(AudioConstant.MinDecibelVolume, fast.Bands[0].DecibelVolume, DecibelTolerance,
                 "The last step snaps to the target instead of overshooting it.");
@@ -353,7 +353,7 @@ namespace Ami.BroAudio.Tests
             PinBandTo(smoothed.Bands[0], AudioConstant.FullDecibelVolume);
 
             yield return WaitUntilOrTimeout(() => stepped.Bands[0].DecibelVolume <= AudioConstant.MinDecibelVolume + DecibelTolerance,
-                "the unsmoothed band to reach the floor", 3f);
+                "the unsmoothed band to reach the floor", RampConvergenceWaitSeconds);
 
             Assert.Less(smoothed.Bands[0].DecibelVolume, AudioConstant.FullDecibelVolume, "The smoothed band must still be moving.");
             Assert.Greater(smoothed.Bands[0].DecibelVolume, -40f,
@@ -395,7 +395,7 @@ namespace Ami.BroAudio.Tests
             const float FloorDistance = 10f;
             yield return WaitUntilOrTimeout(
                 () => Mathf.Abs(rms.Bands[1].DecibelVolume - AudioConstant.MinDecibelVolume) > FloorDistance,
-                "the RMS metering of a sub-bin band to leave the decibel floor in either direction", 3f);
+                "the RMS metering of a sub-bin band to leave the decibel floor in either direction", RampConvergenceWaitSeconds);
 
             if (rms.Bands[1].DecibelVolume < AudioConstant.MinDecibelVolume)
             {
@@ -411,7 +411,7 @@ namespace Ami.BroAudio.Tests
                 // ends on MaxDecibelVolume exactly rather than approaching it.
                 yield return WaitUntilOrTimeout(
                     () => rms.Bands[1].DecibelVolume >= AudioConstant.MaxDecibelVolume,
-                    "the same band to finish its climb to the ceiling", 3f);
+                    "the same band to finish its climb to the ceiling", RampConvergenceWaitSeconds);
 
                 Assert.AreEqual(AudioConstant.MaxVolume, rms.Bands[1].Amplitube, 1e-4f,
                     "Amplitube clamps at the ceiling, so a meter bound to it reads full scale on silence.");
@@ -441,7 +441,7 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitForSpectrumData(analyzer);
             yield return WaitUntilOrTimeout(() => analyzer.Bands[0].DecibelVolume > AudioConstant.MinDecibelVolume + 20f,
-                "the tone's own band to rise well clear of the floor", 3f);
+                "the tone's own band to rise well clear of the floor", RampConvergenceWaitSeconds);
 
             Assert.Greater(analyzer.Bands[0].DecibelVolume, analyzer.Bands[1].DecibelVolume + 6f,
                 "The 10Hz-1kHz band contains the 440Hz tone; the 1kHz-12kHz band above it contains only window leakage.");
@@ -476,7 +476,7 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitForSpectrumData(unweighted);
             yield return WaitUntilOrTimeout(() => unweighted.Bands[0].DecibelVolume > AudioConstant.MinDecibelVolume + 20f,
-                "the tone's own band to rise well clear of the floor", 3f);
+                "the tone's own band to rise well clear of the floor", RampConvergenceWaitSeconds);
             // Both bands climb from the floor under the same 20dB-per-100ms attack, so half a second puts
             // them past the ramp and onto the tone's own level, which each then re-snaps to every frame -
             // the state in which a weight applied to one of them has nothing left to hide behind.

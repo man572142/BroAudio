@@ -12,7 +12,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization for inventory 3.6: which mixer track a dominator actually lands on.
+    /// Runtime-only characterization: which mixer track a dominator actually lands on.
     /// AudioPlayer.SetupAudioTrack is the only place TrackType becomes Dominator, and it reads IsDominator -
     /// i.e. whether a DominatorPlayer decorator is already attached - at play time, when
     /// SoundManager.LateUpdate drains the queue. That single read-once moment decides routing for the rest
@@ -62,7 +62,7 @@ namespace Ami.BroAudio.Tests
             {
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.MainDominatedTrackName, out float v);
                 return Mathf.Abs(v - othersVolume.ToDecibel()) < DecibelTolerance;
-            }, "Main_Dominated to reach the requested others-volume in decibels", 2f);
+            }, "Main_Dominated to reach the requested others-volume in decibels", DefaultPlaybackWaitSeconds);
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float mainWhileDominating));
             Assert.AreEqual(AudioConstant.MinDecibelVolume, mainWhileDominating, DecibelTolerance,
@@ -77,7 +77,7 @@ namespace Ami.BroAudio.Tests
             {
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float v);
                 return Mathf.Abs(v - AudioConstant.FullDecibelVolume) < DecibelTolerance;
-            }, "Main to return to full volume once the dominator stops", 3f);
+            }, "Main to return to full volume once the dominator stops", RampConvergenceWaitSeconds);
         }
 
         // Characterizes TEST_FINDINGS #42: AsDominator() after playback has started attaches the decorator but
@@ -105,7 +105,7 @@ namespace Ami.BroAudio.Tests
                 "consulted by SetupAudioTrack, which has already run. Nothing re-routes it.");
         }
 
-        // Characterizes TEST_FINDINGS #44: 3.6 x 2.2 - a dominator that loops. Decorators reach the incoming
+        // Characterizes TEST_FINDINGS #44: a dominator that loops. Decorators reach the incoming
         // player at BeginHandover, after its SetupAudioTrack already took a generic track, so ducking persists
         // across the seam but the dominator ducks itself.
         [UnityTest]
@@ -137,7 +137,7 @@ namespace Ami.BroAudio.Tests
             {
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.MainDominatedTrackName, out float v);
                 return Mathf.Abs(v - OthersVolume.ToDecibel()) < DecibelTolerance;
-            }, "Main_Dominated to reach the requested others-volume in decibels, well before the first seam", 2f);
+            }, "Main_Dominated to reach the requested others-volume in decibels, well before the first seam", DefaultPlaybackWaitSeconds);
 
             // The seam itself. UpdateInstance re-points the caller's wrapper at the incoming player, so the
             // handle resolving to a *different* AudioPlayer is the handover - no dsp arithmetic needed to
@@ -187,7 +187,7 @@ namespace Ami.BroAudio.Tests
             {
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float v);
                 return Mathf.Abs(v - AudioConstant.FullDecibelVolume) < DecibelTolerance;
-            }, "Main to return to full volume once the looping dominator stops", 3f);
+            }, "Main to return to full volume once the looping dominator stops", RampConvergenceWaitSeconds);
         }
 
         // AudioTrackObjectPool.CreateObject returns null once every Dominator group is checked out, so the

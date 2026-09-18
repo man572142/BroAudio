@@ -7,7 +7,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization for inventory 3.6: decorator attach semantics.
+    /// Runtime-only characterization: decorator attach semantics.
     /// <see cref="AudioPlayerDecorator"/>-based modes (<see cref="MusicPlayer"/>, <see cref="DominatorPlayer"/>)
     /// are attached, not inherited - <c>AsBGM()</c>/<c>AsDominator()</c> get or create a decorator instance
     /// on the player's own list, and a repeated call must reuse it rather than stack a duplicate.

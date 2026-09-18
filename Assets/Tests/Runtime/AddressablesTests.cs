@@ -11,7 +11,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory phase 5: Addressables load-on-play, preloading, release, and the unused-entity cleanup routine.
+    /// Addressables load-on-play, preloading, release, and the unused-entity cleanup routine.
     /// <para>
     /// Two generated sine fixtures are marked addressable for this suite — <c>BroAudioTest/ToneA</c> and
     /// <c>BroAudioTest/ToneB</c> in the Default Local Group. Their GUIDs live in
@@ -19,6 +19,7 @@ namespace Ami.BroAudio.Tests
     /// no authored <c>AudioEntity</c> asset is involved.
     /// </para>
     /// </summary>
+    [Category("Slow")]
     public class AddressablesTests : BroAudioTestFixture
     {
         private readonly List<AudioEntity> _addressableEntities = new List<AudioEntity>();
@@ -78,7 +79,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
 
             yield return WaitUntilOrTimeout(() => player.IsPlaying,
-                "the addressable clip to load and playback to start", 10f);
+                "the addressable clip to load and playback to start", SlowAddressableWaitSeconds);
             Assert.IsTrue(entity.Clips[0].IsLoaded, "Playing loads the asset.");
             Assert.IsNotNull(player.AudioSource.clip);
         }
@@ -92,13 +93,13 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
-            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
+            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", SlowAddressableWaitSeconds);
 
             Assert.AreEqual(AsyncOperationStatus.Succeeded, handle.Status);
             Assert.IsTrue(SoundManager.Instance.IsLoaded(id), "The entity reports loaded after preloading.");
 
             IAudioPlayer player = BroAudio.Play(id);
-            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start from the preloaded clip", 5f);
+            yield return WaitUntilOrTimeout(() => player.IsPlaying, "playback to start from the preloaded clip", SlowAddressableWaitSeconds);
             Assert.AreSame(handle.Result, player.AudioSource.clip, "Playback uses the preloaded asset.");
         }
 
@@ -110,7 +111,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             AsyncOperationHandle<IList<AudioClip>> handle = BroAudio.LoadAllAssetsAsync(id);
-            yield return WaitUntilOrTimeout(() => handle.IsDone, "the group preload handle to complete", 10f);
+            yield return WaitUntilOrTimeout(() => handle.IsDone, "the group preload handle to complete", SlowAddressableWaitSeconds);
 
             Assert.AreEqual(AsyncOperationStatus.Succeeded, handle.Status);
             Assert.IsTrue(SoundManager.Instance.IsLoaded(id, 0));
@@ -148,7 +149,7 @@ namespace Ami.BroAudio.Tests
             // so there is no later frame in which "still loading" can be observed without a race. The Assume
             // above is the real proof that the deferring branch was the one taken.
             yield return WaitUntilOrTimeout(() => player.IsPlaying,
-                "the deferred play to start once loading finishes", 10f);
+                "the deferred play to start once loading finishes", SlowAddressableWaitSeconds);
             Assert.IsNotNull(player.AudioSource.clip);
         }
 
@@ -159,7 +160,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
-            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
+            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", SlowAddressableWaitSeconds);
             Assert.IsTrue(SoundManager.Instance.IsLoaded(id));
 
             BroAudio.ReleaseAllAssets(id);
@@ -215,7 +216,7 @@ namespace Ami.BroAudio.Tests
             AsyncOperationHandle<AudioClip> staleHandle = BroAudio.LoadAssetAsync(stale);
             AsyncOperationHandle<AudioClip> freshHandle = BroAudio.LoadAssetAsync(fresh);
             yield return WaitUntilOrTimeout(() => staleHandle.IsDone && freshHandle.IsDone,
-                "both preload handles to complete", 10f);
+                "both preload handles to complete", SlowAddressableWaitSeconds);
             Assert.IsTrue(SoundManager.Instance.IsLoaded(stale));
             Assert.IsTrue(SoundManager.Instance.IsLoaded(fresh));
 
@@ -250,7 +251,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             AsyncOperationHandle<AudioClip> handle = BroAudio.LoadAssetAsync(id);
-            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", 10f);
+            yield return WaitUntilOrTimeout(() => handle.IsDone, "the preload handle to complete", SlowAddressableWaitSeconds);
             Assert.IsTrue(SoundManager.Instance.IsLoaded(id));
 
             BroAudio.ReleaseAsset(id);

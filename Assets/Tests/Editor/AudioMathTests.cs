@@ -10,7 +10,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// Pure conversion and comparison math: volume/dB conversion, clamp helpers, and <see cref="Effect"/>
-    /// ordering (inventory 0.2-0.4, see Docs/inventory/volume-mixer.md). Plain <c>[Test]</c>s only —
+    /// ordering (see Docs/inventory/volume-mixer.md). Plain <c>[Test]</c>s only —
     /// no SoundManager, no MonoBehaviour, no Play Mode.
     /// </summary>
     public class AudioMathTests
