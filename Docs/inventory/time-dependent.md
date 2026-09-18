@@ -247,16 +247,16 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | Fade out easing (`SetFadeOutEase`) | partial | Same test as fade-in easing; completion only, not shape. |
 | Clip StartPosition (trim from the front) | covered | `FadeAndTrimTests.Play_WithClipStartPosition_BeginsPlaybackPartwayIntoClip` |
 | Clip EndPosition (trim from the back) | covered | `FadeAndTrimTests.Play_WithClipEndPosition_EndsPlaybackBeforeClipLength` |
-| Clip Delay (per-clip, not per-call) | covered | `SchedulingAndMusicTests.Play_WithClipDelayOnly_PostponesAudibleStartButNotIsPlaying` |
-| Scheduled start time — `SetScheduledStartTime` / `SetDelay` | covered | `SchedulingAndMusicTests.SetScheduledStartTime_CalledBeforeQueueDrains_OverridesClipDelay`, `SetDelay_CalledBeforeQueueDrains_*`, `SetScheduledStartTime_OnAlreadyPlayingSource_StallsPlayheadWithoutChangingIsPlaying` |
-| Scheduled end time — `SetScheduledEndTime` | covered | `SchedulingAndMusicTests.SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength` |
-| Mid-play pitch change rescaling the derived end time | covered | `SchedulingAndMusicTests.SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration`, `SetPitch_AfterExplicitScheduledEndTime_DoesNotRescaleEndTime` |
-| Plain looping (`LoopType.Loop`) | covered | `LoopHandoverTests.Play_WithPlainLoop_NeverSetsAudioSourceLoopAndSurvivesMultipleSeams` |
+| Clip Delay (per-clip, not per-call) | covered | `ClipDelayAndSchedulingTests.Play_WithClipDelayOnly_PostponesAudibleStartButNotIsPlaying` |
+| Scheduled start time — `SetScheduledStartTime` / `SetDelay` | covered | `ClipDelayAndSchedulingTests.SetScheduledStartTime_CalledBeforeQueueDrains_OverridesClipDelay`, `SetDelay_CalledBeforeQueueDrains_*`; `ScheduledPlaybackContractTests.SetScheduledStartTime_OnAlreadyPlayingSource_StallsPlayheadWithoutChangingIsPlaying` |
+| Scheduled end time — `SetScheduledEndTime` | covered | `ScheduledPlaybackContractTests.SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength` |
+| Mid-play pitch change rescaling the derived end time | covered | `ScheduledPlaybackContractTests.SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration`, `SetPitch_AfterExplicitScheduledEndTime_DoesNotRescaleEndTime` |
+| Plain looping (`LoopType.Loop`) | covered | `LoopHandoverTests.Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams` |
 | Seamless looping with a transition time | covered | `LoopHandoverTests.Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam` |
 | Chained playback (intro → loop → outro) | covered | `LoopHandoverTests.ChainedPlayMode_HandsOverIntroToLoopToOutro_OutroHandoverFiresSynchronouslyOnStop` |
-| BGM transitions (`SetTransition`) | covered | `SchedulingAndMusicTests.SetTransition_Default_*`, `SetTransition_CrossFade_*`, `SetTransition_OnlyFadeOut_*`, `SetTransition_OnlyFadeIn_*`; `Immediate` through `OnBGMChanged_*` and the `StopMode.Pause`/`Mute` transition tests |
-| `AlwaysPlayMusicAsBGM` (RuntimeSetting) | covered | `SchedulingAndMusicTests.AlwaysPlayMusicAsBGM_Enabled_*`, `_Disabled_*` |
-| `OnBGMChanged` event | covered | `SchedulingAndMusicTests.OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer`; the double-fire quirk is also characterized by this test |
+| BGM transitions (`SetTransition`) | covered | `BGMTransitionTests.SetTransition_Default_*`, `SetTransition_CrossFade_*`, `SetTransition_OnlyFadeOut_*`, `SetTransition_OnlyFadeIn_*`; `Immediate` through `BGMChangedEventTests.OnBGMChanged_*` and the `StopMode.Pause`/`Mute` transition tests |
+| `AlwaysPlayMusicAsBGM` (RuntimeSetting) | covered | `AlwaysPlayMusicAsBGMTests.AlwaysPlayMusicAsBGM_Enabled_*`, `_Disabled_*` |
+| `OnBGMChanged` event | covered | `BGMChangedEventTests.OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer`; the double-fire quirk is also characterized by this test |
 | Stop with fade — general | covered | The two `FadeAndTrimTests.Stop_*` tests |
 | Pause across a handover seam | covered | `LoopHandoverTests.Pause_DuringSeamlessLoopHandoverSeam_DoesNotThrowAndResumes` |
 
