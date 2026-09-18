@@ -116,7 +116,7 @@ while everything else runs on frames.
 | | |
 |---|---|
 | **Behavior** | `IsActive` (`ID.IsValid()`) is `true` from the instant `Play` enqueues through Stop's full teardown/recycle; it does not distinguish queued vs. playing vs. paused vs. mid-fade-out. `IsPlaying` (`AudioSource.isPlaying`) is `false` while queued (pre-`LateUpdate`), flips `true` once `AudioSource.Play()`/`UnPause()` actually runs, and flips `false` again on Pause or full Stop. |
-| **Observable** | Public API directly — this pairing is already the backbone of `PlaybackSmokeTests`: `IsActive` true immediately after `Play`, `IsPlaying` only true after a frame + poll. |
+| **Observable** | Public API directly — this pairing is pinned by `PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows`: `IsActive` true immediately after `Play`, `IsPlaying` only true after a frame + poll. |
 | **Edge cases** | The queued-but-not-yet-drained window (`IsActive == true && IsPlaying == false`, exists for exactly one frame minimum); the paused window (same combination, but reachable at any time, not just start); Addressables-not-yet-loaded window if applicable (`PlayControl` yields on `WaitForAddressablesToLoad` before `AudioSource.clip` is even assigned — `IsActive` true, `IsPlaying` false, for an unbounded time if the load hangs). |
 | **Timing class** | Frame. |
 | **Regression risk** | High — this exact distinction is called out in the class doc comments and is clearly load-bearing for consumers who poll it to decide when it's safe to, e.g., read `AudioSource`. |
@@ -163,14 +163,14 @@ yet, and testable; **out of scope** = deliberately not tested, with the reason.
 
 | Behavior | Status | Pinned by |
 |---|---|---|
-| Play — global / positioned / follow-target | covered | `PlaybackSmokeTests.Play_AfterQueueIsDrained_PlaysTheEntitysClip` (global); `PlaybackGroupTests.Play_PositionedFarApart_*` (positioned); `SoundSourceTests.Play_WithFollowGameObjectPositionMode_KeepsTheVoiceOnTheMovingHost` (follow-target, through `SoundSource`). |
+| Play — global / positioned / follow-target | covered | `PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows` (global); `PlaybackGroupTests.Play_PositionedFarApart_*` (positioned); `SoundSourceTests.Play_WithFollowGameObjectPositionMode_KeepsTheVoiceOnTheMovingHost` (follow-target, through `SoundSource`). |
 | Play returns Empty.AudioPlayer when the sound is not playable | covered | `PlaybackLifecycleTests.Play_RejectedByValidator_ReturnsInertEmptyPlayer` |
-| Stop by SoundID | covered | `PlaybackSmokeTests.Stop_AfterPlaying_DeactivatesThePlayer`; `FadeAndTrimTests.Stop_SecondNonImmediateCall_*`, `Stop_WithImmediateFade_*` |
+| Stop by SoundID | covered | `PlaybackLifecycleTests.Stop_WithSingleFlag_LeavesOtherTypesPlaying`; `FadeAndTrimTests.Stop_SecondNonImmediateCall_*`, `Stop_WithImmediateFade_*` |
 | Stop by BroAudioType, including the All flag | covered | `PlaybackLifecycleTests.Stop_WithAllFlag_DeactivatesEveryConcreteType`, `Stop_WithSingleFlag_LeavesOtherTypesPlaying`; with a fade across one-shots and a loop, `LoopHandoverTests.Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd` (TEST_FINDINGS #58) |
 | Stop with a completion callback | covered | `PlaybackLifecycleTests.Stop_WithOnFinishedCallback_FiresAfterTheFadeButIsDroppedByARecycledHandle` (TEST_FINDINGS #41) |
 | Pause / UnPause by SoundID and by BroAudioType | covered | `PlaybackLifecycleTests.Pause_ThenUnPause_FreezesAndResumesFromSamePosition`, `Pause_BySoundID_*`, `Pause_ByBroAudioType_*`, `Pause_ByTypeWithFadeTime_*`; the clip fade-in on resume, `UnPause_OnClipWithFadeIn_RestartsTheFadeInFromSilenceUnlessOverridden` |
-| StopMode.Mute — reachable only as a BGM transition stop mode | covered | `SchedulingAndMusicTests.SetTransition_WithStopModeMute_MutesOutgoingBGMButLeavesItAudiblyPlaying` |
-| Player recycling and the stale-handle contract | covered | `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal`; `SelectionStateAndDecoratorTests.AudioSource_AccessedAfterRecycle_*` |
+| StopMode.Mute — reachable only as a BGM transition stop mode | covered | `BGMTransitionTests.SetTransition_WithStopModeMute_MutesOutgoingBGMButLeavesItAudiblyPlaying` |
+| Player recycling and the stale-handle contract | covered | `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` (both the inert-handle and the `AudioSource`-resolves-to-null dimensions) |
 | Same pooled AudioPlayer instance is reused across independent Play calls | covered | `VolumePitchMixerTests.Play_AcquiresPooledMixerTrackAndReusesOneAfterRecycle` |
 | OnStart / OnUpdate / OnPause / OnEnd callbacks | covered | `PlaybackLifecycleTests.Callbacks_OnStartOnUpdateOnPause_FireWithExpectedCounts`, `OnEnd_WhenPlaybackFinishes_FiresOnceWithOriginalID` |
 | IsActive vs IsPlaying | covered | `PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows` |
