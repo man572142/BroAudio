@@ -235,6 +235,6 @@ namespace Ami.BroAudio.Tests
         }
 
         private static List<AudioPlayerDecorator> GetDecorators(IAudioPlayer player)
-            => TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(InstanceOf(player), "_decorators");
+            => TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(InstanceOf(player), TestAudioLibrary.Reflected.AudioPlayer.Decorators);
     }
 }

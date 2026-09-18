@@ -35,11 +35,6 @@ namespace Ami.BroAudio.Tests
     {
         private const int DefaultResolutionScale = 10;
 
-        // SoundSource.NameOf is compiled only under UNITY_EDITOR, but Tests.asmdef targets every platform,
-        // so the field names are spelled out here the same way SoundSourceTests spells them out.
-        private const string SoundField = "_sound";
-        private const string PlayOnEnableField = "_playOnEnable";
-
         /// <summary>
         /// The width of one FFT bin, computed exactly as <see cref="SpectrumAnalyzer"/>'s Start does. Band
         /// frequencies that have to land on a particular bin are derived from this rather than hardcoded -
@@ -94,8 +89,8 @@ namespace Ami.BroAudio.Tests
             host.SetActive(false);
 
             SoundSource source = host.AddComponent<SoundSource>();
-            TestAudioLibrary.SetPrivateField(source, SoundField, id);
-            TestAudioLibrary.SetPrivateField(source, PlayOnEnableField, true);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.Sound, id);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.PlayOnEnable, true);
 
             host.SetActive(true);
             return source;

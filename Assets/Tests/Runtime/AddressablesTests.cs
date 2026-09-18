@@ -294,7 +294,7 @@ namespace Ami.BroAudio.Tests
         private static Dictionary<SoundID, double> LastPlayedTimes()
         {
             return TestAudioLibrary.GetPrivateField<Dictionary<SoundID, double>>(
-                SoundManager.Instance, "_loadedEntityLastPlayedTime");
+                SoundManager.Instance, TestAudioLibrary.Reflected.SoundManager.LoadedEntityLastPlayedTime);
         }
     }
 }

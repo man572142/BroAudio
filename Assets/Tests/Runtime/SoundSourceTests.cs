@@ -38,17 +38,6 @@ namespace Ami.BroAudio.Tests
         // not equalities. Matches FadeAndTrimTests' NearTargetThreshold.
         private const float NearTargetVolume = 0.95f;
 
-        // SoundSource.NameOf is compiled only under UNITY_EDITOR, but Tests.asmdef targets every platform,
-        // so the field names are spelled out here the same way the other fixtures spell out AudioEntity's.
-        private const string SoundField = "_sound";
-        private const string PositionModeField = "_positionMode";
-        private const string PlayOnEnableField = "_playOnEnable";
-        private const string OnlyPlayOnceField = "_onlyPlayOnce";
-        private const string StopOnDisableField = "_stopOnDisable";
-        private const string OverrideFadeOutField = "_overrideFadeOut";
-        private const string DelayField = "_delay";
-        private const string OverrideGroupField = "_overrideGroup";
-
         private static void AssertPosition(Vector3 expected, Vector3 actual, string message)
             => Assert.Less(Vector3.Distance(expected, actual), PositionTolerance, $"{message} (expected {expected}, was {actual})");
 
@@ -74,14 +63,14 @@ namespace Ami.BroAudio.Tests
             host.transform.position = position;
 
             SoundSource source = host.AddComponent<SoundSource>();
-            TestAudioLibrary.SetPrivateField(source, SoundField, id);
-            TestAudioLibrary.SetPrivateField(source, PositionModeField, positionMode);
-            TestAudioLibrary.SetPrivateField(source, PlayOnEnableField, playOnEnable);
-            TestAudioLibrary.SetPrivateField(source, OnlyPlayOnceField, onlyPlayOnce);
-            TestAudioLibrary.SetPrivateField(source, StopOnDisableField, stopOnDisable);
-            TestAudioLibrary.SetPrivateField(source, OverrideFadeOutField, overrideFadeOut);
-            TestAudioLibrary.SetPrivateField(source, DelayField, delay);
-            TestAudioLibrary.SetPrivateField(source, OverrideGroupField, overrideGroup);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.Sound, id);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.PositionMode, positionMode);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.PlayOnEnable, playOnEnable);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.OnlyPlayOnce, onlyPlayOnce);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.StopOnDisable, stopOnDisable);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.OverrideFadeOut, overrideFadeOut);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.Delay, delay);
+            TestAudioLibrary.SetPrivateField(source, TestAudioLibrary.Reflected.SoundSource.OverrideGroup, overrideGroup);
 
             host.SetActive(true);
             return source;

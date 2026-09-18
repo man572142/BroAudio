@@ -1,5 +1,6 @@
 using System.Reflection;
 using Ami.BroAudio.Data;
+using Ami.BroAudio.Runtime;
 using Ami.Extension;
 using UnityEngine;
 
@@ -205,6 +206,92 @@ namespace Ami.BroAudio.Tests
                 type = type.BaseType;
             }
             throw new System.MissingFieldException(target.GetType().Name, fieldName);
+        }
+
+        /// <summary>
+        /// Every genuinely private, non-auto-property member name the suite reaches by string literal - one
+        /// place to update on a rename. A member that already has a compile-checked source (a public
+        /// member's <c>nameof</c>, or a production <c>NameOf</c>/<c>EditorPropertyName</c> class) is NOT
+        /// duplicated here - except that several of those sources (<c>SoundSource.NameOf</c>,
+        /// <c>DefaultPlaybackGroup.NameOf</c>, <see cref="AudioEntity.EditorPropertyName"/>) live behind
+        /// <c>#if UNITY_EDITOR</c> in production, while this file's assembly (Tests.asmdef) targets every
+        /// platform - so the Runtime suite still has to reach those particular members by string, which is
+        /// what the constants below centralize.
+        /// </summary>
+        public static class Reflected
+        {
+            /// <summary>Names on <see cref="AudioEntity"/> with no cross-platform compile-checked source.</summary>
+            public static class AudioEntity
+            {
+                /// <summary>Plain private field (not an auto-property) - shadows its own enum type's name.</summary>
+                public const string MulticlipsPlayMode = "MulticlipsPlayMode";
+                public const string Group = "_group";
+            }
+
+            /// <summary>Names on <c>Ami.BroAudio.SoundSource</c>; its own <c>NameOf</c> is UNITY_EDITOR-only.</summary>
+            public static class SoundSource
+            {
+                public const string Sound = "_sound";
+                public const string PositionMode = "_positionMode";
+                public const string PlayOnEnable = "_playOnEnable";
+                public const string OnlyPlayOnce = "_onlyPlayOnce";
+                public const string StopOnDisable = "_stopOnDisable";
+                public const string OverrideFadeOut = "_overrideFadeOut";
+                public const string Delay = "_delay";
+                public const string OverrideGroup = "_overrideGroup";
+            }
+
+            /// <summary>Names on <c>Ami.BroAudio.DefaultPlaybackGroup</c>; its own <c>NameOf</c> is UNITY_EDITOR-only.</summary>
+            public static class DefaultPlaybackGroup
+            {
+                public const string MaxPlayableCount = "_maxPlayableCount";
+                public const string CombFilteringTime = "_combFilteringTime";
+                public const string IgnoreCombFilteringIfSameFrame = "_ignoreCombFilteringIfSameFrame";
+                public const string IgnoreIfDistanceIsGreaterThan = "_ignoreIfDistanceIsGreaterThan";
+                public const string LogCombFilteringWarning = "_logCombFilteringWarning";
+            }
+
+            /// <summary>Names on <c>Ami.BroAudio.Runtime.AudioPlayer</c>, which exposes no NameOf of its own.</summary>
+            public static class AudioPlayer
+            {
+                public const string Decorators = "_decorators";
+            }
+
+            /// <summary>Names on <c>Ami.BroAudio.Runtime.SoundManager</c>, which exposes no NameOf of its own.</summary>
+            public static class SoundManager
+            {
+                public const string LoadedEntityLastPlayedTime = "_loadedEntityLastPlayedTime";
+                public const string GetCurrentAudioPlayers = "GetCurrentAudioPlayers";
+            }
+
+            /// <summary>
+            /// Resolves a private instance field lazily, at first use, throwing a <see cref="BroAudioException"/>
+            /// that names the exact type and member instead of leaving a caller to dereference a null
+            /// FieldInfo. Reused instead of a new exception type per CLAUDE.md - a renamed reflection target
+            /// here is a genuine test-scaffolding setup error, not an expected "not found" gameplay path.
+            /// </summary>
+            public static FieldInfo Field(System.Type type, string fieldName)
+            {
+                FieldInfo field = type.GetField(fieldName, PrivateInstance);
+                if (field == null)
+                {
+                    throw new BroAudioException($"Reflection: {type.Name}.{fieldName} could not be resolved. " +
+                        "Renamed or moved? Update TestAudioLibrary.Reflected and its caller.");
+                }
+                return field;
+            }
+
+            /// <summary>Resolves a private instance method lazily, at first use. See <see cref="Field"/>.</summary>
+            public static MethodInfo Method(System.Type type, string methodName)
+            {
+                MethodInfo method = type.GetMethod(methodName, PrivateInstance);
+                if (method == null)
+                {
+                    throw new BroAudioException($"Reflection: {type.Name}.{methodName} could not be resolved. " +
+                        "Renamed or moved? Update TestAudioLibrary.Reflected and its caller.");
+                }
+                return method;
+            }
         }
     }
 }

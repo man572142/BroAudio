@@ -34,16 +34,12 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class LoopHandoverTests : BroAudioTestFixture
     {
-        private static readonly MethodInfo GetCurrentAudioPlayersMethod = GetCurrentAudioPlayersMethodOrThrow();
-
-        // Guards the reflection lookup above: an un-checked null here would NRE at Invoke with no useful
-        // message if SoundManager.GetCurrentAudioPlayers is ever renamed.
-        private static MethodInfo GetCurrentAudioPlayersMethodOrThrow()
-        {
-            MethodInfo method = typeof(SoundManager).GetMethod("GetCurrentAudioPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(method, "Reflection: SoundManager.GetCurrentAudioPlayers not found - renamed? Update LoopHandoverTests.");
-            return method;
-        }
+        // Lazy, not a static field initializer: a rename now throws (TestAudioLibrary.Reflected.Method)
+        // the first time a test actually calls GetActivePlayers, naming the missing member - not at type
+        // load, where it would take down every test in this fixture behind one unrelated-looking error.
+        private static MethodInfo _getCurrentAudioPlayersMethod;
+        private static MethodInfo GetCurrentAudioPlayersMethod => _getCurrentAudioPlayersMethod ??=
+            TestAudioLibrary.Reflected.Method(typeof(SoundManager), TestAudioLibrary.Reflected.SoundManager.GetCurrentAudioPlayers);
 
         /// <summary>
         /// All active, audibly-playing AudioPlayer instances for a SoundID - mirrors the filter behind the
@@ -280,7 +276,7 @@ namespace Ami.BroAudio.Tests
             AudioClip loopClip = NewClip(ClipSeconds, "Loop");
             AudioClip outroClip = NewClip(ClipSeconds, "Outro");
             AudioEntity entity = NewEntity("ChainedSfx", BroAudioType.SFX, introClip, loopClip, outroClip);
-            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Chained);
+            TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.MulticlipsPlayMode, MulticlipsPlayMode.Chained);
             SoundID id = IdOf(entity);
 
             double? startDsp = null;
@@ -410,7 +406,7 @@ namespace Ami.BroAudio.Tests
             const float ClipSeconds = 0.5f;
             AudioClip[] clips = { NewClip(ClipSeconds, "PerLoopClip0"), NewClip(ClipSeconds, "PerLoopClip1"), NewClip(ClipSeconds, "PerLoopClip2") };
             AudioEntity entity = NewEntity("ChangeClipPerLoopSfx", BroAudioType.SFX, clips);
-            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Sequence);
+            TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.MulticlipsPlayMode, MulticlipsPlayMode.Sequence);
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Flags), AudioEntityFlag.ChangeClipPerLoop);
             SoundID id = IdOf(entity);

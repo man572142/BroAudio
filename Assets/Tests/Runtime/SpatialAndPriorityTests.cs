@@ -216,7 +216,7 @@ namespace Ami.BroAudio.Tests
 
             // AsBGM() attaches the MusicPlayer decorator before SoundManager.LateUpdate drains the Play
             // queue (BroAudio.Play only enqueues), so PlayControl sees it once it actually runs - the same
-            // ordering SchedulingAndMusicTests relies on. No prior BGM is active at the start of a test (the
+            // ordering BGMTransitionTests relies on. No prior BGM is active at the start of a test (the
             // base fixture's teardown fully stops everything first), so DoTransition takes its immediate
             // "no prior BGM" path and never waits on a transition.
             IAudioPlayer player = BroAudio.Play(id);

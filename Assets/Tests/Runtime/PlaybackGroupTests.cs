@@ -29,7 +29,7 @@ namespace Ami.BroAudio.Tests
         private SoundID NewGroupedSound(DefaultPlaybackGroup group, string name, float clipSeconds = 2f)
         {
             AudioEntity entity = NewEntity(name, BroAudioType.SFX, NewClip(clipSeconds, name + "Clip"));
-            TestAudioLibrary.SetPrivateField(entity, "_group", group);
+            TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.Group, group);
             return IdOf(entity);
         }
 

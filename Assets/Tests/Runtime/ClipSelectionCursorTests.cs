@@ -23,7 +23,7 @@ namespace Ami.BroAudio.Tests
             AudioClip clip1 = NewClip(3f, "SeqClip1");
             AudioClip clip2 = NewClip(3f, "SeqClip2");
             AudioEntity entity = NewEntity("SeqSfx", BroAudioType.SFX, clip0, clip1, clip2);
-            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Sequence);
+            TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.MulticlipsPlayMode, MulticlipsPlayMode.Sequence);
             SoundID id = IdOf(entity);
 
             IAudioPlayer player1 = BroAudio.Play(id);
@@ -56,7 +56,7 @@ namespace Ami.BroAudio.Tests
             AudioClip mid = NewClip(3f, "MidVelocityClip");
             AudioClip high = NewClip(3f, "HighVelocityClip");
             AudioEntity entity = NewEntity("VelocityWiringSfx", BroAudioType.SFX, low, mid, high);
-            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Velocity);
+            TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.MulticlipsPlayMode, MulticlipsPlayMode.Velocity);
             entity.Clips[0].Weight = 0;
             entity.Clips[1].Weight = 40;
             entity.Clips[2].Weight = 80;
@@ -78,7 +78,7 @@ namespace Ami.BroAudio.Tests
             AudioClip clip1 = NewClip(3f, "SeqIdClip1");
             AudioClip clip2 = NewClip(3f, "SeqIdClip2");
             AudioEntity entity = NewEntity("SequenceWiringSfx", BroAudioType.SFX, clip0, clip1, clip2);
-            TestAudioLibrary.SetPrivateField(entity, "MulticlipsPlayMode", MulticlipsPlayMode.Sequence);
+            TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.MulticlipsPlayMode, MulticlipsPlayMode.Sequence);
             SoundID id = IdOf(entity);
 
             IAudioPlayer firstA = BroAudio.Play(id);
