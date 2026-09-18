@@ -86,7 +86,7 @@ namespace Ami.BroAudio.Tests
             SoundSource source = NewSource(id, SoundSource.PositionMode.Global, new Vector3(12f, 3f, -7f));
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", DefaultPlaybackWaitSeconds);
 
             AudioPlayer player = InstanceOf(source.CurrentPlayer);
             Assert.IsNotNull(player, "CurrentPlayer should wrap a real pooled AudioPlayer.");
@@ -106,7 +106,7 @@ namespace Ami.BroAudio.Tests
             SoundSource source = NewSource(id, SoundSource.PositionMode.StayHere, origin);
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", DefaultPlaybackWaitSeconds);
 
             AudioPlayer player = InstanceOf(source.CurrentPlayer);
             AssertPosition(origin, player.PlayingPosition, "StayHere must play at the host's position");
@@ -132,7 +132,7 @@ namespace Ami.BroAudio.Tests
             SoundSource source = NewSource(id, SoundSource.PositionMode.FollowGameObject, start);
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the SoundSource's playback to start", DefaultPlaybackWaitSeconds);
 
             AudioPlayer player = InstanceOf(source.CurrentPlayer);
             AssertPosition(start, player.transform.position, "A follow-target play should start on the target");
@@ -159,7 +159,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("PlayOnEnableSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, stopOnDisable: true);
 
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "OnEnable to start playback", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "OnEnable to start playback", DefaultPlaybackWaitSeconds);
 
             source.gameObject.SetActive(false);
             yield return WaitFrames(2);
@@ -168,7 +168,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(id.HasAnyPlayingInstances(), "Stop On Disable with the default fade must cut the voice immediately.");
 
             source.gameObject.SetActive(true);
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "a second OnEnable to start playback again", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "a second OnEnable to start playback again", DefaultPlaybackWaitSeconds);
         }
 
         // Only Play Once clears _playOnEnable from inside the first OnEnable, so re-enabling is silent for
@@ -181,7 +181,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("OnlyOnceSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, onlyPlayOnce: true, stopOnDisable: true);
 
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the first OnEnable to start playback", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the first OnEnable to start playback", DefaultPlaybackWaitSeconds);
 
             source.gameObject.SetActive(false);
             yield return WaitFrames(2);
@@ -201,7 +201,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("KeepPlayingSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, stopOnDisable: false);
 
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "OnEnable to start playback", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "OnEnable to start playback", DefaultPlaybackWaitSeconds);
             IAudioPlayer player = source.CurrentPlayer;
 
             source.gameObject.SetActive(false);
@@ -220,7 +220,7 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("DisableFadeSfx", BroAudioType.SFX, NewClip(3f));
             SoundSource source = NewSource(id, playOnEnable: true, stopOnDisable: true, overrideFadeOut: fadeOut);
 
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "OnEnable to start playback", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "OnEnable to start playback", DefaultPlaybackWaitSeconds);
             yield return WaitFrames(2);
 
             IAudioPlayer player = source.CurrentPlayer;
@@ -263,7 +263,7 @@ namespace Ami.BroAudio.Tests
             source.gameObject.SetActive(false);
 
             yield return WaitUntilOrTimeout(() => id.HasAnyPlayingInstances(),
-                "the queued voice to start despite Stop On Disable having already run", 2f);
+                "the queued voice to start despite Stop On Disable having already run", DefaultPlaybackWaitSeconds);
         }
         #endregion
 
@@ -277,7 +277,7 @@ namespace Ami.BroAudio.Tests
             SoundSource source = NewSource(id);
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the first playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the first playback to start", DefaultPlaybackWaitSeconds);
 
             bool firstEnded = false;
             IAudioPlayer firstHandle = source.CurrentPlayer;
@@ -286,8 +286,8 @@ namespace Ami.BroAudio.Tests
             source.Play();
             Assert.AreNotSame(firstHandle, source.CurrentPlayer, "Each Play must hand the component a fresh player handle.");
 
-            yield return WaitUntilOrTimeout(() => firstEnded, "the replaced voice to be stopped by the new Play", 2f);
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the replacement voice to start playing", 2f);
+            yield return WaitUntilOrTimeout(() => firstEnded, "the replaced voice to be stopped by the new Play", DefaultPlaybackWaitSeconds);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the replacement voice to start playing", DefaultPlaybackWaitSeconds);
         }
 
         // The Stop/Pause/UnPause verbs are pure delegation behind an IsActive guard, and the component's own
@@ -310,17 +310,17 @@ namespace Ami.BroAudio.Tests
             }, "Every verb must be a silent no-op before anything has been played - CurrentPlayer is still null.");
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "playback to start", DefaultPlaybackWaitSeconds);
 
             source.Pause(FadeData.Immediate);
-            yield return WaitUntilOrTimeout(() => !source.IsPlaying, "Pause to freeze the voice", 2f);
+            yield return WaitUntilOrTimeout(() => !source.IsPlaying, "Pause to freeze the voice", DefaultPlaybackWaitSeconds);
             Assert.IsTrue(source.IsActive, "A paused SoundSource reports not playing, but still active.");
 
             source.UnPause(FadeData.Immediate);
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "UnPause to resume the voice", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "UnPause to resume the voice", DefaultPlaybackWaitSeconds);
 
             source.Stop(FadeData.Immediate);
-            yield return WaitUntilOrTimeout(() => !source.IsActive, "Stop to end playback and recycle the player", 2f);
+            yield return WaitUntilOrTimeout(() => !source.IsActive, "Stop to end playback and recycle the player", DefaultPlaybackWaitSeconds);
             Assert.IsFalse(source.IsPlaying, "A stopped SoundSource is neither active nor playing, and reading it after recycle must not throw.");
         }
 
@@ -333,7 +333,7 @@ namespace Ami.BroAudio.Tests
             SoundSource source = NewSource(id);
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "playback to start", DefaultPlaybackWaitSeconds);
             yield return WaitFrames(1);
 
             Assert.AreEqual(1f, source.CurrentPlayer.GetVolume(), LinearTolerance, "A freshly played default entity starts at full linear volume.");
@@ -348,13 +348,13 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(0.5f, source.CurrentPlayer.AudioSource.pitch, LinearTolerance, "SetPitch must reach the live AudioSource.");
 
             source.Stop(FadeData.Immediate);
-            yield return WaitUntilOrTimeout(() => !source.IsActive, "the voice to stop and recycle", 2f);
+            yield return WaitUntilOrTimeout(() => !source.IsActive, "the voice to stop and recycle", DefaultPlaybackWaitSeconds);
 
             source.SetVolume(0.25f);
             source.SetPitch(2f);
 
             source.Play();
-            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the second playback to start", 2f);
+            yield return WaitUntilOrTimeout(() => source.IsPlaying, "the second playback to start", DefaultPlaybackWaitSeconds);
             yield return WaitFrames(1);
 
             Assert.AreEqual(1f, source.CurrentPlayer.GetVolume(), LinearTolerance,
@@ -413,7 +413,7 @@ namespace Ami.BroAudio.Tests
             // A generous timeout so a stalled frame fails loudly rather than flakily; the discriminating
             // assertion is the elapsed time below - had Play() applied the Delay, this would take ~1s.
             yield return WaitUntilOrTimeout(() => source.CurrentPlayer.AudioSource.timeSamples > 0,
-                "a direct Play to start audibly", 3f);
+                "a direct Play to start audibly", RampConvergenceWaitSeconds);
             Assert.Less(Time.realtimeSinceStartup - startedAt, delay,
                 "Play() must start on the next queue drain, not wait out the inspector's Delay.");
         }
@@ -437,7 +437,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(SoundID.Invalid, second.CurrentPlayer.ID,
                 "A rejected play leaves the component holding the inert empty player, not null.");
 
-            yield return WaitUntilOrTimeout(() => first.IsPlaying, "the accepted voice to start", 2f);
+            yield return WaitUntilOrTimeout(() => first.IsPlaying, "the accepted voice to start", DefaultPlaybackWaitSeconds);
             Assert.IsFalse(second.IsPlaying, "The rejected SoundSource must never become audible.");
         }
 

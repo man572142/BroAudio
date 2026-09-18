@@ -9,8 +9,8 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory 1.6-1.9 (Docs/inventory/volume-mixer.md): volume composition, per-type volume's
-    /// live/future behavior, mixer track acquisition/return, and pitch via AudioSource.
+    /// Volume composition, per-type volume's live/future behavior, mixer track acquisition/return, and
+    /// pitch via AudioSource. See Docs/inventory/volume-mixer.md.
     /// </summary>
     public class VolumePitchMixerTests : BroAudioTestFixture
     {
@@ -139,7 +139,7 @@ namespace Ami.BroAudio.Tests
             // the fade was deferred rather than the pitch snapping straight to the target (2).
             Assert.Less(player.AudioSource.pitch, 1.9f, "SetPitch called before play should defer into a fade, not snap to the target immediately.");
 
-            yield return WaitUntilOrTimeout(() => Mathf.Abs(player.AudioSource.pitch - 2f) < 0.01f, "the deferred pitch fade to reach its target", 2f);
+            yield return WaitUntilOrTimeout(() => Mathf.Abs(player.AudioSource.pitch - 2f) < 0.01f, "the deferred pitch fade to reach its target", DefaultPlaybackWaitSeconds);
             Assert.AreEqual(2f, player.AudioSource.pitch, LinearTolerance);
         }
 
@@ -155,7 +155,7 @@ namespace Ami.BroAudio.Tests
             SoundID musicId = NewSound("PitchTypeLiveMusic", BroAudioType.Music, NewClip(3f));
             IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
             IAudioPlayer musicPlayer = BroAudio.Play(musicId);
-            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", 2f);
+            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", DefaultPlaybackWaitSeconds);
 
             BroAudio.SetPitch(BroAudioType.SFX, 0.5f);
             yield return WaitFrames(1);

@@ -6,7 +6,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 2.8: <c>BroAudio.OnBGMChanged</c> fires exactly once per actual
+    /// <c>BroAudio.OnBGMChanged</c> fires exactly once per actual
     /// <c>CurrentBGMPlayer</c> change. See Docs/inventory/time-dependent.md.
     /// </summary>
     public class BGMChangedEventTests : BroAudioTestFixture
@@ -28,7 +28,7 @@ namespace Ami.BroAudio.Tests
             first.AsBGM().SetTransition(Transition.Immediate);
 
             yield return WaitUntilOrTimeout(() => received.Count >= 1,
-                "OnBGMChanged to fire when the first BGM becomes current", 2f);
+                "OnBGMChanged to fire when the first BGM becomes current", DefaultPlaybackWaitSeconds);
             Assert.AreEqual(firstId, received[0].ID, "The first event carries the incoming BGM player.");
 
             SoundID secondId = NewSound("EventBgmB", BroAudioType.Music, NewClip(4f));
@@ -37,7 +37,7 @@ namespace Ami.BroAudio.Tests
 
             yield return WaitUntilOrTimeout(
                 () => received.Exists(p => p != null && p.ID.Equals(secondId)),
-                "OnBGMChanged to report the second BGM player", 4f);
+                "OnBGMChanged to report the second BGM player", HandoverWaitSeconds);
 
             Assert.IsTrue(received.Exists(p => p == null),
                 "A null argument is raised as the outgoing BGM clears.");

@@ -9,14 +9,14 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// TEST_INVENTORY 1.6 claims the per-sound volume a designer authors in the Library Manager - the
-    /// product of <see cref="BroAudioClip.Volume"/> and <see cref="AudioEntity.MasterVolume"/> computed in
+    /// The per-sound volume a designer authors in the Library Manager - the product of
+    /// <see cref="BroAudioClip.Volume"/> and <see cref="AudioEntity.MasterVolume"/> computed in
     /// AudioPlayer.Playback.cs's <c>SetupClipVolume</c> (<c>_clip.Volume * _pref.Entity.GetMasterVolume()</c>)
-    /// - is covered. It isn't: every entity built by <see cref="TestAudioLibrary.CreateEntity"/> defaults both
-    /// factors to 1, so nothing in the suite would notice if that multiplication were deleted entirely. These
-    /// tests use <see cref="TestAudioLibrary.CreateEntityWithVolume"/> to move both factors off 1 at once, in
-    /// a fixture chosen so the three ways SetupClipVolume could break (drop the clip factor, drop the master factor,
-    /// drop the whole expression) each read back as a different, wrong number.
+    /// - needs a dedicated fixture: every entity built by <see cref="TestAudioLibrary.CreateEntity"/> defaults
+    /// both factors to 1, so nothing elsewhere in the suite would notice if that multiplication were deleted
+    /// entirely. These tests use <see cref="TestAudioLibrary.CreateEntityWithVolume"/> to move both factors
+    /// off 1 at once, in a fixture chosen so the three ways SetupClipVolume could break (drop the clip factor,
+    /// drop the master factor, drop the whole expression) each read back as a different, wrong number.
     /// <para>
     /// Observable: <c>player.GetVolume()</c> (<c>_clipVolume.Current * _trackVolume.Current *
     /// _audioTypeVolume.Current</c>, AudioPlayer.Volume.cs), the same linear-product bookkeeping

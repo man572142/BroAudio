@@ -89,14 +89,21 @@ namespace Ami.BroAudio.Tests
             bool previousIgnore = LogAssert.ignoreFailingMessages;
             LogAssert.ignoreFailingMessages = true;
 
-            action();
-            for (int i = 0; i < waitFrames; i++)
+            // try/finally, not a plain pair of statements: ignoreFailingMessages is static, so an action that
+            // throws would otherwise leave every later test in the run unable to fail on an unexpected log.
+            try
             {
-                yield return null;
+                action();
+                for (int i = 0; i < waitFrames; i++)
+                {
+                    yield return null;
+                }
             }
-
-            LogAssert.ignoreFailingMessages = previousIgnore;
-            Application.logMessageReceived -= OnLog;
+            finally
+            {
+                LogAssert.ignoreFailingMessages = previousIgnore;
+                Application.logMessageReceived -= OnLog;
+            }
 
             foreach (string message in taggedErrors)
             {
@@ -272,7 +279,7 @@ namespace Ami.BroAudio.Tests
                 _capturedBufferLength = data.Length;
             });
 
-            yield return WaitUntilOrTimeout(() => _capturedBufferLength >= 0, "OnAudioFilterRead to fire at least once", 2f);
+            yield return WaitUntilOrTimeout(() => _capturedBufferLength >= 0, "OnAudioFilterRead to fire at least once", DefaultPlaybackWaitSeconds);
 
             Assert.Greater(_capturedChannels, 0, "channels should be > 0 while the source is playing.");
             Assert.Greater(_capturedBufferLength, 0, "the buffer passed to the callback should be non-empty.");
@@ -322,7 +329,7 @@ namespace Ami.BroAudio.Tests
             // and a player of any other type is left alone.
             BroAudio.SetEffect(Effect.LowPass(800f), BroAudioType.Music);
             yield return WaitUntilOrTimeout(() => music.IsUsingTrackEffect,
-                "the already-playing Music player to be re-routed through the effect send", 2f);
+                "the already-playing Music player to be re-routed through the effect send", DefaultPlaybackWaitSeconds);
 
             Assert.AreNotEqual(EffectType.None, music.CurrentActiveTrackEffects & EffectType.LowPass,
                 "LowPass should be part of the live Music player's active track effects.");
@@ -335,7 +342,7 @@ namespace Ami.BroAudio.Tests
             // to the automation helper's onReset callback rather than running it inline; hence the poll.
             yield return ResetLowPassEffect();
             yield return WaitUntilOrTimeout(() => !music.IsUsingTrackEffect,
-                "the reset to remove the Music player's track effect", 2f);
+                "the reset to remove the Music player's track effect", DefaultPlaybackWaitSeconds);
 
             Assert.AreEqual(EffectType.None, music.CurrentActiveTrackEffects, "The reset should leave the Music player with no active track effect.");
             Assert.AreEqual(EffectType.None, sfx.CurrentActiveTrackEffects, "The reset should leave the untouched SFX player clear as well.");
@@ -394,7 +401,7 @@ namespace Ami.BroAudio.Tests
             {
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float v);
                 return Mathf.Abs(v - 700f) <= FrequencyTolerance;
-            }, "the LowPass fade to reach 700Hz", 2f);
+            }, "the LowPass fade to reach 700Hz", DefaultPlaybackWaitSeconds);
 
             yield return waitable.ForSeconds(0.2f);
             yield return WaitFrames(3); // let the internal WaitUntil(IsFinished)-driven reset coroutine catch up

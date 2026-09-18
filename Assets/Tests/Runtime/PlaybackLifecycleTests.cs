@@ -11,9 +11,9 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 1.1-1.5, 1.11: the Play/Stop/Pause lifecycle, the queued-vs-playing window,
-    /// the stale-handle contract after recycle, the rejected-Play null-object path, and the
-    /// OnStart/OnUpdate/OnPause/OnEnd callback contract. See Docs/inventory/lifecycle.md.
+    /// The Play/Stop/Pause lifecycle, the queued-vs-playing window, the stale-handle contract after
+    /// recycle, the rejected-Play null-object path, and the OnStart/OnUpdate/OnPause/OnEnd callback
+    /// contract. See Docs/inventory/lifecycle.md.
     /// </summary>
     public class PlaybackLifecycleTests : BroAudioTestFixture
     {
@@ -24,7 +24,7 @@ namespace Ami.BroAudio.Tests
             public void OnGetPlayer(IAudioPlayer player) { }
         }
 
-        // 1.1 - the single most important test in this file: a caller that keeps a completed
+        // The single most important test in this file: a caller that keeps a completed
         // IAudioPlayer reference around (a very common real-world pattern) must never crash. Stale-handle-
         // after-recycle is a lifecycle concern regardless of which RuntimeSetting toggle produced the log.
         [UnityTest]
@@ -67,7 +67,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsNotNull(afterBGM, "AsBGM on a stale handle must still return a usable object, not null.");
         }
 
-        // 1.2 - the suite's own teardown isolation depends on Stop(All, 0f) reliably clearing every type.
+        // The suite's own teardown isolation depends on Stop(All, 0f) reliably clearing every type.
         [UnityTest]
         public IEnumerator Stop_WithAllFlag_DeactivatesEveryConcreteType()
         {
@@ -100,7 +100,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
             IAudioPlayer musicPlayer = BroAudio.Play(musicId);
 
-            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", 2f);
+            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", DefaultPlaybackWaitSeconds);
 
             BroAudio.Stop(BroAudioType.SFX, 0f);
 
@@ -111,7 +111,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(musicPlayer.IsPlaying, "Stopping SFX must not stop a Music player.");
         }
 
-        // 1.3 - "freeze in place": no playhead loss, no re-fade-in, no double OnStart.
+        // "Freeze in place": no playhead loss, no re-fade-in, no double OnStart.
         [UnityTest]
         public IEnumerator Pause_ThenUnPause_FreezesAndResumesFromSamePosition()
         {
@@ -125,7 +125,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(1, onStartCount, "OnStart should have fired once by the time playback is underway.");
 
             player.Pause();
-            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause", 2f);
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause", DefaultPlaybackWaitSeconds);
             Assert.IsTrue(player.IsActive, "A paused player must remain active - pause does not deactivate.");
 
             int capturedTimeSamples = player.AudioSource.timeSamples;
@@ -140,7 +140,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(1, onStartCount, "OnStart must not re-fire when resuming from pause.");
         }
 
-        // 1.4 - the queued-but-not-yet-drained window: Play only enqueues, LateUpdate starts the voice.
+        // The queued-but-not-yet-drained window: Play only enqueues, LateUpdate starts the voice.
         [UnityTest]
         public IEnumerator IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows()
         {
@@ -157,7 +157,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(player.IsPlaying);
         }
 
-        // 1.5 - a rejected Play must never hand back something that can crash calling code.
+        // A rejected Play must never hand back something that can crash calling code.
         [UnityTest]
         public IEnumerator Play_RejectedByValidator_ReturnsInertEmptyPlayer()
         {
@@ -190,7 +190,7 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // 1.11 - OnStart fires once (not on resume), OnUpdate fires every frame while active, OnPause fires per transition.
+        // OnStart fires once (not on resume), OnUpdate fires every frame while active, OnPause fires per transition.
         [UnityTest]
         public IEnumerator Callbacks_OnStartOnUpdateOnPause_FireWithExpectedCounts()
         {
@@ -211,7 +211,7 @@ namespace Ami.BroAudio.Tests
             Assert.Greater(onUpdateCount, 1, "OnUpdate should fire repeatedly (once per frame) while playing.");
 
             player.Pause();
-            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause", 2f);
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause", DefaultPlaybackWaitSeconds);
             Assert.AreEqual(1, onPauseCount, "OnPause should fire on the pause transition.");
 
             player.UnPause();
@@ -219,11 +219,11 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(1, onStartCount, "OnStart must not re-fire when resuming from pause.");
 
             player.Pause();
-            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause a second time", 2f);
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying, "the player to pause a second time", DefaultPlaybackWaitSeconds);
             Assert.AreEqual(2, onPauseCount, "OnPause should fire again on a second, independent pause transition.");
         }
 
-        // 1.11 - OnEnd fires once, and its SoundID argument still equals the original ID even though
+        // OnEnd fires once, and its SoundID argument still equals the original ID even though
         // Recycle() (which clears ID to Invalid) runs immediately after, from the same call site.
         [UnityTest]
         public IEnumerator OnEnd_WhenPlaybackFinishes_FiresOnceWithOriginalID()
@@ -279,11 +279,11 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
             IAudioPlayer musicPlayer = BroAudio.Play(musicId);
 
-            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", 2f);
+            yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", DefaultPlaybackWaitSeconds);
             yield return WaitFrames(3);
 
             BroAudio.Pause(BroAudioType.SFX);
-            yield return WaitUntilOrTimeout(() => !sfxPlayer.IsPlaying, "the SFX player to pause", 2f);
+            yield return WaitUntilOrTimeout(() => !sfxPlayer.IsPlaying, "the SFX player to pause", DefaultPlaybackWaitSeconds);
 
             Assert.IsTrue(sfxPlayer.IsActive, "A paused player must remain active - pause does not deactivate.");
             Assert.IsTrue(musicPlayer.IsPlaying, "Pausing by BroAudioType.SFX must not touch a Music player.");
@@ -311,10 +311,10 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer targetPlayer = BroAudio.Play(targetId);
             IAudioPlayer otherPlayer = BroAudio.Play(otherId);
 
-            yield return WaitUntilOrTimeout(() => targetPlayer.IsPlaying && otherPlayer.IsPlaying, "both players to start playing", 2f);
+            yield return WaitUntilOrTimeout(() => targetPlayer.IsPlaying && otherPlayer.IsPlaying, "both players to start playing", DefaultPlaybackWaitSeconds);
 
             BroAudio.Pause(targetId);
-            yield return WaitUntilOrTimeout(() => !targetPlayer.IsPlaying, "the targeted id's player to pause", 2f);
+            yield return WaitUntilOrTimeout(() => !targetPlayer.IsPlaying, "the targeted id's player to pause", DefaultPlaybackWaitSeconds);
             yield return WaitFrames(2);
 
             Assert.IsTrue(otherPlayer.IsPlaying, "Pausing by SoundID must not affect a different SoundID of the same BroAudioType.");

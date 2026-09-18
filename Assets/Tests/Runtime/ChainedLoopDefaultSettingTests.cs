@@ -7,7 +7,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization for inventory 3.7: the <see cref="AudioEntity.HasLoop(out LoopType, out float)"/>
+    /// Runtime-only characterization: the <see cref="AudioEntity.HasLoop(out LoopType, out float)"/>
     /// 2-arg overload - the one SoundManager.Playback.cs actually calls to decide whether Play() schedules a
     /// handover - reads SoundManager.Instance.Setting live, so it needs a real SoundManager and cannot move
     /// to the EditMode suite: SoundManager.Instance returns null outside Play Mode

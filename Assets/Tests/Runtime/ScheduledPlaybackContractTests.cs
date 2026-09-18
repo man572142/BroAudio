@@ -6,13 +6,12 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory slice 2.7, 2.9: the ISchedulable start/end-time contract, including the documented
-    /// "pause on reschedule" quirk, and mid-play pitch rescaling the derived end time. See
-    /// Docs/inventory/time-dependent.md.
+    /// The ISchedulable start/end-time contract, including the documented "pause on reschedule" quirk,
+    /// and mid-play pitch rescaling the derived end time. See Docs/inventory/time-dependent.md.
     /// </summary>
     public class ScheduledPlaybackContractTests : BroAudioTestFixture
     {
-        // 2.7 - the documented quirk: SetScheduledStartTime on an already-playing source pauses it
+        // The documented quirk: SetScheduledStartTime on an already-playing source pauses it
         // until the new dspTime, and this is invisible in IAudioPlayer state.
         [UnityTest]
         public IEnumerator SetScheduledStartTime_OnAlreadyPlayingSource_StallsPlayheadWithoutChangingIsPlaying()
@@ -27,7 +26,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             player.OnPause(_ => onPauseCount++);
 
-            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "playback to audibly start", 2f);
+            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "playback to audibly start", DefaultPlaybackWaitSeconds);
             yield return WaitFrames(3);
 
             double now = AudioSettings.dspTime;
@@ -50,10 +49,10 @@ namespace Ami.BroAudio.Tests
 
             // ~1s of stall is left; 2s keeps a full second of slack for the resume to be observed.
             yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > stalledSamples,
-                "the playhead to resume advancing once the rescheduled dspTime arrives", 2f);
+                "the playhead to resume advancing once the rescheduled dspTime arrives", DefaultPlaybackWaitSeconds);
         }
 
-        // 2.7 - SetScheduledEndTime is an absolute-time contract: it stops playback at the given
+        // SetScheduledEndTime is an absolute-time contract: it stops playback at the given
         // dspTime regardless of the clip's own (much longer) natural length.
         [UnityTest]
         public IEnumerator SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength()
@@ -72,12 +71,16 @@ namespace Ami.BroAudio.Tests
             yield return WaitDspSeconds(1.0);
             Assert.IsTrue(player.IsActive, "Player must still be active a full second before the explicit end time (clip is 4s long).");
 
-            // 2s past the sample point is 1s past the 2s target and still ~1s short of the clip's natural 4s end,
-            // so an ignored explicit end still times out here.
-            yield return WaitForRecycle(player, "playback to end at the explicit scheduled end time, not the clip's natural 4s length", 2f);
+            // Decisive in both directions, so it is derived here rather than taken from a shared budget:
+            // 2s past the sample point is 1s past the explicit end and still ~1s short of the clip's natural
+            // 4s end, so an ignored explicit end times out and a premature stop fails the check above.
+            const float DecisiveRecycleWaitSeconds = 2f;
+            yield return WaitForRecycle(player,
+                "playback to end at the explicit scheduled end time, not the clip's natural 4s length",
+                DecisiveRecycleWaitSeconds);
         }
 
-        // 2.9 - SetPitch mid-play recomputes the *derived* end time from the actual playhead
+        // SetPitch mid-play recomputes the *derived* end time from the actual playhead
         // (RecalculateScheduledEndTime), so raising pitch visibly shortens remaining playback.
         [UnityTest]
         public IEnumerator SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration()
@@ -98,7 +101,7 @@ namespace Ami.BroAudio.Tests
                 "pitch-doubled playback to end well before the clip's natural 3s length", 2.3f);
         }
 
-        // 2.9 - contrast case: once SetScheduledEndTime has been called explicitly,
+        // Contrast case: once SetScheduledEndTime has been called explicitly,
         // _isEndTimeDerivedFromClip is false and RecalculateScheduledEndTime declines to touch it -
         // a later pitch change must NOT move the explicit end time.
         [UnityTest]
@@ -124,10 +127,13 @@ namespace Ami.BroAudio.Tests
             yield return WaitDspSeconds(1.0);
             Assert.IsTrue(player.IsActive, "Player must still be active a full second before the explicit end time even after a pitch change.");
 
-            // 2s past the sample point is 1s past the 2s target, and still ~1s short of the ~4s end a pitch-driven
-            // recalculation would have produced - decisive by a full second in both directions.
+            // Decisive in both directions, so it is derived here rather than taken from a shared budget:
+            // 2s past the sample point is 1s past the explicit end, and still ~1s short of the ~4s end a
+            // pitch-driven recalculation would have produced.
+            const float DecisiveRecycleWaitSeconds = 2f;
             yield return WaitForRecycle(player,
-                "playback to end at the still-unmoved explicit end time (~2s), not at the pitch-rescaled ~4s", 2f);
+                "playback to end at the still-unmoved explicit end time (~2s), not at the pitch-rescaled ~4s",
+                DecisiveRecycleWaitSeconds);
         }
     }
 }
