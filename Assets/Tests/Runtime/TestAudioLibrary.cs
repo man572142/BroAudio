@@ -226,6 +226,7 @@ namespace Ami.BroAudio.Tests
                 /// <summary>Plain private field (not an auto-property) - shadows its own enum type's name.</summary>
                 public const string MulticlipsPlayMode = "MulticlipsPlayMode";
                 public const string Group = "_group";
+                public const string LocalizedAudio = "_localizedAudio";
             }
 
             /// <summary>Names on <c>Ami.BroAudio.SoundSource</c>; its own <c>NameOf</c> is UNITY_EDITOR-only.</summary>
@@ -262,6 +263,7 @@ namespace Ami.BroAudio.Tests
             {
                 public const string LoadedEntityLastPlayedTime = "_loadedEntityLastPlayedTime";
                 public const string GetCurrentAudioPlayers = "GetCurrentAudioPlayers";
+                public const string LocalizedRuntime = "_localizedRuntime";
             }
 
             /// <summary>

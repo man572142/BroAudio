@@ -36,6 +36,10 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player2, "the second play to start");
             Assert.AreEqual("SeqClip1", player2.AudioSource.clip.name,
                 "The second concurrent play should advance the same shared Sequence cursor, not restart at clip 0.");
+            Assert.AreSame(entity.Clips[1], player2.CurrentPlayingClip,
+                "CurrentPlayingClip should be the entity row the cursor picked for this play.");
+            Assert.AreSame(entity.Clips[0], player1.CurrentPlayingClip,
+                "Each player keeps its own picked row; the second pick must not overwrite the first player's.");
 
             Assert.AreNotSame(player1.AudioSource, player2.AudioSource, "The two plays should be on different pooled players.");
             Assert.IsTrue(player1.IsPlaying, "The first player should still be playing concurrently with the second.");
@@ -72,7 +76,7 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
-        public IEnumerator SetSequenceId_WithDifferentIds_AdvancesEachNamedCursorIndependently()
+        public IEnumerator SetSequenceId_WithDifferentIds_AdvancesEachNamedCursorIndependently_AndResetClearsOnlyTheNamedOne()
         {
             AudioClip clip0 = NewClip(3f, "SeqIdClip0");
             AudioClip clip1 = NewClip(3f, "SeqIdClip1");
@@ -98,6 +102,18 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(firstB, "the first 'b' play to start");
             Assert.AreSame(clip0, firstB.AudioSource.clip,
                 "A different sequence id must start fresh at index 0, unaffected by 'a' already sitting at index 1.");
+
+            BroAudio.ResetMultiClipStrategy(id, "a");
+
+            IAudioPlayer thirdA = BroAudio.Play(id);
+            thirdA.SetSequenceId("a");
+            yield return WaitForPlaybackStart(thirdA, "the 'a' play after its reset to start");
+            Assert.AreSame(clip0, thirdA.AudioSource.clip, "Resetting 'a' should restart its cursor at index 0.");
+
+            IAudioPlayer secondB = BroAudio.Play(id);
+            secondB.SetSequenceId("b");
+            yield return WaitForPlaybackStart(secondB, "the second 'b' play to start");
+            Assert.AreSame(clip1, secondB.AudioSource.clip, "Resetting 'a' must leave the 'b' cursor where it was.");
         }
     }
 }

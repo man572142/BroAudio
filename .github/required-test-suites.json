@@ -42,6 +42,7 @@
       "DominatorEffectParameterTests",
       "DominatorTrackRoutingTests",
       "FadeAndTrimTests",
+      "LocalizedAudioChangedSubscriptionTests",
       "LoopHandoverTests",
       "OptionalPackageTests",
       "PlaybackGroupTests",
