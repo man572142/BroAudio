@@ -10,7 +10,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write",
+        "matcher": "Write|Bash",
         "hooks": [
           { "type": "command", "command": "node .claude/hooks/generate-meta.cjs" }
         ]
