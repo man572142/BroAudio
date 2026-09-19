@@ -15,7 +15,7 @@ namespace Ami.BroAudio.Tests
     /// <summary>
     /// Covers the two unrelated effect mechanisms: per-player Unity filter components added through
     /// AddChorusEffect/AddLowPassEffect/etc. (attach/duplicate/remove guards, recycle cleanup, the
-    /// audio-thread OnAudioFilterRead callback), and the mixer-routed BroAudio.SetEffect automation
+    /// audio-thread OnAudioFilterRead callback and GetOutputData tap), and the mixer-routed BroAudio.SetEffect automation
     /// (exposed parameter writes, the Dominator-only EffectType.Volume guard, ForSeconds auto-reset,
     /// and the FourPole secondary parameter).
     /// </summary>
@@ -283,6 +283,25 @@ namespace Ami.BroAudio.Tests
 
             Assert.Greater(_capturedChannels, 0, "channels should be > 0 while the source is playing.");
             Assert.Greater(_capturedBufferLength, 0, "the buffer passed to the callback should be non-empty.");
+        }
+
+        [UnityTest]
+        public IEnumerator GetOutputData_WhilePlaying_ReturnsTheSourcesNonSilentSignal()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            SoundID id = NewSound("OutputDataSfx", BroAudioType.SFX, NewClip(3f));
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitForPlaybackStart(player);
+
+            // The fixture's clip is a 0.25-amplitude sine, so any live window holds samples well above 0.01;
+            // a no-op or misrouted call leaves the buffer all zeros.
+            float[] samples = new float[1024];
+            yield return WaitUntilOrTimeout(() =>
+            {
+                player.GetOutputData(samples, 0);
+                return Array.Exists(samples, sample => Mathf.Abs(sample) > 0.01f);
+            }, "GetOutputData to hand back the playing source's non-silent signal", DefaultPlaybackWaitSeconds);
         }
 
         [UnityTest]

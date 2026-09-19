@@ -21,7 +21,7 @@ Status values: **covered** · **planned (phase N)** · **deferred** · **out of 
 | 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
 | 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs` |
 | 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `ClipDelayAndSchedulingTests.cs`, `ScheduledPlaybackContractTests.cs`, `BGMTransitionTests.cs`, `AlwaysPlayMusicAsBGMTests.cs`, `BGMChangedEventTests.cs` |
-| 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
+| 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `LocalizedAudioChangedSubscriptionTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 | 6 — MonoComponents | **covered** | `SoundSourceTests.cs`, `SoundVolumeTests.cs`, `SpectrumAnalyzerTests.cs` |
 | 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `SpatialAndPriorityTests.cs` |
@@ -36,7 +36,8 @@ covered / partial / deferred / out of scope with the test that pins it.
 Per-file detail beyond the tier ledger above:
 
 - `AudioEffectTests.cs` covers the per-player Unity filter surface (`AddChorusEffect`/`AddLowPassEffect`/etc.
-  — attach, duplicate, remove, recycle cleanup, the `OnAudioFilterRead` callback, exposed parameter writes)
+  — attach, duplicate, remove, recycle cleanup, the `OnAudioFilterRead` callback, exposed parameter writes),
+  the `GetOutputData` tap,
   and the mixer-routed `BroAudio.SetEffect` automation.
 - `SoundSourceTests.cs` covers the `SoundSource` no-code component: the three `PositionMode`s (global stays
   2D; StayHere snapshots the transform; FollowGameObject tracks it — also this suite's only coverage of
@@ -55,7 +56,9 @@ Per-file detail beyond the tier ledger above:
 - `TeardownTests.cs` covers the `SoundManager.Instance` / `BroAudio.Manager` asymmetry that CLAUDE.md calls
   load-bearing: the facade's release verbs are silent no-ops with the manager destroyed, play verbs throw
   by contrast, and a player handle held across the manager's destruction stays inert. The contract does
-  **not** extend to `SetEffect` or to handle-level release verbs, both of which throw.
+  **not** extend to `SetEffect` or to handle-level release verbs, both of which throw. It also pins the
+  manual-init contract: `SoundManager.Init`'s auto-bootstrap attribute tracks `BroAudio_InitManually`, and
+  `Init()` on an absent manager yields one that plays.
 - `UpdateModeClockTests.cs` covers `RuntimeSetting.UpdateMode` and `Utility.GetDeltaTime` — the clock behind
   every fade, pitch tween and scheduled start: under `Time.timeScale == 0` a fade progresses in
   `UnscaledTime` and freezes in `Normal`.
@@ -280,7 +283,7 @@ instance rather than the connected one.
 
 | Behavior | Why |
 |---|---|
-| Full `Play()` → `SoundManager` → localized clip resolution | No `AssetTable` exists in the project. The strategy itself is covered at 0.6 |
+| Full `Play()` → `SoundManager` → localized clip resolution, and `LocalizedAudioChanged` handlers firing | No `AssetTable` exists in the project. The strategy itself is covered at 0.6; the subscription guards by `LocalizedAudioChangedSubscriptionTests` |
 | Editor windows, inspectors, Library Manager | Explicit anti-goal |
 
 ---

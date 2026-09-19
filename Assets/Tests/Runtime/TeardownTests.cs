@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Reflection;
 using Ami.BroAudio.Runtime;
 using NUnit.Framework;
 using UnityEngine;
@@ -174,6 +175,37 @@ namespace Ami.BroAudio.Tests
             Assert.Throws<BroAudioException>(() => BroAudio.Play(id, (Transform)null), "Play(id, followTarget) must throw once SoundManager is destroyed.");
 
             yield break;
+        }
+
+        // BroAudio_InitManually only strips the auto-bootstrap attribute and exposes BroAudio.Init(), which
+        // forwards to SoundManager.Init(). So the contract is: the attribute tracks the define, and Init() on
+        // an absent manager yields one that plays. The define is project-wide, so this assembly sees it too.
+        [UnityTest]
+        public IEnumerator Init_WithManagerAbsent_BootstrapsAManagerThatPlays_AndAutoBootstrapTracksTheManualInitDefine()
+        {
+            RuntimeInitializeOnLoadMethodAttribute autoBootstrap = typeof(SoundManager)
+                .GetMethod(nameof(SoundManager.Init))
+                .GetCustomAttribute<RuntimeInitializeOnLoadMethodAttribute>();
+#if BroAudio_InitManually
+            Assert.IsNull(autoBootstrap, "BroAudio_InitManually must remove SoundManager.Init's auto-bootstrap.");
+#else
+            Assert.IsNotNull(autoBootstrap, "Without BroAudio_InitManually, SoundManager.Init must auto-bootstrap.");
+            Assert.AreEqual(RuntimeInitializeLoadType.BeforeSceneLoad, autoBootstrap.loadType);
+#endif
+
+            SoundID id = NewSound("ManualInitSfx", BroAudioType.SFX, NewClip(1f));
+            DestroyManagerImmediate();
+
+#if BroAudio_InitManually
+            BroAudio.Init();
+#else
+            SoundManager.Init();
+#endif
+            // Same one-frame wait as RestoreSoundManagerAfterTest: Start() runs next frame.
+            yield return null;
+
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitForPlaybackStart(player, "a sound to play on the freshly initialized manager");
         }
 
 #if !UNITY_WEBGL
