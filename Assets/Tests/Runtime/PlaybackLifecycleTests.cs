@@ -51,6 +51,8 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer afterSetVolume = null;
             IMusicPlayer afterBGM = null;
             SoundID staleID = default;
+            IBroAudioClip staleClip = null;
+            float[] staleOutput = { 1f };
 
             Assert.DoesNotThrow(() =>
             {
@@ -59,10 +61,14 @@ namespace Ami.BroAudio.Tests
                 afterBGM = player.AsBGM();
                 _ = player.AudioSource;
                 staleID = player.ID;
+                staleClip = player.CurrentPlayingClip;
+                player.GetOutputData(staleOutput, 0);
             }, "Touching a stale, recycled handle must never throw.");
 
             Assert.IsFalse(player.IsActive, "A recycled handle must report inactive.");
             Assert.AreEqual(SoundID.Invalid, staleID, "A recycled handle's ID must read back as Invalid.");
+            Assert.IsNull(staleClip, "A recycled handle's CurrentPlayingClip must read back as null.");
+            Assert.AreEqual(1f, staleOutput[0], "GetOutputData on a recycled handle must leave the caller's buffer untouched.");
             Assert.IsNotNull(afterSetVolume, "SetVolume on a stale handle must still return a usable object, not null.");
             Assert.IsNotNull(afterBGM, "AsBGM on a stale handle must still return a usable object, not null.");
         }

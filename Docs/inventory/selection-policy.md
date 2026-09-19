@@ -238,13 +238,15 @@ testable; **out of scope** = deliberately not tested, with the reason.
 |---|---|---|
 | Single mode always plays clips[0] | covered | `ClipSelectionTests.SelectClip_WithSetClips_AlwaysReturnsFirstClip` plus the null-array, null-reference and unset-clip cases |
 | Sequence mode cycles 0..N-1 and wraps | covered | `ClipSelectionTests.SelectClip_Repeatedly_CyclesThroughClipsAndWrapsToStart`, `_WithSingleClip_AlwaysReturnsIndexZero`, `_WithUnsetClipMidSequence_LogsErrorThenRestartsFromZero`, `Reset_RestartsDefaultSequenceFromZero` |
-| Sequence mode: named SequenceIds run independent cursors | covered | `ClipSelectionTests.SelectClip_WithTwoSequenceIds_AdvancesIndependently`, `_WithNullSequenceId_SharesDefaultCursor`, `Reset_WithSequenceId_OnlyResetsThatNamedCursor` |
+| Sequence mode: named SequenceIds run independent cursors | covered | `ClipSelectionTests.SelectClip_WithTwoSequenceIds_AdvancesIndependently`, `_WithNullSequenceId_SharesDefaultCursor`, `Reset_WithSequenceId_OnlyResetsThatNamedCursor`; through `BroAudio.ResetMultiClipStrategy(id, sequenceId)` on a live manager by `ClipSelectionCursorTests.SetSequenceId_WithDifferentIds_*` |
+| `IAudioPlayer.CurrentPlayingClip` is the entity row picked for that play | covered | `ClipSelectionCursorTests.Play_SameSequenceEntityPlayedTwice_*`; null on a recycled handle in `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` |
 | Random mode: uniform when all Weights are 0, weighted otherwise | covered | `ClipSelectionTests.SelectClip_WithAllWeightsZero_ReturnsIndexWithinRange`, `_WithAnyNonzeroWeight_NeverSelectsZeroWeightClips` |
 | Shuffle never repeats the previous clip, and cycles the pool | covered (as a finding) | `ClipSelectionTests.SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent` — the test pins the actual behavior, which contradicts the documented intent |
 | Shuffle vs Random: the guarantee Random does not make | covered | Same pair, plus `SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip` |
 | Velocity mode selects by highest Weight threshold not exceeded | covered | `ClipSelectionTests.SelectClip_WithValueBelowEveryThreshold_*`, `_WithValueBetweenThresholds_*`, `_WithValueAboveEveryThreshold_*`, `_WithNonMonotonicWeights_*` |
 | Chained mode maps PlaybackStage to a fixed clip index | covered | `ClipSelectionTests.SelectClip_AtStartStage/AtLoopStage/AtEndStage/AtNoneStage_*`, `_WithTooFewClipsForStage_*` |
 | Localization mode selects the row matching the active locale | covered | `LocalizationClipStrategyTests` (behind `PACKAGE_LOCALIZATION`) |
+| `SubscribeLocalizedAudioChanged` / `SoundID.LocalizedAudioChanged` | partial | `LocalizedAudioChangedSubscriptionTests` pins the guards (not Localization mode, no table/entry set). A handler actually firing needs an `AssetTable` — see Out of scope in TEST_INVENTORY.md. |
 | ChangeClipPerLoop re-picks a clip on every loop iteration | covered | `LoopHandoverTests.Loop_WithChangeClipPerLoopAndSequence_AdvancesClipAtEachSeam` |
 | RandomFlag.Volume / RandomFlag.Pitch apply ± half-range jitter | covered | `ClipSelectionTests.GetRandomValueStatic_*` and `GetRandomValue_*` |
 | MaxPlayableCountRule rejects Play at the limit | covered | `PlaybackGroupTests.Play_BeyondMaxPlayableCount_RejectsThenAcceptsAfterASlotFrees` |
