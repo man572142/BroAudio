@@ -82,8 +82,8 @@ namespace Ami.BroAudio.Tests
             // chooses, so the two clocks have to run at the same rate.
             yield return RequireRealtimeAudioClock();
 
-            // The default fade-out ease is OutSine (RuntimeSetting.FactorySettings.DefaultFadeOutEase - no
-            // BroRuntimeSetting asset ships in this project, so the factory values apply), i.e. volume =
+            // The default fade-out ease is OutSine (RuntimeSetting.FactorySettings.DefaultFadeOutEase - the
+            // base fixture resets RuntimeSetting to its factory values before every test), i.e. volume =
             // 1 - sin(t/T * pi/2), which crosses the 0.5 poll threshold exactly a third of the way in
             // (sin(pi/6) = 0.5). A 1.5s fade on a 3s clip puts that crossing 0.5s into the ramp with a full
             // second of audio still to play when the assertions below run.

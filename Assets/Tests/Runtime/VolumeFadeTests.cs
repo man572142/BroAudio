@@ -33,7 +33,7 @@ namespace Ami.BroAudio.Tests
     /// below is at least 1s clear of the point where it could start failing, per the fixture's timing rule.
     /// </para>
     /// <para>
-    /// Ease. With no BroRuntimeSetting asset in the project the factory defaults apply
+    /// Ease. BroAudioTestFixture resets RuntimeSetting to its factory values before every test
     /// (RuntimeSetting.FactorySettings): <c>DefaultFadeInEase</c> = InCubic (t^3), <c>DefaultFadeOutEase</c> =
     /// OutSine (sin(t*pi/2)). <c>SetVolumeInternal</c> picks between them by direction
     /// (<c>module.Current &lt; vol</c>) at the moment of the call, and the numbers in each test's comments are
