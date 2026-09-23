@@ -37,13 +37,13 @@ if a test carries a category this file does not record.
 | 40 | MonoComponent / SpectrumAnalyzer | Every band draws a `Weighted` field in the inspector that the runtime never reads | Open, characterized |
 | 41 | Playback / Stop | `Stop(onFinished)` on a recycled handle drops the callback silently | Open, characterized |
 | 42 | Decorators / Dominator | `AsDominator()` after playback started cannot re-route the player, so it filters itself | Open, characterized |
-| 43 | Decorators / Dominator | `QuietOthers` with a zero fade time is overwritten by `SwitchMainTrackMode`, so nothing ducks | Open, suspected |
+| 43 | Decorators / Dominator | `QuietOthers` with a zero fade time is overwritten by `SwitchMainTrackMode`, so nothing ducks | Open, characterized |
 | 44 | Decorators / Dominator | A looping dominator's incoming player takes a generic track at the first seam, so it ducks itself | Open, characterized |
-| 45 | Playback / Handover | `TransferAddedEffectComponents` runs once per decorator plus once, duplicating added effects every seam | Open, suspected |
+| 45 | Playback / Handover | `TransferAddedEffectComponents` runs once per decorator plus once, so the added-effect list and Unity's refusal logs multiply at every seam | Open, characterized |
 | 46 | Spatial / Recycling | `ResetSpatial` resets `rolloffMode` but never clears the `CustomRolloff` curve data underneath it | Open, characterized |
 | 48 | Teardown | `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs, so it throws once the manager is gone | Open, characterized |
 | 49 | Teardown | Release verbs on an `IAudioPlayer` handle that outlived the manager throw instead of no-op'ing | Open, characterized |
-| 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, suspected |
+| 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, characterized |
 | 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, characterized |
 | 53 | Easing | `SetEase` discards `Mathf.Clamp01`'s return value, so out-of-range input reaches the curve and a ramp's last frame can land short of its target, or on NaN | Open, characterized |
 | 54 | Easing | An `Ease` outside the enum returns 0 for the whole fade instead of falling back to a curve | Open, characterized |
@@ -753,7 +753,7 @@ correct same-frame routing asserted by
 
 ---
 
-## 43. `QuietOthers` with a zero fade time looks like it is overwritten before it takes effect
+## 43. `QuietOthers` with a zero fade time is overwritten before it takes effect
 
 **Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs:181-188`, `:199-212`, `:239-260`
 
@@ -784,11 +784,13 @@ ducked value is written *before* `SwitchMainTrackMode(true)` replaces it with `F
 `QuietOthers(othersVol, fadeTime)` with `fadeTime` 0 is a natural thing for a caller to write, and the reference
 docs offer no reason to avoid it.
 
-Status: **Open, suspected — derived from source, not observed.** Unity was unavailable when this was written, so
-the synchronous-drain step has not been confirmed for this path specifically. Deliberately not pinned: a test
-asserting the clobber would fail the build if the derivation is wrong. The same-frame dominator test uses a
-non-zero fade to stay clear of it. Confirming or refuting this by running
-`QuietOthers(0.2f, 0f)` and reading `Main_Dominated` is a small, worthwhile follow-up.
+Observed: two frames after `QuietOthers(0.2f, 0f)`, `Main` reads -80dB and `Main_Dominated` reads 0dB,
+against a requested -13.98dB. Everything routed through `Main_Dominated` keeps playing at full volume. The
+`.While(PlayerIsPlaying)` that `DominatorPlayer` chains does not write the ducked level back.
+
+Status: **Open, characterized.** Pinned by
+`DominatorEffectParameterTests.QuietOthers_WithZeroFadeTime_MutesMainAndLeavesMainDominatedAtFullVolume`, which
+also checks that `Main` returns to full volume once the dominator stops.
 
 ---
 
@@ -839,7 +841,7 @@ which asserts the decorator survives, the duck survives, and the track does not.
 
 ---
 
-## 45. `TransferAddedEffectComponents` looks like it runs once per decorator, plus once
+## 45. `TransferAddedEffectComponents` runs once per decorator, plus once, and the effect list multiplies at every seam
 
 **Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:144-153`
 
@@ -860,16 +862,24 @@ Instance.TransferAddedEffectComponents(newInstance);
 re-enters this same override with its own `Instance` still pointing at the outgoing player — and runs
 `Instance.TransferAddedEffectComponents(newInstance)` itself. Then the outer call runs it once more. The
 delegate and decorator transfers are self-limiting because each nulls its source; `_addedEffects` is never
-cleared, so the incoming player would receive N+1 copies for N decorators, compounding at every subsequent
-seam.
+cleared, so with N decorators the outgoing player's added-effect list is copied N+1 times.
+
+Unity allows one filter of each type per GameObject, so the voice does **not** end up with N+1 filters:
+the first `AddComponent` succeeds and every later one returns null, logging Unity's own untagged
+"Can't add component" message. `SetAddedEffectComponents` appends an entry for every attempt anyway
+(`TransferValueTo` returns early on a null target, so nothing throws), and the next seam iterates all of them.
+With two decorators and one added filter, the incoming player's list is 3 long after the first seam and 9
+after the second, and the seams log 2 and then 8 refusals. Both grow threefold per iteration for as long as
+the loop runs, so a long-running looping sound spends more time and log output on every seam.
 
 Reachable for any looping entity that has both an added filter component and a decorator — including a
 looping Music entity, where `RuntimeSetting.AlwaysPlayMusicAsBGM` attaches `MusicPlayer` automatically and
 `SetSpatial` adds a low-pass component for a spatial setting with `HasLowPassFilter`.
 
-Status: **Open, suspected — derived from source, not observed.** Unity was unavailable, and this was found
-while investigating #44 rather than by running anything. Not pinned: confirming it means counting components
-on the incoming player across a seam, which is worth doing before writing an assertion about the count.
+Status: **Open, characterized.** Pinned by
+`AudioEffectTests.Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter`,
+which asserts one filter carrying the added settings on each incoming player, list lengths of 3 and 9, and
+2 and 8 untagged refusals at the first two seams. The list is private, so it is read by reflection.
 
 ---
 
@@ -989,11 +999,14 @@ quietly widening it. The fix is one line — `LogInstanceIsNull` consulting `Sou
 when the manager is gone during teardown, but as written it dereferences the throwing accessor and would
 raise `BroAudioException` on that path — the same root cause as #49.
 
-Status: **Open, suspected — derived from source, not observed.** Not pinned. Every `Fader` lives inside an
-`AudioPlayer`, and every `AudioPlayer` is a child of the manager's transform, so destroying the manager
-destroys the `Fader` in the same step and never gives it the chance to call this. Isolating it would mean
-destroying the `SoundManager` component alone and leaving its GameObject and player children orphaned in
-the scene for the rest of the run, which is not worth the leak to a later test.
+Observed: with the manager destroyed, `Fader.Complete` throws `BroAudioException`, where the same call on
+the same `Fader` succeeds while the manager is alive. No production path has been seen to reach it: every
+`Fader` lives inside an `AudioPlayer` that is a child of the manager's transform, so destroying the manager
+destroys the `Fader` in the same step. The guard does not guard, but nothing currently depends on it.
+
+Status: **Open, characterized.** Pinned by
+`TeardownTests.Fader_CompleteWithManagerDestroyed_ThrowsBroAudioExceptionInsteadOfTheDefensiveNoOp`, which
+builds a `Fader` directly with a recording `IAudioBus` so no player is orphaned.
 
 ---
 
