@@ -146,16 +146,30 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InQuad, 1.5f, 2.25f)]
         [TestCase(Ease.Linear, -1f, -1f)]
         [TestCase(Ease.InQuad, -1f, 1f)]
+        [TestCase(Ease.OutSine, 1.2f, 0.9510565f)]
         [Category("Finding_53")]
         public void SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01(Ease ease, float t, float expected)
         {
             // Characterizes TEST_FINDINGS #53: SetEase opens with a bare
             // `Mathf.Clamp01(value);` whose return value is discarded - Mathf.Clamp01 is pure, so the clamp
             // does nothing and out-of-range t flows straight into the curve. t > 1 therefore overshoots the
-            // target volume and a negative t can come back POSITIVE through the even powers (-1 -> 1).
-            // Callers stay in range today only because they all pass elapsed/duration ratios. If the clamp is
-            // ever wired up (`value = Mathf.Clamp01(value);`), these rows are the ones that must change.
+            // target volume and a negative t can come back POSITIVE through the even powers (-1 -> 1). A
+            // curve that peaks at t = 1 turns back down past it: OutSine at 1.2 is sin(0.6 * pi) = 0.951, short
+            // of 1. The master-volume, pitch and effect-automation ramps add the frame's delta before they
+            // evaluate, so their last pass does reach t > 1. If the clamp is ever wired up
+            // (`value = Mathf.Clamp01(value);`), these rows are the ones that must change.
             Assert.That(t.SetEase(ease), Is.EqualTo(expected).Within(Tolerance));
+        }
+
+        [Test]
+        [Category("Finding_53")]
+        public void SetEase_InCircPastOne_IsNaN()
+        {
+            // Characterizes TEST_FINDINGS #53: with no clamp, InCirc (1 - sqrt(1 - t^2)) takes the square root of a
+            // negative number for any t > 1. VolumePitchMixerTests.SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer
+            // shows that value reaching the mixer.
+            Assert.IsTrue(float.IsNaN(1.1f.SetEase(Ease.InCirc)),
+                "Ease.InCirc at t = 1.1 read " + 1.1f.SetEase(Ease.InCirc) + ", not NaN.");
         }
 
         [Test]

@@ -41,12 +41,11 @@ if a test carries a category this file does not record.
 | 44 | Decorators / Dominator | A looping dominator's incoming player takes a generic track at the first seam, so it ducks itself | Open, characterized |
 | 45 | Playback / Handover | `TransferAddedEffectComponents` runs once per decorator plus once, duplicating added effects every seam | Open, suspected |
 | 46 | Spatial / Recycling | `ResetSpatial` resets `rolloffMode` but never clears the `CustomRolloff` curve data underneath it | Open, characterized |
-| 47 | Extension / Easing | `EaseExtension.SetEase` discards its own `Mathf.Clamp01` result, so the clamp is a no-op | Open, characterized |
 | 48 | Teardown | `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs, so it throws once the manager is gone | Open, characterized |
 | 49 | Teardown | Release verbs on an `IAudioPlayer` handle that outlived the manager throw instead of no-op'ing | Open, characterized |
 | 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, suspected |
 | 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, characterized |
-| 53 | Easing | `SetEase` discards `Mathf.Clamp01`'s return value, so the clamp is a no-op and out-of-range input reaches the curve | Open, characterized |
+| 53 | Easing | `SetEase` discards `Mathf.Clamp01`'s return value, so out-of-range input reaches the curve and a ramp's last frame can land short of its target, or on NaN | Open, characterized |
 | 54 | Easing | An `Ease` outside the enum returns 0 for the whole fade instead of falling back to a curve | Open, characterized |
 | 55 | Pitch | A per-type pitch **replaces** the entity's authored pitch instead of scaling it | Open, characterized |
 | 56 | Pitch | Master `SetPitch` writes every concrete type's pref, unlike master `SetVolume` | Open, characterized |
@@ -915,38 +914,6 @@ clearing the curve in `ResetSpatial` and updating that test's final assertion.
 
 ---
 
-## 47. `EaseExtension.SetEase` discards its own `Mathf.Clamp01` result
-
-**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs:7-11`
-
-```csharp
-public static float SetEase(this float value, Ease ease)
-{
-    Mathf.Clamp01(value);
-
-    return ease switch { ... };
-}
-```
-
-`Mathf.Clamp01` is pure — it returns the clamped value and cannot mutate its argument. The result is
-never assigned back to `value`, so the statement does nothing and every ease expression below runs on the
-unclamped input. The line reads as a guard and is not one.
-
-It matters wherever a caller can hand in a `t` outside `[0, 1]`. The `while (currentTime < fadeTime)`
-ramps in `SoundManager.SetMasterVolume` (`SoundManager.cs:253-264`) and `AudioPlayer.Pitch`
-(`AudioPlayer.Pitch.cs:84`) increment `currentTime` by `Utility.GetDeltaTime()` and then use it in the
-same iteration, so the final pass before the condition is re-checked can evaluate an ease at `t > 1`.
-For the monotonic curves the overshoot is a small one-frame error rather than a visible artifact, which
-is why nothing has surfaced it; for a curve that is non-monotonic outside the unit interval it would not
-stay small.
-
-Status: **Open, characterized.** Found by reading, while establishing what `UpdateModeClockTests` could
-safely assert about a frozen fade. Not pinned by a dedicated test — the observable effect at the call
-sites above is sub-frame, so a test asserting it would be pinning float noise rather than behavior; the
-defect is in the guard's absence, which is legible in the source itself.
-
----
-
 ## 48. `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs
 
 **Where:** `Assets/BroAudio/Runtime/BroAudio.cs:295-302`
@@ -1094,21 +1061,39 @@ its result is thrown away, so the line has no effect and `value` reaches the cur
 method reads as though it guarantees a normalized input; it does not.
 
 The consequences are asymmetric and none of them is an exception. `t > 1` overshoots: `1.5f.SetEase(
-Ease.InQuad)` returns `2.25`, which as a fade ratio drives the volume past its target. A negative `t`
-comes back *positive* through the even powers — `(-1f).SetEase(Ease.InQuad)` is `1`, i.e. a ratio below
-the start of the fade reads as fully complete — while `Ease.Linear` passes `-1` straight through. So the
-same out-of-range input is silently corrected, inverted, or amplified depending on which curve the user
-picked.
+Ease.InQuad)` returns `2.25`. A curve that peaks at `t = 1` turns back down past it: `1.2f.SetEase(
+Ease.OutSine)` is `0.951`. `Ease.InCirc` (`1 - sqrt(1 - t^2)`) has no real value past 1 and returns NaN. A
+negative `t` comes back *positive* through the even powers — `(-1f).SetEase(Ease.InQuad)` is `1`, i.e. a
+ratio below the start of the fade reads as fully complete — while `Ease.Linear` passes `-1` straight
+through. So the same out-of-range input is silently corrected, inverted, amplified or turned into NaN
+depending on which curve the user picked.
 
-Nothing is audibly wrong today, which is why this is a finding and not a bug report: every caller passes
-an `elapsed / duration` ratio that is already in range, and `EditorVolumeTransporter` and `PlayerMoverment`
-re-clamp at the call site. The exposure is that the guard reads as present in the one place a future
-caller would check for it.
+Out-of-range input is not hypothetical. `FaderModule.Update` checks `_elapsedTime < _fadeTime` before it
+evaluates, so the per-player faders stay in range. But `SoundManager.SetMasterVolume`'s ramp,
+`AudioPlayer.PitchControl` and `EffectAutomationHelper.Tweak` add `Utility.GetDeltaTime()` to their elapsed
+time and then evaluate in the same pass, so the last pass before `while (currentTime < fadeTime)` is
+re-checked evaluates the ease at `t > 1`. Every one of them feeds the result through `Mathf.Lerp`, which
+clamps its own `t`, so a curve that keeps rising past 1 lands exactly on the target and does no harm:
+- Pitch always uses `Ease.Linear`, so it is unaffected.
+- The master ramp (`DefaultFadeInEase` / `DefaultFadeOutEase`) and effect automation (the effect's own
+  fade ease) take whatever curve the user configured. With a curve that turns down past 1, such as OutSine
+  (the factory fade-out ease), OutQuad or InOutSine, the ramp's final write lands short of the target. With
+  InCirc it writes NaN to the mixer parameter.
+- Nothing corrects the final write afterwards, and a later *timed* master fade starts its `Mathf.Lerp` from
+  the NaN it reads back, so it stays NaN. Only a zero-fade `SetVolume`, whose early return compares with `==`
+  (which NaN never satisfies), rewrites the parameter.
+
+`EditorVolumeTransporter` and `PlayerMoverment` re-clamp at the call site, so they are unaffected.
 
 Status: **Open, characterized.** Pinned by
-`EaseCurveTests.SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01`, whose four rows
-assert the unclamped values. The fix is one word — `value = Mathf.Clamp01(value);` — and those rows are
-written to go red on it, so the repair is a deliberate test update rather than a surprise.
+`EaseCurveTests.SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01` (the unclamped values,
+including OutSine turning down past 1), `EaseCurveTests.SetEase_InCircPastOne_IsNaN`, and
+`VolumePitchMixerTests.SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer`, which shows the NaN
+reaching the Master parameter and a zero-fade `SetVolume` clearing it. How far short a turning-down curve
+lands depends on the last frame's length, so that case is pinned only at the function. The fix is one word
+— `value = Mathf.Clamp01(value);` — and those tests are written to go red on it, so the repair is a
+deliberate test update rather than a surprise. This finding was also logged separately as #47, which has
+been folded in here.
 
 ## 54. An undefined `Ease` silences the whole fade
 
