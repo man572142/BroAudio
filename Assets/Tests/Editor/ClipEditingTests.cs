@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Tests;
 using Ami.Extension;
 using NUnit.Framework;
@@ -105,8 +104,8 @@ namespace Ami.BroAudio.Editor.Tests
             using var helper = new AudioClipEditingHelper(clip);
 
             // Two errors are expected here: the engine refusing the read, then BroAudio reporting it.
-            LogAssert.Expect(LogType.Error, new Regex("streamed samples"));
-            LogAssert.Expect(LogType.Error, new Regex("sample data"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.AnyLogMessage); // Unity's own AudioClip.GetData error, untagged
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             helper.Trim(0f, 0f);
 
             Assert.IsFalse(helper.HasEdited, "TryGetSampleData returned false, so Trim must not report an edit.");

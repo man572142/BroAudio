@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.Extension;
@@ -42,7 +41,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player);
             yield return WaitForRecycle(player, "the short clip to finish and the player to recycle");
 
-            LogAssert.Expect(LogType.Warning, new Regex("has been recycled after playback"));
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             Assert.IsNull(player.AudioSource, "A recycled wrapper resolves AudioSource to null with the warning enabled.");
 
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = false;

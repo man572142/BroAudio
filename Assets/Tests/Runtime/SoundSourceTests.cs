@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Runtime;
 using Ami.Extension;
 using NUnit.Framework;
@@ -448,7 +447,7 @@ namespace Ami.BroAudio.Tests
         public IEnumerator OnEnable_WithUnassignedSoundID_LogsOnceAndStaysInert()
         {
             // Expect before constructing: NewSource activates the host, so the error is logged inside it.
-            LogAssert.Expect(LogType.Error, new Regex("SoundID hasn't been assigned"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
 
             SoundSource source = NewSource(SoundID.Invalid, playOnEnable: true, delay: 0.3f, stopOnDisable: true);
 

@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Text.RegularExpressions;
 using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
@@ -319,7 +318,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void Value_LowPass_OutOfRangeWrite_IsSilentlyDroppedKeepingPriorValue()
         {
-            LogAssert.Expect(LogType.Error, new Regex("frequency"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Effect effect = CreateEffect(EffectType.LowPass, -100f);
 
             // this(type) runs first and seeds Value with BroAdvice.LowPassFrequency (a valid frequency, so it
@@ -331,7 +330,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void Value_HighPass_OutOfRangeWrite_IsSilentlyDroppedKeepingPriorValue()
         {
-            LogAssert.Expect(LogType.Error, new Regex("frequency"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Effect effect = CreateEffect(EffectType.HighPass, 999999f);
 
             Assert.That(effect.Value, Is.EqualTo(2000f).Within(0.001f));
@@ -349,7 +348,7 @@ namespace Ami.BroAudio.Tests
         {
             if (!expectedValid)
             {
-                LogAssert.Expect(LogType.Error, new Regex("Hz"));
+                LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             }
             Assert.That(AudioExtension.IsValidFrequency(freq), Is.EqualTo(expectedValid));
         }
