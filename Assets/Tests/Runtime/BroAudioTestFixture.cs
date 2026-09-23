@@ -76,7 +76,32 @@ namespace Ami.BroAudio.Tests
                 yield return null;
             }
             _settingSnapshot = JsonUtility.ToJson(SoundManager.Instance.Setting);
+            ApplyFactoryRuntimeSetting(SoundManager.Instance.Setting);
             yield return null;
+        }
+
+        /// <summary>
+        /// Puts every RuntimeSetting field a test can observe at its factory value, after the snapshot above has
+        /// saved the developer's own. The asset lives under the gitignored Resources folder, so each checkout
+        /// carries its own copy: CI generates a factory one, while a developer's may have a different fade ease,
+        /// update mode or global playback group. Timing windows across the suite are derived from the factory
+        /// curves, and a test must see the same settings on every machine. A test that needs another value sets
+        /// it in its own body; TearDown puts the developer's asset back either way.
+        /// <para>
+        /// ResetToFactorySettings covers the playback toggles; the fields it leaves alone are written here.
+        /// DefaultAudioPlayerPoolSize is read once at bootstrap, so resetting it has no effect on the run, and
+        /// the obsolete CombFilteringPreventionInSeconds is read by nothing.
+        /// </para>
+        /// </summary>
+        private static void ApplyFactoryRuntimeSetting(RuntimeSetting setting)
+        {
+#if UNITY_EDITOR
+            setting.ResetToFactorySettings();
+#endif
+            setting.LogAccessRecycledPlayerWarning = true;
+            setting.UpdateMode = RuntimeSetting.FactorySettings.UpdateMode;
+            setting.GlobalPlaybackGroup = null;
+            setting.AddressablesNonPreloadedLogLevel = RuntimeSetting.FactorySettings.AddressablesNonPreloadedLogLevel;
         }
 
         /// <summary>
