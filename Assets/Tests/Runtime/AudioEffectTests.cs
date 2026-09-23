@@ -279,8 +279,8 @@ namespace Ami.BroAudio.Tests
         // </para>
         // <para>
         // The list is private and nothing public exposes it, so it is read by reflection; the filter count and
-        // the number of untagged logs are the external half. The refusals are counted, not matched by text, and
-        // collected with LogAssert.ignoreFailingMessages scoped to this test so their LogType cannot fail it.
+        // the number of untagged logs are the external half. The refusals are counted, not matched by text.
+        // Unity logs them as LogType.Log, which cannot fail a test, so no log handling has to be relaxed.
         // </para>
         [UnityTest]
         [Category("Finding_45")]
@@ -324,8 +324,6 @@ namespace Ami.BroAudio.Tests
             }
 
             Application.logMessageReceived += OnLog;
-            bool previousIgnore = LogAssert.ignoreFailingMessages;
-            LogAssert.ignoreFailingMessages = true;
             AudioPlayer secondInstance = null;
             int refusalsAtFirstSeam = -1;
             int refusalsAtSecondSeam = -1;
@@ -359,14 +357,12 @@ namespace Ami.BroAudio.Tests
                 thirdEntries = AddedEffectCount(thirdInstance);
                 thirdFilters = thirdInstance.GetComponents<AudioLowPassFilter>().Length;
 
-                // Stopped inside the collection scope: the next seam would log 26 more refusals, and they must
-                // not land after ignoreFailingMessages is restored.
+                // Stopped before the next seam, which would log 26 more refusals.
                 player.Stop(0f);
                 yield return null;
             }
             finally
             {
-                LogAssert.ignoreFailingMessages = previousIgnore;
                 Application.logMessageReceived -= OnLog;
             }
 
