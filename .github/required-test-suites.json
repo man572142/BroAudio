@@ -46,6 +46,7 @@
       "LoopHandoverTests",
       "OptionalPackageTests",
       "PlaybackGroupTests",
+      "PlayFadeInOverloadTests",
       "PlaybackLifecycleTests",
       "ScheduledPlaybackContractTests",
       "SoundSourceTests",
