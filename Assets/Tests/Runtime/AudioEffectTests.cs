@@ -265,21 +265,26 @@ namespace Ami.BroAudio.Tests
         // Characterizes TEST_FINDINGS #45: at every loop seam, AudioPlayerInstanceWrapper.UpdateInstance runs
         // TransferAddedEffectComponents once for each decorator and then once more for itself.
         // AudioPlayerDecorator *is* an AudioPlayerInstanceWrapper, so the caller's wrapper's
-        // `decorator.UpdateInstance(newInstance)` re-enters the same override. The decorator's own Instance
-        // still points at the outgoing player, so it copies that player's added effects onto the incoming one
-        // before the outer call copies them again. Delegates and decorators are moved (their source is nulled),
-        // but the outgoing player's _addedEffects list is only read, never cleared. Nothing de-duplicates
-        // AudioPlayer.SetAddedEffectComponents, so with N decorators and K added effects the incoming player
-        // gets K*(N+1) filter components. Every copy also joins the incoming player's _addedEffects, so the
-        // count multiplies by N+1 again at the next seam.
-        //
-        // Both decorators are attached after playback started, and only the handover is exercised. Decorated
-        // that late, neither changes routing (TEST_FINDINGS #42), and a MusicPlayer never runs DoTransition.
-        // The filter components on the live player's GameObject are the observation: they are what processes
-        // the signal, and each one is a real, audible low-pass stage.
+        // `decorator.UpdateInstance(newInstance)` re-enters the same override while the decorator's own Instance
+        // still points at the outgoing player. With N decorators the outgoing player's added-effect list is
+        // copied N+1 times.
+        // <para>
+        // Unity allows one AudioLowPassFilter per GameObject, so only the first AddComponent succeeds: the voice
+        // keeps a single filter, and every other attempt returns null and logs Unity's own untagged refusal.
+        // SetAddedEffectComponents appends an entry for every attempt anyway (TransferValueTo ignores the null
+        // target), so the incoming list holds N+1 entries per outgoing entry, and the next seam iterates all of
+        // them. With 2 decorators and one added filter the list is 3 long after the first seam and 9 after the
+        // second, and the seams log 2 and then 8 refusals: the log output grows threefold per iteration for as
+        // long as the loop runs.
+        // </para>
+        // <para>
+        // The list is private and nothing public exposes it, so it is read by reflection; the filter count and
+        // the number of untagged logs are the external half. The refusals are counted, not matched by text, and
+        // collected with LogAssert.ignoreFailingMessages scoped to this test so their LogType cannot fail it.
+        // </para>
         [UnityTest]
         [Category("Finding_45")]
-        public IEnumerator Loop_WithAnAddedEffectAndTwoDecorators_CopiesTheEffectOncePerDecoratorPlusOnceAtEachSeam()
+        public IEnumerator Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter()
         {
             yield return RequireRealtimeAudioClock();
 
@@ -302,39 +307,100 @@ namespace Ami.BroAudio.Tests
                 firstInstance, TestAudioLibrary.Reflected.AudioPlayer.Decorators);
             int decoratorCount = decorators == null ? 0 : decorators.Count;
             Assert.AreEqual(2, decoratorCount, $"Precondition: AsBGM() and AsDominator() should attach one decorator each; observed {decoratorCount}.");
-            int addedOnFirst = firstInstance.GetComponents<AudioLowPassFilter>().Length;
-            Assert.AreEqual(1, addedOnFirst, $"Precondition: AddLowPassEffect should attach exactly one AudioLowPassFilter; observed {addedOnFirst}.");
+            Assert.AreEqual(1, AddedEffectCount(firstInstance), "Precondition: AddLowPassEffect should record exactly one added effect.");
+            Assert.AreEqual(1, firstInstance.GetComponents<AudioLowPassFilter>().Length, "Precondition: AddLowPassEffect should attach exactly one AudioLowPassFilter.");
 
-            int expectedAfterFirstSeam = decoratorCount + 1;
-            int expectedAfterSecondSeam = expectedAfterFirstSeam * expectedAfterFirstSeam;
+            int copiesPerSeam = decoratorCount + 1;
+            int entriesAfterFirstSeam = copiesPerSeam;
+            int entriesAfterSecondSeam = entriesAfterFirstSeam * copiesPerSeam;
 
-            yield return WaitUntilOrTimeout(() =>
+            List<string> untaggedLogs = new List<string>();
+            void OnLog(string message, string stackTrace, LogType type)
             {
-                AudioPlayer current = InstanceOf(player);
-                return current && current != firstInstance;
-            }, "the loop to hand over to a second player, with the handle following it", HandoverWaitSeconds);
+                if (!message.Contains(Utility.LogTitle))
+                {
+                    untaggedLogs.Add(type + ": " + message);
+                }
+            }
 
-            AudioPlayer secondInstance = InstanceOf(player);
-            AudioLowPassFilter[] onSecond = secondInstance.GetComponents<AudioLowPassFilter>();
-            Assert.AreEqual(expectedAfterFirstSeam, onSecond.Length,
-                $"characterizes: after the first seam the incoming player carries one copy of the added low-pass per " +
-                $"decorator plus one ({decoratorCount} decorators -> {expectedAfterFirstSeam} predicted). Observed " +
-                $"{onSecond.Length} AudioLowPassFilter component(s), cutoffs [{DescribeCutoffs(onSecond)}]Hz. 1 would mean " +
-                "the transfer runs once per seam and refutes TEST_FINDINGS #45; 2 would mean only one decorator re-enters.");
-
-            yield return WaitUntilOrTimeout(() =>
+            Application.logMessageReceived += OnLog;
+            bool previousIgnore = LogAssert.ignoreFailingMessages;
+            LogAssert.ignoreFailingMessages = true;
+            AudioPlayer secondInstance = null;
+            int refusalsAtFirstSeam = -1;
+            int refusalsAtSecondSeam = -1;
+            int secondEntries = -1, secondFilters = -1, thirdEntries = -1, thirdFilters = -1;
+            float secondCutoff = -1f;
+            string secondCutoffs = string.Empty;
+            try
             {
-                AudioPlayer current = InstanceOf(player);
-                return current && current != secondInstance;
-            }, "the loop to hand over to a third player", HandoverWaitSeconds);
+                // UpdateInstance runs the transfers and re-points the handle in the same call, so the log count
+                // read on the frame the handle moves covers exactly that seam.
+                yield return WaitUntilOrTimeout(() =>
+                {
+                    AudioPlayer current = InstanceOf(player);
+                    return current && current != firstInstance;
+                }, "the loop to hand over to a second player, with the handle following it", HandoverWaitSeconds);
+                secondInstance = InstanceOf(player);
+                refusalsAtFirstSeam = untaggedLogs.Count;
+                AudioLowPassFilter[] secondFilterComponents = secondInstance.GetComponents<AudioLowPassFilter>();
+                secondEntries = AddedEffectCount(secondInstance);
+                secondFilters = secondFilterComponents.Length;
+                secondCutoff = secondFilters > 0 ? secondFilterComponents[0].cutoffFrequency : -1f;
+                secondCutoffs = DescribeCutoffs(secondFilterComponents);
 
-            AudioPlayer thirdInstance = InstanceOf(player);
-            AudioLowPassFilter[] onThird = thirdInstance.GetComponents<AudioLowPassFilter>();
-            Assert.AreEqual(expectedAfterSecondSeam, onThird.Length,
-                $"characterizes: the copies compound. Every copy joined the second player's added-effect list, so the " +
-                $"second seam multiplies by {expectedAfterFirstSeam} again ({expectedAfterSecondSeam} predicted). Observed " +
-                $"{onThird.Length} AudioLowPassFilter component(s), cutoffs [{DescribeCutoffs(onThird)}]Hz, after " +
-                $"{onSecond.Length} on the second player.");
+                yield return WaitUntilOrTimeout(() =>
+                {
+                    AudioPlayer current = InstanceOf(player);
+                    return current && current != secondInstance;
+                }, "the loop to hand over to a third player", HandoverWaitSeconds);
+                AudioPlayer thirdInstance = InstanceOf(player);
+                refusalsAtSecondSeam = untaggedLogs.Count - refusalsAtFirstSeam;
+                thirdEntries = AddedEffectCount(thirdInstance);
+                thirdFilters = thirdInstance.GetComponents<AudioLowPassFilter>().Length;
+
+                // Stopped inside the collection scope: the next seam would log 26 more refusals, and they must
+                // not land after ignoreFailingMessages is restored.
+                player.Stop(0f);
+                yield return null;
+            }
+            finally
+            {
+                LogAssert.ignoreFailingMessages = previousIgnore;
+                Application.logMessageReceived -= OnLog;
+            }
+
+            string observed = $"Observed: second player {secondEntries} list entries / {secondFilters} filter(s) " +
+                              $"[{secondCutoffs}]Hz; third player {thirdEntries} entries / {thirdFilters} filter(s); " +
+                              $"untagged logs {refusalsAtFirstSeam} at the first seam, {refusalsAtSecondSeam} at the second " +
+                              $"[{string.Join(" | ", untaggedLogs)}].";
+
+            Assert.AreEqual(1, secondFilters,
+                $"Unity keeps one AudioLowPassFilter per GameObject, so the voice carries a single filter. {observed}");
+            Assert.AreEqual(CutoffFrequency, secondCutoff, 1f,
+                $"The one filter that did attach must carry the added effect's settings over the seam. {observed}");
+            Assert.AreEqual(entriesAfterFirstSeam, secondEntries,
+                $"characterizes: the transfer runs once per decorator plus once ({copiesPerSeam} times), and every attempt " +
+                $"appends an entry whether or not its component attached. {observed}");
+            Assert.AreEqual(copiesPerSeam - 1, refusalsAtFirstSeam,
+                $"characterizes: each attempt after the first is refused by Unity, with its own untagged log. {observed}");
+
+            Assert.AreEqual(1, thirdFilters,
+                $"Still one filter on the voice after the second seam. {observed}");
+            Assert.AreEqual(entriesAfterSecondSeam, thirdEntries,
+                $"characterizes: every entry is copied {copiesPerSeam} times again, so the list multiplies at each seam. {observed}");
+            Assert.AreEqual(entriesAfterSecondSeam - 1, refusalsAtSecondSeam,
+                $"characterizes: and so do Unity's refusals - all but one of the second seam's attempts are rejected. {observed}");
+        }
+
+        /// <summary>
+        /// Length of the player's private added-effect list, the one the next seam's transfer iterates.
+        /// Read as a non-generic IList because its element type is a private struct.
+        /// </summary>
+        private static int AddedEffectCount(AudioPlayer player)
+        {
+            IList list = TestAudioLibrary.GetPrivateField<IList>(player, TestAudioLibrary.Reflected.AudioPlayer.AddedEffects);
+            return list == null ? 0 : list.Count;
         }
 
         private static string DescribeCutoffs(AudioLowPassFilter[] filters)
