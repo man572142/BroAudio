@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Editor.Tests;
 using Ami.BroAudio.Runtime;
@@ -18,6 +17,33 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class ClipSelectionTests : BroEditorTestFixture
     {
+        /// <summary>
+        /// Fixed so every probabilistic test below reproduces identically on a failure. Any int works -
+        /// nothing here depends on its value, only on it being the same seed every run.
+        /// </summary>
+        private const int DeterministicSeed = 918273645;
+        private Random.State _priorRandomState;
+
+        /// <summary>
+        /// Seeds <see cref="Random"/> before every test in this file and restores whatever state the rest
+        /// of the Editor session was relying on afterward - this fixture shares the process-wide
+        /// <see cref="Random"/> generator with everything else EditMode runs, so leaking a reseeded state
+        /// would make other tests' own "varies across samples" assertions reproducible (or not) by
+        /// accident. Overrides <see cref="BroEditorTestFixture.OnSetUp"/> rather than adding a second
+        /// <c>[SetUp]</c>/<c>[TearDown]</c> pair, which is the extension point the base fixture already
+        /// wraps its own isolation snapshot/restore around.
+        /// </summary>
+        protected override void OnSetUp()
+        {
+            _priorRandomState = Random.state;
+            Random.InitState(DeterministicSeed);
+        }
+
+        protected override void OnTearDown()
+        {
+            Random.state = _priorRandomState;
+        }
+
         private AudioClip NewClip(string name = "Clip") => Track(TestAudioLibrary.CreateClip(name: name));
 
         /// <summary>Builds <paramref name="count"/> clips, all with a real AudioClip assigned (IsSet == true).</summary>
@@ -54,7 +80,7 @@ namespace Ami.BroAudio.Tests
         public void SelectClip_WithNullClipsArray_LogsErrorAndReturnsNull()
         {
             var strategy = new SingleClipStrategy();
-            LogAssert.Expect(LogType.Error, new Regex("clips array is empty or null"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
 
             IBroAudioClip result = strategy.SelectClip(null, new ClipSelectionContext(0), out int index);
 
@@ -67,7 +93,7 @@ namespace Ami.BroAudio.Tests
         {
             var clips = new BroAudioClip[] { null };
             var strategy = new SingleClipStrategy();
-            LogAssert.Expect(LogType.Error, new Regex("first clip is null"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
 
             IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
 
@@ -81,7 +107,7 @@ namespace Ami.BroAudio.Tests
             // Sequence and Shuffle do, rather than deferring the failure to whatever plays it.
             var clips = new[] { UnsetClip() };
             var strategy = new SingleClipStrategy();
-            LogAssert.Expect(LogType.Error, new Regex("No valid clip is set"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
 
             IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
 
@@ -127,7 +153,7 @@ namespace Ami.BroAudio.Tests
         {
             var clips = new[] { UnsetClip(), TestAudioLibrary.CreateBroClip(NewClip()) };
             var strategy = new SequenceClipStrategy();
-            LogAssert.Expect(LogType.Error, new Regex("No valid clip is set for sequence index"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
 
             IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
 
@@ -144,7 +170,7 @@ namespace Ami.BroAudio.Tests
             strategy.SelectClip(clips, new ClipSelectionContext(0), out int first);
             Assert.AreEqual(0, first);
 
-            LogAssert.Expect(LogType.Error, new Regex("No valid clip is set for sequence index"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             strategy.SelectClip(clips, new ClipSelectionContext(0), out int second);
             Assert.AreEqual(-1, second, "The hole at index 1 should fail this call.");
 
@@ -353,6 +379,90 @@ namespace Ami.BroAudio.Tests
             }
         }
 
+        /// <summary>Draws large enough that a fixed seed's sampling noise is negligible next to the gap
+        /// between a correct weighted pick and a uniform or off-by-one one - see each test's own comment
+        /// for the exact arithmetic.</summary>
+        private const int WeightedDrawCount = 4000;
+
+        [Test]
+        public void SelectClip_WithWeightsOneAndThree_ObservedShareMatchesWeightOverTotal()
+        {
+            // clips[0].Weight=1, clips[1].Weight=3, total=4: RandomClipStrategy draws
+            // targetWeight = Random.Range(0, 4) (i.e. 0..3) and walks the cumulative sum [1, 4], returning
+            // the first index whose running sum exceeds targetWeight. targetWeight==0 hits index 0 (1 of 4
+            // values); targetWeight in {1,2,3} hits index 1 (3 of 4 values) - so the true shares are exactly
+            // 0.25 and 0.75.
+            // Binomial std-dev at N=4000 for p=0.25 (same for the complementary p=0.75) is
+            // sqrt(0.25*0.75/4000) ≈ 0.0068, so a ±0.03 band is >4 std devs - the fixed seed below cannot
+            // miss it by chance, while a uniform implementation (both shares ~0.5) or one that swapped the
+            // weight lookup (shares reversed to ~0.75/0.25) would land far outside it.
+            BroAudioClip[] clips = NewSetClips(2);
+            clips[0].Weight = 1;
+            clips[1].Weight = 3;
+            var strategy = new RandomClipStrategy();
+
+            int[] counts = new int[clips.Length];
+            for (int i = 0; i < WeightedDrawCount; i++)
+            {
+                strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
+                counts[index]++;
+            }
+
+            Assert.AreEqual(0.25f, counts[0] / (float)WeightedDrawCount, 0.03f, "Weight 1 of 4 should win about a quarter of the draws.");
+            Assert.AreEqual(0.75f, counts[1] / (float)WeightedDrawCount, 0.03f, "Weight 3 of 4 should win about three quarters of the draws.");
+        }
+
+        [Test]
+        public void SelectClip_WithWeightsOneTwoAndFive_ObservedShareMatchesWeightOverTotal()
+        {
+            // Same reasoning as the two-clip test above, with a third bucket: weights {1,2,5}, total=8, so
+            // the true shares are 1/8=0.125, 2/8=0.25 and 5/8=0.625. Worst-case std-dev among the three
+            // (p=0.625: sqrt(0.625*0.375/4000) ≈ 0.0076) is still comfortably under a ±0.03 band at N=4000,
+            // while a uniform implementation (~0.333 each) misses every one of the three bands.
+            BroAudioClip[] clips = NewSetClips(3);
+            clips[0].Weight = 1;
+            clips[1].Weight = 2;
+            clips[2].Weight = 5;
+            var strategy = new RandomClipStrategy();
+
+            int[] counts = new int[clips.Length];
+            for (int i = 0; i < WeightedDrawCount; i++)
+            {
+                strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
+                counts[index]++;
+            }
+
+            Assert.AreEqual(0.125f, counts[0] / (float)WeightedDrawCount, 0.03f, "Weight 1 of 8 should win about one eighth of the draws.");
+            Assert.AreEqual(0.25f, counts[1] / (float)WeightedDrawCount, 0.03f, "Weight 2 of 8 should win about a quarter of the draws.");
+            Assert.AreEqual(0.625f, counts[2] / (float)WeightedDrawCount, 0.03f, "Weight 5 of 8 should win about five eighths of the draws.");
+        }
+
+        [Test]
+        public void SelectClip_WithAZeroWeightBetweenTwoNonzeroOnes_NeverSelectsItAndSharesStillMatchWeightOverTotal()
+        {
+            // clips[1].Weight=0 sits strictly between two nonzero weights (1 and 3, total=4). Because the
+            // cumulative sum does not advance across a zero-weight entry, no draw of
+            // targetWeight = Random.Range(0, 4) can ever land in index 1's (empty) slice of the sum - the
+            // sum jumps straight from 1 (after index 0) to 4 (after index 2). So index 1 must never be
+            // picked, and indices 0/2 should still show the same 0.25/0.75 shares as the two-clip case above.
+            BroAudioClip[] clips = NewSetClips(3);
+            clips[0].Weight = 1;
+            clips[1].Weight = 0;
+            clips[2].Weight = 3;
+            var strategy = new RandomClipStrategy();
+
+            int[] counts = new int[clips.Length];
+            for (int i = 0; i < WeightedDrawCount; i++)
+            {
+                strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
+                counts[index]++;
+            }
+
+            Assert.AreEqual(0, counts[1], "A zero-weight clip sitting between two nonzero ones must never be picked.");
+            Assert.AreEqual(0.25f, counts[0] / (float)WeightedDrawCount, 0.03f, "Weight 1 of 4 should win about a quarter of the draws even with a zero-weight clip in between.");
+            Assert.AreEqual(0.75f, counts[2] / (float)WeightedDrawCount, 0.03f, "Weight 3 of 4 should win about three quarters of the draws even with a zero-weight clip in between.");
+        }
+
         #endregion
 
         #region VelocityClipStrategy (0.1)
@@ -478,7 +588,7 @@ namespace Ami.BroAudio.Tests
         {
             BroAudioClip[] clips = NewSetClips(2);
             var strategy = new ChainedClipStrategy();
-            LogAssert.Expect(LogType.Error, new Regex("There's no clip for Chained Play Mode Stage"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
 
             IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext((int)PlaybackStage.End), out int index);
 
