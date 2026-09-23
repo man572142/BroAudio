@@ -269,6 +269,7 @@ namespace Ami.BroAudio.Tests
             public static class AudioPlayer
             {
                 public const string Decorators = "_decorators";
+                public const string AddedEffects = "_addedEffects";
             }
 
             /// <summary>Names on <c>Ami.BroAudio.Runtime.SoundManager</c>, which exposes no NameOf of its own.</summary>
