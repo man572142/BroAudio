@@ -203,5 +203,43 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(AudioConstant.DefaultPitch, later.AudioSource.pitch, LinearTolerance,
                 "A per-SoundID pitch is not stored: the next play of that ID starts from its base pitch.");
         }
+
+        // Characterizes TEST_FINDINGS #53 at a real call site. SoundManager's master ramp adds the frame's delta
+        // before it evaluates, so its last pass hands SetEase a ratio just above 1, and SetEase's clamp is a
+        // no-op. InCirc is 1 - sqrt(1 - t^2), which is NaN for any t > 1, so the fade's final write puts NaN on
+        // the Master parameter instead of the target. The ramp and WaitForSeconds share the scaled frame clock
+        // (UpdateMode Normal), so waiting out the fade time plus two frames is past the ramp's last pass by
+        // construction rather than by margin.
+        [UnityTest]
+        [Category("Finding_53")]
+        public IEnumerator SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer()
+        {
+            const float StartVolume = 0.5f;
+            const float FadeSeconds = 0.5f;
+            SoundManager.Instance.Setting.DefaultFadeInEase = Ease.InCirc;
+
+            BroAudio.SetVolume(StartVolume, 0f);
+            yield return WaitFrames(1);
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float startDb));
+            Assert.AreEqual(StartVolume.ToDecibel(), startDb, DecibelTolerance, "Precondition: the immediate set must land before the fade starts.");
+
+            // Rising, so SetMasterVolume's coroutine picks FadeInEase.
+            BroAudio.SetVolume(AudioConstant.FullVolume, FadeSeconds);
+            yield return new WaitForSeconds(FadeSeconds);
+            yield return WaitFrames(2);
+
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float endDb));
+            Assert.IsTrue(float.IsNaN(endDb),
+                $"characterizes: the InCirc master fade ends on NaN (read {endDb}dB, the target is {AudioConstant.FullDecibelVolume}dB) - " +
+                "its last pass evaluates the ease past t = 1, where InCirc has no real value.");
+
+            // Recovery: SetMasterVolume's early return compares with ==, which NaN never satisfies, so a zero-fade
+            // set still gets through and rewrites the parameter.
+            BroAudio.SetVolume(AudioConstant.FullVolume, 0f);
+            yield return WaitFrames(1);
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float recoveredDb));
+            Assert.AreEqual(AudioConstant.FullDecibelVolume, recoveredDb, DecibelTolerance,
+                "A zero-fade SetVolume must clear the NaN, or every later test in the run inherits a broken master stage.");
+        }
     }
 }
