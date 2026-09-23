@@ -252,7 +252,7 @@ testable; **out of scope** = deliberately not tested, with the reason.
 | Scheduled end time — `SetScheduledEndTime` | covered | `ScheduledPlaybackContractTests.SetScheduledEndTime_StopsPlaybackAtExplicitDspTimeRegardlessOfClipLength` |
 | Mid-play pitch change rescaling the derived end time | covered | `ScheduledPlaybackContractTests.SetPitch_AboveOneMidPlay_ShortensDerivedRemainingDuration`, `SetPitch_AfterExplicitScheduledEndTime_DoesNotRescaleEndTime` |
 | Plain looping (`LoopType.Loop`) | covered | `LoopHandoverTests.Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams` |
-| Seamless looping with a transition time | covered | `LoopHandoverTests.Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam` |
+| Seamless looping with a transition time | covered | `LoopHandoverTests.Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam`; a transition longer than the clip by `SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount` |
 | Chained playback (intro → loop → outro) | covered | `LoopHandoverTests.ChainedPlayMode_HandsOverIntroToLoopToOutro_OutroHandoverFiresSynchronouslyOnStop` |
 | BGM transitions (`SetTransition`) | covered | `BGMTransitionTests.SetTransition_Default_*`, `SetTransition_CrossFade_*`, `SetTransition_OnlyFadeOut_*`, `SetTransition_OnlyFadeIn_*`; `Immediate` through `BGMChangedEventTests.OnBGMChanged_*` and the `StopMode.Pause`/`Mute` transition tests |
 | `AlwaysPlayMusicAsBGM` (RuntimeSetting) | covered | `AlwaysPlayMusicAsBGMTests.AlwaysPlayMusicAsBGM_Enabled_*`, `_Disabled_*` |

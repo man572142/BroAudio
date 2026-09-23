@@ -163,7 +163,7 @@ yet, and testable; **out of scope** = deliberately not tested, with the reason.
 
 | Behavior | Status | Pinned by |
 |---|---|---|
-| Play — global / positioned / follow-target | covered | `PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows` (global); `PlaybackGroupTests.Play_PositionedFarApart_*` (positioned); `SoundSourceTests.Play_WithFollowGameObjectPositionMode_KeepsTheVoiceOnTheMovingHost` (follow-target, through `SoundSource`). |
+| Play — global / positioned / follow-target | covered | `PlaybackLifecycleTests.IsActiveAndIsPlaying_AroundQueueDrain_TrackDifferentWindows` (global); `PlaybackGroupTests.Play_PositionedFarApart_*` (positioned); `SoundSourceTests.Play_WithFollowGameObjectPositionMode_KeepsTheVoiceOnTheMovingHost` (follow-target, through `SoundSource`); the fade-in overloads of both by `PlayFadeInOverloadTests`. |
 | Play returns Empty.AudioPlayer when the sound is not playable | covered | `PlaybackLifecycleTests.Play_RejectedByValidator_ReturnsInertEmptyPlayer` |
 | Stop by SoundID | covered | `PlaybackLifecycleTests.Stop_WithSingleFlag_LeavesOtherTypesPlaying`; `FadeAndTrimTests.Stop_SecondNonImmediateCall_*`, `Stop_WithImmediateFade_*` |
 | Stop by BroAudioType, including the All flag | covered | `PlaybackLifecycleTests.Stop_WithAllFlag_DeactivatesEveryConcreteType`, `Stop_WithSingleFlag_LeavesOtherTypesPlaying`; with a fade across one-shots and a loop, `LoopHandoverTests.Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd` (TEST_FINDINGS #58) |
