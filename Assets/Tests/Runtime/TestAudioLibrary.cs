@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.Extension;
@@ -14,6 +15,18 @@ namespace Ami.BroAudio.Tests
     {
         private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
         public const int SampleRate = 44100;
+
+        /// <summary>
+        /// Matches any log carrying BroAudio's <see cref="Utility.LogTitle"/> tag. The suite checks a provoked log by its
+        /// LogType and this tag, never by its sentence: rewording a message is not a behavior change.
+        /// </summary>
+        public static readonly Regex BroAudioLogPrefix = new Regex(Regex.Escape(Utility.LogTitle));
+
+        /// <summary>
+        /// Matches any message at all. Only for a log that carries no BroAudio tag (Unity's own, or one of the untagged
+        /// Editor logs in Docs/TEST_FINDINGS.md #34), where the LogType is all there is left to check.
+        /// </summary>
+        public static readonly Regex AnyLogMessage = new Regex(string.Empty);
 
         /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
         public static readonly BroAudioType[] ConcreteAudioTypes =
