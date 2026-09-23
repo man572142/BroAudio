@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
@@ -207,7 +206,7 @@ namespace Ami.BroAudio.Tests
                 players.Add(player);
             }
 
-            LogAssert.Expect(LogType.Warning, new Regex(Regex.Escape("used up all the [Dominator] tracks")));
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             foreach (IAudioPlayer player in players)
             {
                 yield return WaitForPlaybackStart(player, "every dominator, including the one past capacity, to start");

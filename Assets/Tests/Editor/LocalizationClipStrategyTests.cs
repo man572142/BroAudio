@@ -44,7 +44,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithNullLocalizedAudio_LogsErrorAndReturnsNullWithNegativeIndex()
         {
-            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("table is not set"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             LocalizationClipStrategy strategy = CreateStrategy(null, _clip);
 
             IBroAudioClip result = strategy.SelectClip(null, new ClipSelectionContext(0), out int index);
@@ -56,7 +56,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithUnsetTableEntry_LogsErrorAndReturnsNullWithNegativeIndex()
         {
-            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex("entry is not set"));
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             var localizedAudio = new LocalizedAudioClip { TableReference = "TestTable" };
             LocalizationClipStrategy strategy = CreateStrategy(localizedAudio, _clip);
 
