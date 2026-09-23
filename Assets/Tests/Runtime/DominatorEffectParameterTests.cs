@@ -2,8 +2,10 @@ using System.Collections;
 using System.Text.RegularExpressions;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
+using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.Audio;
 using UnityEngine.TestTools;
 
 namespace Ami.BroAudio.Tests
@@ -107,6 +109,92 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MainDominatedTrackName, out float quietAfter));
             Assert.AreEqual(quietBefore, quietAfter, "An invalid othersVol must leave the mixer parameter untouched.");
+        }
+
+        // Characterizes TEST_FINDINGS #43: QuietOthers with a zero fade time. The finding predicts the duck
+        // is lost; the source says the clobber happens but is undone before QuietOthers returns, and this
+        // test asserts that repaired outcome.
+        //
+        // EffectAutomationHelper.SetEffectTrackParameter starts TweakTrackParameter, and with fadeTime 0 the
+        // whole coroutine drains synchronously inside StartCoroutine (Docs/FIXED_ISSUES.md #17): Tweak writes
+        // the ducked level to Main_Dominated, the WaitableList empties, and the coroutine's own tail runs
+        // SwitchMainTrackMode(false). SetEffectTrackParameter then runs SwitchMainTrackMode(true), whose
+        // ChangeChannel(Main -> Main_Dominated, FullDecibelVolume) overwrites Main_Dominated with 0dB. That
+        // much of the finding is right.
+        //
+        // What it leaves out: DominatorPlayer.SetAllEffectExceptDominator always chains
+        // `.While(PlayerIsPlaying)`, and DecorateTweakingWaitable's empty-list branch (the FIXED_ISSUES #17
+        // re-arm) restarts TweakTrackParameter. The restarted Tweak reads Main_Dominated's current value, which
+        // differs from the target, and writes the ducked level again. Only after that does the coroutine park
+        // on the WaitWhile. So the duck lands after all, and the final state matches the non-zero-fade case.
+        // Nothing on the public surface calls SetEffect with a dominator effect without that `.While`.
+        //
+        // If this fails with Main_Dominated at ~0dB, the finding's prediction is right after all and the
+        // re-arm does not repair the clobber.
+        [UnityTest]
+        [Category("Finding_43")]
+        public IEnumerator QuietOthers_WithZeroFadeTime_StillDucksBecauseTheWhileReArmRewritesMainDominated()
+        {
+            const float OthersVolume = 0.2f;
+            float expectedDuckedDb = OthersVolume.ToDecibel();
+
+            // Main reading full volume means no earlier dominator's TweakTrackParameter is still parked on its
+            // .While(): SwitchMainTrackMode(false) is that coroutine's last statement. The Volume tweaker is
+            // shared for the whole run, and a still-tweaking one would take SetEffectTrackParameter's
+            // IsTweaking/isMoreIntense branch instead of the path under test.
+            yield return WaitUntilOrTimeout(() =>
+            {
+                SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float v);
+                return Mathf.Abs(v - AudioConstant.FullDecibelVolume) < DecibelTolerance;
+            }, "Precondition: Main to read full volume, i.e. no dominator effect still active from an earlier test", DefaultPlaybackWaitSeconds);
+
+            SoundID dominatorId = NewSound("ZeroFadeQuietOthersSfx", BroAudioType.SFX, NewClip(4f));
+            IAudioPlayer dominatorPlayer = BroAudio.Play(dominatorId);
+            // Same frame as Play, so the dominator is routed to a Dominator track and is not ducked by
+            // itself (TEST_FINDINGS #42). The mixer parameters asserted below do not depend on the routing.
+            IPlayerEffect dominator = dominatorPlayer.AsDominator();
+            yield return WaitForPlaybackStart(dominatorPlayer, "the dominator to start playing");
+
+            AudioMixer mixer = SoundManager.Instance.AudioMixer;
+            Assert.IsTrue(mixer.GetFloat(BroName.MainDominatedTrackName, out float dominatedBefore),
+                "Precondition: " + BroName.MainDominatedTrackName + " must be an exposed mixer parameter.");
+            Assert.IsTrue(mixer.GetFloat(BroName.MainTrackName, out float mainBefore),
+                "Precondition: " + BroName.MainTrackName + " must be an exposed mixer parameter.");
+
+            dominator.QuietOthers(OthersVolume, 0f);
+
+            // Read in the same frame the call returned, before anything else can run. Reported, not asserted:
+            // it shows which write landed last inside the call. The frame-settled reading below is the
+            // outcome the finding is about.
+            mixer.GetFloat(BroName.MainDominatedTrackName, out float dominatedOnReturn);
+            mixer.GetFloat(BroName.MainTrackName, out float mainOnReturn);
+
+            yield return WaitFrames(2);
+            mixer.GetFloat(BroName.MainDominatedTrackName, out float dominatedSettled);
+            mixer.GetFloat(BroName.MainTrackName, out float mainSettled);
+
+            string observed = $"Observed Main_Dominated {dominatedBefore:F2}dB before -> {dominatedOnReturn:F2}dB as " +
+                              $"QuietOthers returned -> {dominatedSettled:F2}dB two frames later; Main {mainBefore:F2}dB -> " +
+                              $"{mainOnReturn:F2}dB -> {mainSettled:F2}dB. Expected ducked level {expectedDuckedDb:F2}dB, " +
+                              $"muted Main {AudioConstant.MinDecibelVolume:F2}dB.";
+
+            Assert.AreEqual(expectedDuckedDb, dominatedSettled, DecibelTolerance,
+                "characterizes: QuietOthers(vol, 0f) still ducks. SwitchMainTrackMode(true) overwrites the first " +
+                "write with 0dB, but the .While() re-arm rewrites the ducked level. A reading near " +
+                $"{AudioConstant.FullDecibelVolume:F2}dB would confirm TEST_FINDINGS #43 (nothing ducks). {observed}");
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, mainSettled, DecibelTolerance,
+                "While the dominator is active Main is muted outright and everything else plays through " +
+                $"Main_Dominated, with a zero fade too. {observed}");
+
+            // A zero-fade duck must still let go: the parked .While() ends when the dominator stops, and the
+            // coroutine's SwitchMainTrackMode(false) puts Main back. Asserting it also keeps this test from
+            // leaving Main muted for every later test in the run.
+            dominatorPlayer.Stop(0f);
+            yield return WaitUntilOrTimeout(() =>
+            {
+                mixer.GetFloat(BroName.MainTrackName, out float v);
+                return Mathf.Abs(v - AudioConstant.FullDecibelVolume) < DecibelTolerance;
+            }, "Main to return to full volume once the zero-fade dominator stops", RampConvergenceWaitSeconds);
         }
     }
 }
