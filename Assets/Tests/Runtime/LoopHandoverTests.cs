@@ -29,8 +29,8 @@ namespace Ami.BroAudio.Tests
     /// which players exist and what each one is playing, not what the caller's handle points at.
     /// </para>
     /// <para>
-    /// Not included: a SeamlessLoop whose TransitionTime exceeds the clip. It may recurse into an uncatchable
-    /// StackOverflowException and kill the Editor - see Docs/TEST_INVENTORY.md before writing it.
+    /// A SeamlessLoop whose TransitionTime exceeds the clip is covered by
+    /// SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount.
     /// </para>
     /// </summary>
     [Category("Slow")]
@@ -493,6 +493,92 @@ namespace Ami.BroAudio.Tests
                 yield return null;
             }
 
+        }
+
+        // Every live player of this sound, whether or not its voice is still audible - GetActivePlayers above
+        // filters on IsPlaying, which a player fading out past its clip's end no longer reports.
+        private static List<AudioPlayer> GetCheckedOutPlayers(SoundID id)
+        {
+            var all = (IReadOnlyList<AudioPlayer>)GetCurrentAudioPlayersMethod.Invoke(SoundManager.Instance, null);
+            var matches = new List<AudioPlayer>();
+            foreach (AudioPlayer candidate in all)
+            {
+                if (candidate.IsActive && candidate.ID.Equals(id))
+                {
+                    matches.Add(candidate);
+                }
+            }
+            return matches;
+        }
+
+        // A TransitionTime longer than the clip makes ScheduleNextPlayback's wait window negative, so it schedules
+        // the next player at once, from inside the call that started the current one. That does not recurse: the
+        // incoming player's PlayControl parks on `while (_clipVolume.IsFading)` for its TransitionTime-long fade-in
+        // before it reaches ScheduleNextPlayback itself, and Fader.Fade starts that fade synchronously, so each
+        // player spawns exactly one successor per TransitionTime. The loop's period therefore stretches from the
+        // clip length to the TransitionTime.
+        // <para>
+        // The window is three transitions long. A loop spawning once per TransitionTime shows 4 or 5 starts in it
+        // (two at the very start - the first player hands over before its own fade could open - then one per
+        // transition). A loop spawning once per clip would show about 9, and unbounded recursion would never
+        // return from Play. The bounds sit a full start clear of both.
+        // </para>
+        [UnityTest]
+        public IEnumerator SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 0.5f;
+            const float TransitionSeconds = 1.5f;
+            const float WindowSeconds = TransitionSeconds * 3f;
+            const int MinStarts = 3;
+            const int MaxStarts = 6;
+            const int MaxConcurrentPlayers = 4;
+            AudioEntity entity = NewEntity("LongTransitionSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.TransitionTime), TransitionSeconds);
+            SoundID id = IdOf(entity);
+
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitForPlaybackStart(player);
+
+            // A pooled player can come back for a later iteration, so a start is an inactive-to-active edge,
+            // not a new instance.
+            int starts = 0;
+            int maxConcurrent = 0;
+            var activeLastFrame = new HashSet<AudioPlayer>();
+            var startTimes = new List<string>();
+            float windowStart = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - windowStart < WindowSeconds)
+            {
+                List<AudioPlayer> active = GetCheckedOutPlayers(id);
+                maxConcurrent = Mathf.Max(maxConcurrent, active.Count);
+                foreach (AudioPlayer candidate in active)
+                {
+                    if (!activeLastFrame.Contains(candidate))
+                    {
+                        starts++;
+                        startTimes.Add((Time.realtimeSinceStartup - windowStart).ToString("F2") + "s");
+                    }
+                }
+                activeLastFrame = new HashSet<AudioPlayer>(active);
+                yield return null;
+            }
+
+            string observed = $"{starts} start(s) at [{string.Join(", ", startTimes)}], at most {maxConcurrent} player(s) live at once";
+            Assert.LessOrEqual(maxConcurrent, MaxConcurrentPlayers,
+                $"The live player count must stay bounded ({observed}) - each player spawns one successor, then fades out and recycles.");
+            Assert.GreaterOrEqual(starts, MinStarts,
+                $"characterizes: the loop keeps handing over, once per TransitionTime ({observed}).");
+            Assert.LessOrEqual(starts, MaxStarts,
+                $"characterizes: the loop's period is the {TransitionSeconds}s transition, not the {ClipSeconds}s clip ({observed}).");
+            Assert.IsTrue(player.IsActive, $"The caller's handle must still drive the loop after {WindowSeconds}s of handovers.");
+
+            // Stop reaches the handle's player and the successor it scheduled; an outgoing player nobody holds
+            // any more finishes its own fade-out, which bounds this wait by one transition.
+            player.Stop(0f);
+            yield return WaitUntilOrTimeout(() => GetCheckedOutPlayers(id).Count == 0,
+                "every player of the loop to recycle after Stop()", TransitionSeconds + DefaultPlaybackWaitSeconds);
         }
     }
 }
