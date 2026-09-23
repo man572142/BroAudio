@@ -37,11 +37,13 @@ namespace Ami.BroAudio.Tests
     /// whole GameObject (not just the component) so the pooled/active <see cref="AudioPlayer"/> children
     /// parented under its transform die in the same synchronous call rather
     /// than being left behind as an orphaned, half-alive hierarchy that would outlive the test. <see
-    /// cref="RestoreSoundManagerAfterTest"/> is a <c>[UnityTearDown]</c> on this class specifically so it
-    /// runs before the base <see cref="BroAudioTestFixture.BroAudioTearDown"/> - NUnit/UTF run TearDown
-    /// methods most-derived-class-first - which matters because that base teardown dereferences
-    /// <c>SoundManager.Instance.Setting</c> unconditionally and would itself throw on a manager this file
-    /// left destroyed. <c>SoundManager.Setting</c> lazily resolves via
+    /// cref="RestoreSoundManagerAfterTest"/> is a <c>[UnityTearDown]</c> on this class, so it runs before the
+    /// base <see cref="BroAudioTestFixture.BroAudioTearDown"/> - NUnit/UTF run TearDown methods
+    /// most-derived-class-first - and the base teardown's drains and resets, like every later test, find a
+    /// live manager. The base teardown does not depend on that order: it reaches the manager only behind
+    /// <c>SoundManager.HasInstance</c> guards or through the null-safe release verbs, and treats a missing
+    /// manager as nothing to drain or restore.
+    /// <c>SoundManager.Setting</c> lazily resolves via
     /// <c>Resources.Load&lt;RuntimeSetting&gt;</c>, which Unity caches by path, so the freshly re-Init'd
     /// manager's Setting is the exact same on-disk asset the base fixture already snapshotted - nothing
     /// extra to reconcile there.
@@ -77,7 +79,7 @@ namespace Ami.BroAudio.Tests
         /// <summary>
         /// Re-bootstraps SoundManager whenever a test in this file left it destroyed, so every later
         /// PlayMode test in the run still gets a working singleton. Runs before the base fixture's own
-        /// TearDown (see the class doc comment for why that ordering matters).
+        /// TearDown (see the class doc comment for what that ordering does and does not guarantee).
         /// </summary>
         [UnityTearDown]
         public IEnumerator RestoreSoundManagerAfterTest()
@@ -290,6 +292,63 @@ namespace Ami.BroAudio.Tests
             Assert.DoesNotThrow(() => { _ = player.IsActive; }, "IsActive must stay safe (IsAvailable(false) short-circuits before touching Instance again).");
             Assert.DoesNotThrow(() => { _ = player.IsPlaying; }, "IsPlaying must stay safe for the same reason as IsActive.");
             Assert.IsFalse(player.IsActive, "A handle whose backing player died with the manager must read back as inactive.");
+        }
+
+        // Characterizes TEST_FINDINGS #50: Fader.StopCoroutine's defensive no-op cannot run, because the
+        // throwing accessor gets there first. The guard is CoroutineExtension.SafeStopCoroutine's
+        // `source` null check, but its `source` is Fader's `_coroutineExecutor`, which is
+        // `SoundManager.Instance`. That accessor throws BroAudioException once the manager is gone (its
+        // Editor-only `!Application.isPlaying` null branch does not apply in Play Mode). So the call throws
+        // before the guard is reached.
+        //
+        // The Fader is built directly, with a recording IAudioBus, because no public path reaches this guard.
+        // Every production Fader belongs to an AudioPlayer parented under the manager's transform, so
+        // DestroyManagerImmediate destroys it with the manager. AudioPlayer has no OnDestroy/OnDisable that
+        // could touch a Fader while that happens. Fader and IAudioBus are public, the manager is destroyed the
+        // same way as in every other test here, and Complete is the public entry into StopCoroutine.
+        //
+        // The live-manager call first is the contrast: the same call on the same Fader is fine while the
+        // manager exists, so the throw comes from the missing manager and not from the Fader's own state.
+        [UnityTest]
+        [Category("Finding_50")]
+        public IEnumerator Fader_CompleteWithManagerDestroyed_ThrowsBroAudioExceptionInsteadOfTheDefensiveNoOp()
+        {
+            RecordingAudioBus bus = new RecordingAudioBus();
+            Fader fader = new Fader(1f, bus);
+
+            Assert.DoesNotThrow(() => fader.Complete(0.5f),
+                "Contrast: Fader.Complete (-> StopCoroutine with no coroutine running) must not throw while SoundManager is alive.");
+            int busUpdatesWhileAlive = bus.UpdateCount;
+
+            DestroyManagerImmediate();
+
+            Exception observed = null;
+            try
+            {
+                fader.Complete(0.25f);
+            }
+            catch (Exception ex)
+            {
+                observed = ex;
+            }
+
+            string observedDescription = observed == null
+                ? $"no exception: the defensive no-op held (bus updates {busUpdatesWhileAlive} -> {bus.UpdateCount}, Current {fader.Current})"
+                : $"{observed.GetType().FullName}: {observed.Message}";
+            Assert.IsInstanceOf<BroAudioException>(observed,
+                "characterizes: with SoundManager destroyed, Fader.StopCoroutine reads the throwing SoundManager.Instance " +
+                "before SafeStopCoroutine's null guard can no-op, so Complete throws BroAudioException. No exception would " +
+                $"refute TEST_FINDINGS #50. Observed: {observedDescription}.");
+
+            yield break;
+        }
+
+        /// <summary>Counts the volume pushes a <see cref="Fader"/> makes, so a no-op path can be told from a completed one.</summary>
+        private sealed class RecordingAudioBus : IAudioBus
+        {
+            public int UpdateCount { get; private set; }
+
+            public void UpdateVolume(bool forceUpdate = false) => UpdateCount++;
         }
     }
 }

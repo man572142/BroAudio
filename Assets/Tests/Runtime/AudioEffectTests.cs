@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
 using Ami.Extension;
@@ -259,6 +260,91 @@ namespace Ami.BroAudio.Tests
             inactivePlayer.RemoveLowPassEffect();
             yield return WaitFrames(1);
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect on an inactive player must not attach or leave anything behind either.");
+        }
+
+        // Characterizes TEST_FINDINGS #45: at every loop seam, AudioPlayerInstanceWrapper.UpdateInstance runs
+        // TransferAddedEffectComponents once for each decorator and then once more for itself.
+        // AudioPlayerDecorator *is* an AudioPlayerInstanceWrapper, so the caller's wrapper's
+        // `decorator.UpdateInstance(newInstance)` re-enters the same override. The decorator's own Instance
+        // still points at the outgoing player, so it copies that player's added effects onto the incoming one
+        // before the outer call copies them again. Delegates and decorators are moved (their source is nulled),
+        // but the outgoing player's _addedEffects list is only read, never cleared. Nothing de-duplicates
+        // AudioPlayer.SetAddedEffectComponents, so with N decorators and K added effects the incoming player
+        // gets K*(N+1) filter components. Every copy also joins the incoming player's _addedEffects, so the
+        // count multiplies by N+1 again at the next seam.
+        //
+        // Both decorators are attached after playback started, and only the handover is exercised. Decorated
+        // that late, neither changes routing (TEST_FINDINGS #42), and a MusicPlayer never runs DoTransition.
+        // The filter components on the live player's GameObject are the observation: they are what processes
+        // the signal, and each one is a real, audible low-pass stage.
+        [UnityTest]
+        [Category("Finding_45")]
+        public IEnumerator Loop_WithAnAddedEffectAndTwoDecorators_CopiesTheEffectOncePerDecoratorPlusOnceAtEachSeam()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 1f;
+            const float CutoffFrequency = 3000f;
+            AudioEntity entity = NewEntity("LoopingAddedEffectSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+            yield return WaitForPlaybackStart(player, "the looping sound to start playing");
+
+            // Well inside the first iteration: the first seam is a warm-up time plus one clip away, and the
+            // transfer reads the outgoing player's list at the seam, not when the next player is requested.
+            player.AsBGM();
+            player.AsDominator();
+            player.AddLowPassEffect(proxy => proxy.cutoffFrequency = CutoffFrequency);
+
+            AudioPlayer firstInstance = InstanceOf(player);
+            Assert.IsNotNull(firstInstance, "Precondition: the handle should resolve to a live player.");
+            List<AudioPlayerDecorator> decorators = TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(
+                firstInstance, TestAudioLibrary.Reflected.AudioPlayer.Decorators);
+            int decoratorCount = decorators == null ? 0 : decorators.Count;
+            Assert.AreEqual(2, decoratorCount, $"Precondition: AsBGM() and AsDominator() should attach one decorator each; observed {decoratorCount}.");
+            int addedOnFirst = firstInstance.GetComponents<AudioLowPassFilter>().Length;
+            Assert.AreEqual(1, addedOnFirst, $"Precondition: AddLowPassEffect should attach exactly one AudioLowPassFilter; observed {addedOnFirst}.");
+
+            int expectedAfterFirstSeam = decoratorCount + 1;
+            int expectedAfterSecondSeam = expectedAfterFirstSeam * expectedAfterFirstSeam;
+
+            yield return WaitUntilOrTimeout(() =>
+            {
+                AudioPlayer current = InstanceOf(player);
+                return current && current != firstInstance;
+            }, "the loop to hand over to a second player, with the handle following it", HandoverWaitSeconds);
+
+            AudioPlayer secondInstance = InstanceOf(player);
+            AudioLowPassFilter[] onSecond = secondInstance.GetComponents<AudioLowPassFilter>();
+            Assert.AreEqual(expectedAfterFirstSeam, onSecond.Length,
+                $"characterizes: after the first seam the incoming player carries one copy of the added low-pass per " +
+                $"decorator plus one ({decoratorCount} decorators -> {expectedAfterFirstSeam} predicted). Observed " +
+                $"{onSecond.Length} AudioLowPassFilter component(s), cutoffs [{DescribeCutoffs(onSecond)}]Hz. 1 would mean " +
+                "the transfer runs once per seam and refutes TEST_FINDINGS #45; 2 would mean only one decorator re-enters.");
+
+            yield return WaitUntilOrTimeout(() =>
+            {
+                AudioPlayer current = InstanceOf(player);
+                return current && current != secondInstance;
+            }, "the loop to hand over to a third player", HandoverWaitSeconds);
+
+            AudioPlayer thirdInstance = InstanceOf(player);
+            AudioLowPassFilter[] onThird = thirdInstance.GetComponents<AudioLowPassFilter>();
+            Assert.AreEqual(expectedAfterSecondSeam, onThird.Length,
+                $"characterizes: the copies compound. Every copy joined the second player's added-effect list, so the " +
+                $"second seam multiplies by {expectedAfterFirstSeam} again ({expectedAfterSecondSeam} predicted). Observed " +
+                $"{onThird.Length} AudioLowPassFilter component(s), cutoffs [{DescribeCutoffs(onThird)}]Hz, after " +
+                $"{onSecond.Length} on the second player.");
+        }
+
+        private static string DescribeCutoffs(AudioLowPassFilter[] filters)
+        {
+            List<string> cutoffs = new List<string>(filters.Length);
+            foreach (AudioLowPassFilter filter in filters)
+            {
+                cutoffs.Add(filter.cutoffFrequency.ToString("F0"));
+            }
+            return string.Join(", ", cutoffs);
         }
 
         [UnityTest]
