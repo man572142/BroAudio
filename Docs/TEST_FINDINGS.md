@@ -866,10 +866,10 @@ cleared, so with N decorators the outgoing player's added-effect list is copied 
 
 Unity allows one filter of each type per GameObject, so the voice does **not** end up with N+1 filters:
 the first `AddComponent` succeeds and every later one returns null, logging Unity's own untagged
-"Can't add component" message. `SetAddedEffectComponents` appends an entry for every attempt anyway
+"Can't add component" message as a plain `LogType.Log`. `SetAddedEffectComponents` appends an entry for every attempt anyway
 (`TransferValueTo` returns early on a null target, so nothing throws), and the next seam iterates all of them.
 With two decorators and one added filter, the incoming player's list is 3 long after the first seam and 9
-after the second, and the seams log 2 and then 8 refusals. Both grow threefold per iteration for as long as
+after the second, and the seams log 2 and then 8 refusals (observed exactly so on CI). Both grow threefold per iteration for as long as
 the loop runs, so a long-running looping sound spends more time and log output on every seam.
 
 Reachable for any looping entity that has both an added filter component and a decorator — including a
