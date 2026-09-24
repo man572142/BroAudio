@@ -6,6 +6,10 @@ namespace Ami.BroAudio.Tests
     /// The EditMode half of <see cref="OptionalPackageTests"/>. Defines are per-assembly, so the runtime probe
     /// says nothing about what <c>EditorTests</c> compiled — and an EditMode suite such as
     /// <c>LocalizationClipStrategyTests</c> can compile out silently the same way and still report green.
+    /// <para>
+    /// It honors the same switch, <see cref="OptionalPackageTests.ExpectsNoOptionalPackages"/>: on the run that
+    /// removes both packages on purpose it asserts they are gone instead.
+    /// </para>
     /// </summary>
     public class OptionalPackageEditorTests
     {
@@ -21,21 +25,17 @@ namespace Ami.BroAudio.Tests
 #endif
 
         [Test]
-        public void Addressables_IsResolved_SoItsEditorCodeIsCompiledIntoThisRun()
+        public void Addressables_IsCompiledIntoTheEditorAssemblyExactlyWhenThisRunExpectsIt()
         {
-            Assert.IsTrue(AddressablesCompiledIn,
-                "PACKAGE_ADDRESSABLES is undefined, so the addressable fixture tooling and the play mode catalog " +
-                "prebuild compiled to nothing. com.unity.addressables is pinned in Packages/manifest.json, so it " +
-                "failed to resolve rather than being genuinely optional here.");
+            OptionalPackageTests.AssertCompiledInAsExpected(AddressablesCompiledIn, "PACKAGE_ADDRESSABLES",
+                "com.unity.addressables", "the addressable fixture tooling and the play mode catalog prebuild compiled to nothing.");
         }
 
         [Test]
-        public void Localization_IsResolved_SoItsSuiteIsCompiledIntoThisRun()
+        public void Localization_IsCompiledIntoTheEditorAssemblyExactlyWhenThisRunExpectsIt()
         {
-            Assert.IsTrue(LocalizationCompiledIn,
-                "PACKAGE_LOCALIZATION is undefined, so LocalizationClipStrategyTests compiled to nothing and is " +
-                "silently absent from this run. com.unity.localization is pinned in Packages/manifest.json, so it " +
-                "failed to resolve rather than being genuinely optional here.");
+            OptionalPackageTests.AssertCompiledInAsExpected(LocalizationCompiledIn, "PACKAGE_LOCALIZATION",
+                "com.unity.localization", "LocalizationClipStrategyTests compiled to nothing and is silently absent from this run.");
         }
     }
 }
