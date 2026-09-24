@@ -358,8 +358,12 @@ namespace Ami.BroAudio.Tests
         // AudioClipAssetReference.editorAsset.name, and editorAsset is null for a GUID with no asset (in a player
         // build the same method's synchronous retry throws BroAudioException instead). The throw kills PlayControl
         // before EndPlaying, so the player is stranded: accepted, silent, and checked out of the pool until
-        // something stops it - which the fixture's Stop(All, 0f) teardown does.
+        // something stops it - which the fixture's Stop(All, 0f) teardown does. WaitForAddressablesToLoad's own
+        // "Failed to load" error never gets its turn: GetAudioClip throws rather than returning null.
+        // Characterizes TEST_FINDINGS #66; a fix that ends the player on a failed load turns the IsActive and
+        // Exception asserts red.
         [UnityTest]
+        [Category("Finding_66")]
         public IEnumerator Play_WithAKeyThatCannotLoad_ThrowsOutOfPlayControlAndStrandsThePlayerActiveAndSilent()
         {
             SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = false;

@@ -311,6 +311,8 @@ namespace Ami.BroAudio.Tests
             {
                 public const string Decorators = "_decorators";
                 public const string AddedEffects = "_addedEffects";
+                /// <summary>The player a loop pre-spawns ahead of its next seam (ScheduleNextPlayback).</summary>
+                public const string NextPlayer = "_nextPlayer";
             }
 
             /// <summary>Names on <c>Ami.BroAudio.Runtime.SoundManager</c>, which exposes no NameOf of its own.</summary>
@@ -318,6 +320,11 @@ namespace Ami.BroAudio.Tests
             {
                 public const string LoadedEntityLastPlayedTime = "_loadedEntityLastPlayedTime";
                 public const string LocalizedRuntime = "_localizedRuntime";
+                /// <summary>
+                /// An <c>internal</c> auto-property, so the Runtime suite cannot <c>nameof</c> it; written through
+                /// its backing field by <see cref="SetPrivateField"/>, which the canary resolves the same way.
+                /// </summary>
+                public const string ScheduledPlaybackWarmUpTime = "ScheduledPlaybackWarmUpTime";
             }
 
             /// <summary>Resolves a private instance field lazily, at first use. See <see cref="Method"/>.</summary>

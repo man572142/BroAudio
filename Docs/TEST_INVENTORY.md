@@ -86,13 +86,14 @@ Per-file detail beyond the tier ledger above:
   factory global playback group every shipped entity plays under — its 0.04 s comb-filtering window with
   same-frame plays not exempt — and `PlaybackGroup`'s parent fallback to it.
 - `ErrorPathTests.cs` covers misuse the rest of the suite never drives: a clip slot with no `AudioClip`, a
-  null follow target (TEST_FINDINGS #60), `UnPause` on a player that is not paused or is fading out, and
+  null follow target (TEST_FINDINGS #60), `UnPause` on a player that is not paused or is fading out (#65), and
   per-type `SetVolume`/`SetPitch` with `BroAudioType.None` or Unity's "Everything" (-1).
 - `PlaybackEdgeCaseTests.cs` covers the far side of the comb-filtering window, a pause that outlasts the rest
   of the clip, a looping entity with a clip `Delay`, and the one place BroAudio writes `AudioSource.volume`
   (a player with no mixer track).
 - `BGMEdgeCaseTests.cs` covers `OnBGMChanged` staying quiet across a looping BGM's handover seam, and what
-  `StopMode.Mute` amounts to: the muted player keeps running silently and is never recycled until stopped.
+  `StopMode.Mute` amounts to: the muted player keeps running silently and is never recycled until stopped
+  (TEST_FINDINGS #67).
 - `LocalizationRuntimeGuardTests.cs` (behind `PACKAGE_LOCALIZATION`) covers load, release and play of a
   Localization entity with no table — every path reachable without an `AssetTable` fixture.
 - `OptionalPackageTeardownTests.cs` extends `TeardownTests`' sweep to the Addressables/Localization facade
@@ -221,7 +222,7 @@ developer's real path in TearDown.
 
 | Tier | Status | Test files |
 |---|---|---|
-| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportSetValueTests.cs` (including the exact-midpoint rounding, `SetValue_Start_ExactMidpoint_RoundsAwayFromZero`), `TransportHasDifferentPositionTests.cs`, `RectSplitRatioTests.cs`, `RectScopingTests.cs` (off-origin scopes, TEST_FINDINGS #62), `EditorReflectionNamingTests.cs`, `IssueReportMarkdownTests.cs`, `CoreDataAndUpdaterTests.cs` (`GetMaxAcceptableClipCount`, `TryParseCoreData`, and the `BroUpdater` version gates, driven against in-memory settings). One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted (see [FIXED_ISSUES.md](FIXED_ISSUES.md)), so there is nothing left to test. |
+| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportSetValueTests.cs` (including the exact-midpoint rounding, `SetValue_Start_ExactMidpoint_RoundsAwayFromZero`), `TransportHasDifferentPositionTests.cs`, `RectSplitRatioTests.cs`, `RectScopingTests.cs` (off-origin scopes, TEST_FINDINGS #62), `EditorReflectionNamingTests.cs`, `IssueReportMarkdownTests.cs`, `CoreDataAndUpdaterTests.cs` (`GetMaxAcceptableClipCount`, `TryParseCoreData` — which throws on malformed JSON, TEST_FINDINGS #69 —, and the `BroUpdater` version gates, driven against in-memory settings). One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted (see [FIXED_ISSUES.md](FIXED_ISSUES.md)), so there is nothing left to test. |
 | E1 — shipped-data integrity | **covered** | `ShippedDataTests.cs`, which reads the **committed** `BroInstruction` asset under `Resources~/Editor` rather than the gitignored local copy, so a stale copy cannot hide or fake a gap |
 | E2 — SerializedProperty operations | **covered** | `SerializedPropertyResetTests.cs`, `SerializedTransportTests.cs` |
 | E3 — clip editing | **covered** | `ClipEditingTests.cs`, including a failed `Trim` on a streaming clip (TEST_FINDINGS #61) |

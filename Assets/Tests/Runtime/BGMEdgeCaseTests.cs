@@ -60,8 +60,9 @@ namespace Ami.BroAudio.Tests
         // for exactly that re-play. But no public path re-plays that player instance: Play(id) always takes a
         // fresh player from the pool, and UnPause's guard (`_stopMode != StopMode.Pause`) warns and returns. So
         // "playing it again" leaves the muted voice running silently beside a new one until its clip runs out;
-        // only an explicit SetVolume on the old handle would bring it back.
+        // only an explicit SetVolume on the old handle would bring it back. Characterizes TEST_FINDINGS #67.
         [UnityTest]
+        [Category("Finding_67")]
         public IEnumerator StopModeMute_PlayingTheSameSoundAgainStartsANewPlayerAndLeavesTheMutedOneRunningSilently()
         {
             const float MutedThreshold = 0.05f;
@@ -101,7 +102,10 @@ namespace Ami.BroAudio.Tests
         // resume starts a new PlayControl), but nothing ever resumes a muted player: once its clip runs out the
         // source stops, yet EndPlaying never runs, so the player stays checked out of the pool (IsActive, not
         // playing) until something stops it explicitly. The explicit Stop at the end is what frees it.
+        // Characterizes TEST_FINDINGS #67 (the leak half); a fix that ends a muted player at its clip's end
+        // turns the IsActive assert red.
         [UnityTest]
+        [Category("Finding_67")]
         public IEnumerator StopModeMute_TheMutedPlayerIsNeverRecycledWhenItsClipEnds_OnlyAnExplicitStopFreesIt()
         {
             yield return RequireRealtimeAudioClock();
