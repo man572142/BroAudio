@@ -83,8 +83,8 @@ namespace Ami.BroAudio.Tests
         // cannot move the player - SetupAudioTrack already ran and already took a generic track from the pool.
         // The player stays under Main, which means it filters and ducks *itself* along with everything else.
         // This is the configuration DominatorEffectParameterTests' LowPass/HighPass tests actually run: they
-        // pass in both configurations because they only watch the Main_LowPass/Main_HighPass parameter move,
-        // which is true either way.
+        // pass in both configurations because they only watch the Main_LowPass/Main_HighPass parameter move and
+        // revert, which is true either way.
         [UnityTest]
         [Category("Finding_42")]
         public IEnumerator Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack()
