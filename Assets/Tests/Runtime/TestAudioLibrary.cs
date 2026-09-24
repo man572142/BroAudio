@@ -321,6 +321,17 @@ namespace Ami.BroAudio.Tests
                 public const string LocalizedRuntime = "_localizedRuntime";
             }
 
+            /// <summary>Resolves a private instance field lazily, at first use. See <see cref="Method"/>.</summary>
+            public static FieldInfo Field(System.Type type, string fieldName)
+            {
+                FieldInfo field = type.GetField(fieldName, PrivateInstance);
+                if (field == null)
+                {
+                    throw Unresolved(type, fieldName);
+                }
+                return field;
+            }
+
             /// <summary>
             /// Resolves a private instance method lazily, at first use, throwing the same exception as
             /// <see cref="GetPrivateField{T}"/>/<see cref="SetPrivateField"/> (see <see cref="Unresolved"/>)
