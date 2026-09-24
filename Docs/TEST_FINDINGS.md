@@ -5,6 +5,9 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
 
+Number 68 is withdrawn: it described Shuffle not playing each clip once per cycle, which the maintainer
+confirmed is not part of its contract.
+
 The tests that pin a finding carry `[Category("Finding_N")]`, so `-testCategory Finding_14` selects
 everything that pins #14, in either suite. A finding left deliberately unpinned says **Not pinned** on
 the `Status:` line of its own section, with the reason, and its row in the summary table says "not
@@ -69,11 +72,10 @@ pinned" too. `FindingCoverageTests` (EditMode) holds this file to that, in both 
 | 65 | Playback / Pause | `UnPause` during a Pause fade-out leaves `IsStopping` set, so every later faded `Stop` is discarded | Open, characterized |
 | 66 | Addressables | A key that fails to load throws out of `PlayControl` and strands the player active and silent | Open, characterized |
 | 67 | Music / StopMode | `StopMode.Mute` has no path that unmutes, and a muted player is never recycled when its clip ends | Open, characterized |
-| 68 | Clip selection | `ShuffleClipStrategy` is not a bag shuffle: a clip can repeat within a cycle while another is skipped | Open, characterized |
 | 69 | Editor / Core data | `TryParseCoreData` throws on malformed JSON instead of returning false | Open, characterized |
 | 70 | Easing | `SetFadeInEase`/`SetFadeOutEase` have no effect on the clip's own authored FadeIn/FadeOut | Open, characterized |
 | 71 | Effects | A timed non-dominator `SetEffect` resets the mixer parameter but leaves the type routed through the effect send | Open, characterized |
-| 72 | Pitch / Handover | A `SetPitch` after the next loop player is pre-spawned does not reach it, so the loop reverts at the seam | Open, characterized |
+| 72 | Pitch / Handover | A `SetPitch` after the next loop player is pre-spawned does not reach it, so the loop reverts at the seam | Open, not pinned |
 
 ---
 
@@ -167,8 +169,6 @@ In practice `_lastUsed` is only refreshed at pool exhaustion and during the fall
 ordinary in-cycle hit — so two consecutive `SelectClip` calls can return the same clip.
 
 `ClipSelectionTests` proves the gap exists rather than asserting the documented (and false) invariant.
-
-A separate gap in the same strategy, with its own root cause, is #68: a cycle is not a permutation either.
 
 ## 10. `out index` disagrees with the returned clip in two strategies
 
@@ -1439,29 +1439,6 @@ Status: Open, characterized. Pinned by
 `BGMEdgeCaseTests.StopModeMute_TheMutedPlayerIsNeverRecycledWhenItsClipEnds_OnlyAnExplicitStopFreesIt` (still
 `IsActive` after its clip ran out; only `Stop` frees it).
 
-## 68. `ShuffleClipStrategy` is not a bag shuffle
-
-**Where:** `Assets/BroAudio/Runtime/Utility/ClipSelection/ShuffleClipStrategy.cs`, `ShuffleClipStrategy.SelectClip`
-and `Use`
-
-The strategy keeps a `_used` set and resets it once every clip is in it, which is the bookkeeping of a
-shuffle that plays each clip once per cycle. But `Use` never checks `_used`: it rejects a pick only if it is
-`_lastUsed` or an unset clip, then adds the pick to `_used` and accepts it. The `_used` set is read only to
-decide when to reset (after a direct hit) and to stop the fallback scan. So a direct `Random.Range` hit on a
-clip already returned in this cycle is accepted again, and the first N picks over N clips are not a
-permutation (independent uniform draws would give one for 4 clips only 4!/4^4 ≈ 9% of the time). One clip can come up twice in a cycle while another is skipped until the reset.
-
-This has a different root cause from #9, which is about `_lastUsed` not being refreshed after an ordinary
-hit (so the *immediately previous* clip can repeat). Fixing #9 alone would not make a cycle a permutation,
-and vice versa. The documented contract (`MulticlipsPlayMode.Shuffle`: "Same as random but not repeating with
-the previous one") promises only the #9 property. This finding is the stronger once-per-cycle behavior that
-the `_used` bookkeeping and the name "Shuffle" suggest. Whether that is the intended contract is for the
-maintainer to decide.
-
-Status: Open, characterized. Pinned by
-`ClipSelectionTests.SelectClip_WithinOneCycle_CanReturnAClipAgainBeforeEveryClipHasBeenReturned`, which, under
-the fixture's fixed `Random` seed, finds a fresh strategy whose first four picks over four clips repeat one.
-
 ## 69. `TryParseCoreData` throws on malformed JSON instead of returning false
 
 **Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.Json.cs`,
@@ -1551,9 +1528,6 @@ every active player, the pre-spawned one included. Only the per-handle call miss
 A fix would forward the pitch change to `_nextPlayer` (and to its `TargetPitch`), just as the schedule shift
 already is.
 
-Status: Open, characterized. Pinned by
-`LoopHandoverTests.Play_WithPlainLoop_SetPitchAfterTheNextPlayerIsPreSpawned_DoesNotReachThatPlayer`. So that
-one slow frame cannot step over the window, the test widens `ScheduledPlaybackWarmUpTime` to 1.5 s through
-reflection (as a high-latency output device would) and restores it afterwards. It waits for `_nextPlayer`,
-calls `SetPitch(1.6f)` on the handle, and asserts the pre-spawned player still reads 1.0, both before the
-seam and on the handle after it.
+Status: Open, characterized from the code. Not pinned: the window is too narrow for a test to land a
+`SetPitch` in it reliably, and widening it would mean overwriting `ScheduledPlaybackWarmUpTime` on the live
+`SoundManager` by reflection, which the maintainer chose not to do.
