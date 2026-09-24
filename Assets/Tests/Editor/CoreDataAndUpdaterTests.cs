@@ -67,8 +67,10 @@ namespace Ami.BroAudio.Editor.Tests
 
         // characterizes: the only guard is "null or empty text"; anything else goes straight to
         // JsonUtility.FromJson, which throws on malformed JSON - so this Try* method throws instead of
-        // returning false for a corrupted core-data file.
+        // returning false for a corrupted core-data file. Characterizes TEST_FINDINGS #69; a fix that returns
+        // false turns the Assert.Catch red.
         [Test]
+        [Category("Finding_69")]
         public void TryParseCoreData_WithMalformedText_ThrowsInsteadOfReturningFalse()
         {
             TextAsset corrupted = NewTextAsset("this is not json");
