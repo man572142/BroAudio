@@ -1,8 +1,14 @@
 # BroAudio Editor Testing Plan
 
-Handoff doc for the session that builds BroAudio's **Editor-assembly** regression suite.
+Handoff doc for the session that built BroAudio's **Editor-assembly** regression suite.
 
-Companion to [TESTING_PLAN.md](TESTING_PLAN.md), which covers the runtime and is **done**, ledger in
+> **How to read this plan.** [GOAL.md](GOAL.md) is the standard the suite is held to, and where this plan
+> disagrees with it, GOAL.md governs. *Ground truth*, *Ranked tiers* and *Out of scope* still describe the
+> code and the boundaries; *Running the suite*, *Delegation*, *Phases* and *Wrap-up* record how the build
+> session was run and are kept as history, not as instructions. Later changes to the rules are collected
+> under *Amendments* at the end. For writing a new test, start from [ADDING_A_TEST.md](ADDING_A_TEST.md).
+
+Companion to [TESTING_PLAN.md](TESTING_PLAN.md), which covers the runtime; the coverage ledger is
 `Docs/TEST_INVENTORY.md`. Read that doc's *Principles* and
 *Anti-goals* sections; they apply verbatim here and are not restated. Delegation is **not** inherited —
 this suite has its own agent and model allocation, below. Everything else in this doc covers what is
@@ -22,7 +28,7 @@ project byte-identical afterwards. Coverage % is not a goal.
 | The isolation problem | a `DontDestroyOnLoad` singleton leaking state | **the project on disk** leaking state |
 | The hard wall | timing (frame vs DSP clock) | **IMGUI** — no `Event.current` outside `OnGUI` |
 | The fatal accident | a leaked playing voice | **a domain reload mid-run** |
-| Runtime cost | ~18s | should be well under a second |
+| Runtime cost | real-time audio, so seconds to minutes | should be well under a second |
 
 The timing facts that dominate the runtime plan are irrelevant here. The three that dominate this one
 are the IMGUI wall, the domain reload, and the disk footprint. All three are covered below.
@@ -44,8 +50,8 @@ Create `Assets/Tests/Editor/EditorTests.asmdef`:
 - `precompiledReferences: ["nunit.framework.dll"]`, `overrideReferences: true`
 - `autoReferenced: false`, `defineConstraints: ["UNITY_INCLUDE_TESTS"]`
 - copy the two `versionDefines` (`PACKAGE_ADDRESSABLES`, `PACKAGE_LOCALIZATION`) from `Tests.asmdef`
-- the committed file also carries four GUID references to the optional-package assemblies — three of
-  them shared with `Tests.asmdef` — added when the optional-package suites moved into this assembly
+- the committed file also carries GUID references to the optional-package assemblies, most of them
+  shared with `Tests.asmdef`, added when the optional-package suites moved into this assembly
 
 Referencing `Tests` is the point: **`TestAudioLibrary` is reusable as-is** — `CreateClip(seconds, name)`
 generates a procedural clip of an exactly known sample count, which is what the clip-editing tests
@@ -57,34 +63,36 @@ assembly — `AudioMathTests`, `ClipSelectionTests`, `EaseCurveTests`, `Localiza
 `OptionalPackageEditorTests` — kept the runtime suite's `Ami.BroAudio.Tests` namespace. Filter on
 `Ami.BroAudio` for the whole EditMode lane, `Ami.BroAudio.Editor.Tests` for the editor-tooling half.
 
-### Two shipped-data bugs the first test found — both since fixed
+### Two shipped-data bugs the first test found
 
 Verified by reading the shipped `BroInstruction` asset against the `Instruction` enum. The copy under
 version control is `Assets/BroAudio/Resources~/Editor/BroInstruction.asset`;
 `Editor/Resources/BroInstruction.asset` is the copy `BroUserDataGenerator` generates into a user's
-project, and both fixes below landed in both copies.
+project from it. The fixes below edited the committed copy.
 
 1. **`Instruction.SoundSource_PositionMode` (450) had no entry in the asset.** The enum and the asset
    held the same number of entries; the counts cancelled and hid the gap. `BroInstructionHelper.GetText`
    returned `MissingText` — the literal string `??????????` — and the Sound Source position-mode tooltip
    only looked intact because `SoundSourceEditor` drew a hardcoded literal instead of going through the
-   instruction system at all. **Fixed — [FIXED_ISSUES.md](FIXED_ISSUES.md) #18.**
+   instruction system at all. Recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md) #18.
 2. **Asset key `15` was stale** — a pitch-shifting tooltip whose enum member was deleted (the enum still
    carries a comment pinning the values around the hole). It deserialized to an undefined
-   `(Instruction)15` and was never read. **Fixed — [FIXED_ISSUES.md](FIXED_ISSUES.md) #19.**
+   `(Instruction)15` and was never read. Recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md) #19.
 
-The two sets line up exactly today: every enum member has an entry, every entry maps to a defined member,
-no duplicates. **Do not carry the totals around as facts** — they grow with every new tooltip. Re-derive
+**Do not carry the totals around as facts** — they grow with every new tooltip. Re-derive
 them: the enum members are the entries in `Assets/BroAudio/Editor/EditorSettings/Instruction.cs`, the
 asset entries are its `Key:` lines, counting `None = 0`. And note that equal totals are *not* the
 check — that coincidence is exactly what hid the 450 gap. The tests compare the two sets member by
 member, in both directions.
 
-Both were **findings before they were fixes**, which is the rule this plan runs on: the tests in
-`Assets/Tests/Editor/ShippedDataTests.cs` were written as "every enum value resolves to real text" and
-"every asset key is a defined enum member", landed red on 450 and 15, were logged as findings, and only
-then was the data repaired. They are green now, and they stay green **by fixing the asset, never by
-adding an exclusion list** — their failure messages say so.
+Both were **findings before they were fixes**: the tests in `Assets/Tests/Editor/ShippedDataTests.cs`
+were written as "every enum value resolves to real text" and "every asset key is a defined enum member",
+landed red on 450 and 15, were logged as findings, and only then did the maintainer have the data
+repaired. That sequence is history, not the rule. The rule is [GOAL.md](GOAL.md)'s: a test pins current
+behavior and passes, the conflict goes into TEST_FINDINGS, and production changes only when the
+maintainer asks. A shipped-data test that fails on a defect nobody has fixed is the exception the
+maintainer chose for these two, not a pattern to copy. Either way the tests are satisfied **by fixing the
+asset, never by adding an exclusion list** — their failure messages say so.
 
 ### `BroInstruction` fails loudly on duplicate keys
 
@@ -139,6 +147,8 @@ Do not refactor production code to expose it — propose the seam, stop, ask.
 
 ## Running the suite
 
+*Historical: how the build session ran the suite.*
+
 Same single-Editor lane rule as the runtime plan: **only the orchestrator runs `unity cmd`.**
 
 ```bash
@@ -160,6 +170,8 @@ advance on `EditorApplication.update`, and the semantics are not PlayMode's.
 ---
 
 ## Delegation
+
+*Historical: how the build session split its work between agents.*
 
 Orchestration stays in the main session on **Opus 5**. Everything mechanical fans out to **Sonnet 5**.
 The orchestrator's context is the scarce resource — not the token count. Fan out the reading and the
@@ -245,13 +257,13 @@ Milliseconds, zero setup, permanent value. Take all of it.
 
 ### E1 — Shipped-data integrity
 
-Cheapest real-bug detection in the plan. This is where the two shipped-data findings were caught; both
-are fixed now, and these tests are what keeps them fixed.
+Cheapest real-bug detection in the plan. This is where the two shipped-data findings were caught, and
+these tests are what keeps them from coming back.
 
 - Every `Instruction` value resolves through `BroInstructionHelper.GetText` to a non-empty string that
-  is not `MissingText`. **Was red on 450; green since #18.**
+  is not `MissingText`. Guards FIXED_ISSUES #18.
 - No duplicate keys in the asset (see the `Add`-throws note above).
-- Every asset key maps to a defined enum member. **Was red on 15; green since #19.**
+- Every asset key maps to a defined enum member. Guards FIXED_ISSUES #19.
 - `EditorSetting.ResetToFactorySettings` yields an `AudioTypeSetting` for every concrete
   `BroAudioType`, and `GetAudioTypeColor` / `TryGetAudioTypeSetting` agree with it.
 - `GetSpectrumColor(index)` at 0, at `SpectrumBandColors.Count - 1`, and out of range.
@@ -279,21 +291,21 @@ Cover `Trim`, `AddSlient`, `AdjustVolume`, `Reverse`, `FadeIn`, `FadeOut`, `Conv
 `GetResultClip`. Characterize these edges rather than fixing them:
 
 - `GetResultClip` returns the **original instance** when `HasEdited` is false — reference equality, not
-  a copy. *(Open: TEST_FINDINGS #29.)*
+  a copy. *(TEST_FINDINGS #29.)*
 - `ConvertToMono` Downmix accumulates a running sum whose grouping is offset by one and **drops the
-  final group** — output length is `n/channels - 1`, not `n/channels`. *(Open: TEST_FINDINGS #25.)*
-- `Reverse` reverses the raw interleaved array, which **swaps L/R** on a stereo clip. *(Open:
-  TEST_FINDINGS #26.)*
-- `AddSlient` prepends silence (the name says nothing about which end). *(Open: TEST_FINDINGS #27.)*
+  final group** — output length is `n/channels - 1`, not `n/channels`. *(TEST_FINDINGS #25.)*
+- `Reverse` reverses the raw interleaved array, which **swaps L/R** on a stereo clip. *(TEST_FINDINGS
+  #26.)*
+- `AddSlient` prepends silence (the name says nothing about which end). *(TEST_FINDINGS #27.)*
 
-Two edges on this list were characterized first and repaired later, so they now read the other way round:
+Two further edges were characterized first and repaired later at the maintainer's request:
 
 - `FadeIn(0f)` used to compute `1f / 0` = ∞ with a loop body that never ran — no audio was harmed, but
-  the call still flagged the clip as edited and forced a pointless copy. **Fixed —
-  [FIXED_ISSUES.md](FIXED_ISSUES.md) #28:** a fade window that rounds to zero samples returns
+  the call still flagged the clip as edited and forced a pointless copy. See
+  [FIXED_ISSUES.md](FIXED_ISSUES.md) #28: a fade window that rounds to zero samples returns
   immediately and reports no edit (`ClipEditingTests.FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit`).
 - `Trim` past the end of the clip used to wrap around and splice the clip's own opening onto its end —
-  `AudioClip.GetData` wraps rather than failing. **Fixed — [FIXED_ISSUES.md](FIXED_ISSUES.md) #30:** the
+  `AudioClip.GetData` wraps rather than failing. See [FIXED_ISSUES.md](FIXED_ISSUES.md) #30: the
   read clamps to the samples that actually remain
   (`ClipEditingTests.Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround`).
 
@@ -313,12 +325,17 @@ asset in the project — slow, and its result depends on project contents).
 
 ### Out of scope
 
-IMGUI drawing. `ScriptingDefinesUtility`. The code generators and `PackageExporter` (`#if
-BroAudio_DevOnly`). `SoundIDUpgrader` / `FileStructureUpgrader`. Anything asserting on log text.
+IMGUI drawing. (Constructing an inspector through `Editor.CreateEditor` to reach logic that does not draw,
+as `AssetWritingTests` does for `AudioAssetEditor.CreateNewEntity`, is E4 work, not inspector testing.)
+`ScriptingDefinesUtility`. The code generators and `PackageExporter` (`#if
+BroAudio_DevOnly`). `SoundIDUpgrader` / `FileStructureUpgrader`. Anything asserting on log text — expecting a log by `LogType` plus BroAudio's tag is allowed, see
+[GOAL.md](GOAL.md).
 
 ---
 
 ## Phases
+
+*Historical: the order the suite was built in.*
 
 Work in order. Do not fan out a phase until the previous one is green.
 
@@ -332,7 +349,7 @@ convention costs a rewrite of the whole suite.*
 
 **Phase E1 — Pure functions and shipped data** (tiers E0 + E1). The bulk of the value. This is the phase
 that landed the two red shipped-data tests; they were logged as findings and shown to the user before
-anything continued, and were repaired later (#18, #19), so the same two tests run green today.
+anything continued, and were repaired later (FIXED_ISSUES #18, #19).
 
 *Delegation: 3 `general-purpose` (Sonnet 5) writers spawned in one message — (a) name validation +
 `Combine` + flag helpers (the enum-index round-trip that used to sit in this slice is gone with the
@@ -364,6 +381,8 @@ against a fixed template, and it keeps the orchestrator's context for decisions.
 ---
 
 ## Wrap-up: review, then report
+
+*Historical: how the build session closed out.*
 
 Only after the last phase is green, the docs are updated, and the work is committed. Sequential — the
 report needs the review's output.
@@ -426,21 +445,41 @@ Relay the artifact URL to the user; a subagent's final report is not shown to th
 - Total EditMode runtime stays under a second or two — flag it if not.
 - `Docs/TEST_INVENTORY.md` gains an Editor section marking each target covered / deferred / out of scope.
 - Every finding is written down exactly once: still-open ones in `Docs/TEST_FINDINGS.md`, repaired ones
-  moved to `Docs/FIXED_ISSUES.md` with their commit. The shipped-data pair is the worked example — both
-  sit in the fixed list (#18, #19) and neither appears in the open one.
+  moved to `Docs/FIXED_ISSUES.md` with their commit. The shipped-data pair (FIXED_ISSUES #18, #19) is
+  the worked example.
 - `ShippedDataTests` is green because the shipped asset is correct, not because a test grew an exclusion
   list: every `Instruction` member resolves to real text, and every asset key is a defined member.
 - Every fixture named in `.github/required-test-suites.json` appears in the results of its leg. A suite
   that compiled to nothing is absent rather than red, so without that check a green run can cover less
   than it claims.
-- No production code changed. If a test is impossible without a seam, **propose the seam, stop, ask.**
-
-> **Note.** The "do not fix" rule above is the standard the suite is held to, not a literal
-> description of the log — a maintainer-approved fix can land on production code the rule otherwise
-> forbids, and approval does not require waiting for both suites to be green first. Fixed findings
-> move to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; open findings stay in
-> [TEST_FINDINGS.md](TEST_FINDINGS.md). Characterization work still follows the original rule — find
-> it, pin it, log it, and ask before fixing.
-
+- No production code changed without the maintainer asking. If a test is impossible without a seam,
+  **propose the seam, stop, ask.**
 - The Opus 5 review has run and every item is either fixed or explicitly dismissed in writing.
 - The Opus 5 HTML report is published and its URL handed to the user.
+
+---
+
+## Amendments
+
+Changes to this plan's rules made after the suite was built. [GOAL.md](GOAL.md) states the current rules;
+these entries explain why this plan's text differs from them.
+
+- **Maintainer-approved fixes.** The "do not fix" rule is the standard the suite is held to, not a literal
+  description of the history — a maintainer-approved fix can land on production code the rule otherwise
+  forbids, and approval does not require waiting for both suites to be green first. Fixed findings move
+  to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; open findings stay in
+  [TEST_FINDINGS.md](TEST_FINDINGS.md). Characterization work still follows the original rule — find it,
+  pin it, log it, and ask before fixing.
+- **Every production change is recorded, not only finding fixes**, as GOAL.md asks. FIXED_ISSUES.md also
+  holds changes that were never findings, including one to this assembly's import hook.
+- **Own-commit rule.** GOAL.md requires a production change to land in its own commit. Some fixes to this
+  assembly were folded into commits that also changed tests, before and after that rule was written down;
+  they are listed under *Departures from the own-commit rule* in [FIXED_ISSUES.md](FIXED_ISSUES.md), which
+  is where the commits themselves are named.
+- **Red-first shipped-data tests are not the rule.** The *Ground truth* section records that the two
+  shipped-data tests landed red before the data was fixed. That was the maintainer's choice for those
+  two; the default is GOAL.md's characterize-and-log.
+- **Log assertions.** "Asserting on log text" stays out of scope. Expecting a log by its `LogType` and
+  BroAudio's `[BroAudio]` tag, without matching its sentence, is allowed, as GOAL.md spells out.
+- **Inspectors.** Building an inspector with `Editor.CreateEditor` only to call its non-drawing logic is
+  not "testing inspectors"; drawing stays out of scope.
