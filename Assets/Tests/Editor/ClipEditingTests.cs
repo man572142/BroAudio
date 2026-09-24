@@ -27,6 +27,15 @@ namespace Ami.BroAudio.Editor.Tests
     {
         private const float Tolerance = 1e-4f;
 
+        /// <summary>
+        /// AudioClipEditingHelper's private sample buffer. Reached through the shared lookup so a rename fails with a
+        /// message naming the member; the name lives here because TestAudioLibrary.Reflected sits in the runtime
+        /// test assembly, which cannot see this Editor-only type.
+        /// </summary>
+        private const string SampleDataFieldName = "_sampleDatas";
+        private static System.Reflection.FieldInfo SampleDataField =>
+            TestAudioLibrary.Reflected.Field(typeof(AudioClipEditingHelper), SampleDataFieldName);
+
         /// <summary>1000 Hz is the lowest rate AudioClip.Create honours; below it Unity caps and logs an error.</summary>
         private const int SampleRate = 1000;
 
@@ -110,6 +119,53 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.IsFalse(helper.HasEdited, "TryGetSampleData returned false, so Trim must not report an edit.");
             Assert.AreSame(clip, helper.GetResultClip(), "A failed Trim must fall back to the original clip.");
+        }
+
+        [Test]
+        [Category("Finding_61")]
+        public void Trim_OnStreamingClip_LeavesAZeroedBufferThatLaterEditsApplyTo()
+        {
+            // Characterizes TEST_FINDINGS #61: TryGetSampleData allocates its out array BEFORE GetData fails and
+            // hands that array back even when it returns false, and Trim stores it in the helper's sample field
+            // unconditionally. The helper then holds a buffer of zeros the size of the requested range, never
+            // read from the clip, so CanEdit reads true and every later edit runs on that silence. On an
+            // imported streaming clip with real audio, GetResultClip after such an edit would return silence.
+            // (This test's streamed clip has no PCM reader, so its own content cannot be compared - the
+            // contrast test below shows that without the failed Trim the same clip is NOT editable.)
+            AudioClip clip = Track(AudioClip.Create("StreamedRamp10", 10, 1, SampleRate, stream: true));
+            using var helper = new AudioClipEditingHelper(clip);
+
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.AnyLogMessage); // Unity's own AudioClip.GetData error, untagged
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
+            helper.Trim(0f, 0f);
+            Assert.IsFalse(helper.HasEdited, "Precondition: the Trim failed.");
+
+            Assert.IsTrue(helper.CanEdit,
+                "A failed Trim left no buffer behind - if so, #61 is fixed: update this pin and the finding.");
+
+            helper.AdjustVolume(0.5f);
+
+            Assert.IsTrue(helper.HasEdited, "AdjustVolume ran on the leftover buffer and reported an edit.");
+            // No public member exposes the buffer short of GetResultClip, which would re-create a STREAMED clip
+            // (the original's load type) and SetData into it - so the buffer is read directly.
+            float[] buffer = (float[])SampleDataField.GetValue(helper);
+            Assert.IsNotNull(buffer);
+            Assert.AreEqual(10, buffer.Length, "The leftover buffer is sized to the requested range (the whole 10-sample clip).");
+            Assert.That(buffer, Is.All.EqualTo(0f), "The leftover buffer is zeros - the clip was never read into it.");
+        }
+
+        [Test]
+        public void StreamingClip_WithoutAFailedTrim_IsNotEditable()
+        {
+            // The contrast for #61: the helper's lazy read fails the same way, but leaves the buffer null,
+            // so CanEdit is false and every edit is a no-op.
+            AudioClip clip = Track(AudioClip.Create("StreamedRamp10", 10, 1, SampleRate, stream: true));
+            using var helper = new AudioClipEditingHelper(clip);
+
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.AnyLogMessage); // Unity's own AudioClip.GetData error, untagged
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
+            Assert.IsFalse(helper.CanEdit, "A streamed clip's samples cannot be read, so the helper must not be editable.");
+            Assert.IsFalse(helper.HasEdited);
         }
 
         [Test]
@@ -274,11 +330,11 @@ namespace Ami.BroAudio.Editor.Tests
         #region ConvertToMono
         [Test]
         [Category("Finding_25")]
-        public void ConvertToMono_Downmixing_OffsetsGroupingAndDropsFinalGroup()
+        public void ConvertToMono_Downmixing_AveragesEachFrameButDropsTheFinalFrame()
         {
-            // Characterizes TEST_FINDINGS #25: the running sum is only flushed when the NEXT group's boundary is
-            // reached, so the final group of the clip never gets flushed - output length is
-            // (totalSamples / channels) - 1, not totalSamples / channels, and the last group is lost.
+            // Characterizes TEST_FINDINGS #25: each frame (L,R pair) is grouped and averaged correctly - the grouping
+            // is not offset - but the running sum is only flushed when the NEXT frame's boundary is reached, so the
+            // final frame is never flushed: output length is (totalSamples / channels) - 1, and the last frame is lost.
             AudioClip clip = CreateRampClip("Ramp3Stereo", 3, 2); // interleaved: 0, 1/3, 2/3, 1, 4/3, 5/3
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -315,6 +371,7 @@ namespace Ami.BroAudio.Editor.Tests
                 rightHelper.ConvertToMono(MonoConversionMode.Right);
                 float[] right = ReadAllSamples(Track(rightHelper.GetResultClip()));
                 float[] expectedRight = { 1f / 3f, 1f, 5f / 3f };
+                Assert.AreEqual(expectedRight.Length, right.Length, "SelectOneChannel keeps the full frame count for the right channel too.");
                 for (int i = 0; i < expectedRight.Length; i++)
                 {
                     Assert.AreEqual(expectedRight[i], right[i], Tolerance, $"right index {i}");
