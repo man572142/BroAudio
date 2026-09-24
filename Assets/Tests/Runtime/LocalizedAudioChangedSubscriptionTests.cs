@@ -1,7 +1,6 @@
 #if PACKAGE_LOCALIZATION
 using System;
 using System.Collections;
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using NUnit.Framework;
@@ -21,8 +20,6 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class LocalizedAudioChangedSubscriptionTests : BroAudioTestFixture
     {
-        private static readonly Regex BroAudioLogPrefix = new Regex(Regex.Escape(Utility.LogTitle));
-
         private static void OnChanged(SoundID _) { }
 
         private static bool HasSubscriptionEntry(SoundID id)
@@ -41,7 +38,7 @@ namespace Ami.BroAudio.Tests
                 new LocalizedAudioClip { TableReference = "TestTable", TableEntryReference = "TestEntry" });
             SoundID id = IdOf(entity);
 
-            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             BroAudio.SubscribeLocalizedAudioChanged(id, OnChanged);
 
             Assert.IsFalse(HasSubscriptionEntry(id), "A non-Localization entity must not get a subscription entry.");
@@ -57,7 +54,7 @@ namespace Ami.BroAudio.Tests
             TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.MulticlipsPlayMode, MulticlipsPlayMode.Localization);
             SoundID id = IdOf(entity);
 
-            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             id.LocalizedAudioChanged += OnChanged;
 
             Assert.IsFalse(HasSubscriptionEntry(id), "An entity with no table or entry set must not get a subscription entry.");
