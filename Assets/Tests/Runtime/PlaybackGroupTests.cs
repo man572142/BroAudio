@@ -15,6 +15,18 @@ namespace Ami.BroAudio.Tests
     /// one explicitly via <see cref="NewGroup"/>/<see cref="NewGroupedSound"/> before the first Play call -
     /// PlaybackGroup caches its rule list lazily on first use.
     /// </para>
+    /// <para>
+    /// Such a group's parent is the fixture's <see cref="BroAudioTestFixture.FactoryGlobalPlaybackGroup"/>, but a
+    /// rule consults its parent only when its override flag is off, and every rule NewGroup writes keeps the
+    /// default (on) - so what each test here observes is its own group's values alone. The shipped global group
+    /// and the parent fallback are covered in DefaultPlaybackGroupTests.
+    /// </para>
+    /// <para>
+    /// A test that expects a replay inside the window to be *accepted* uses the same 10s window as the
+    /// rejection baseline, and has a rejecting twin that differs only in the exemption: with a short window, a
+    /// stall between the two plays would let the window expire and the acceptance would pass for the wrong
+    /// reason.
+    /// </para>
     /// </summary>
     public class PlaybackGroupTests : BroAudioTestFixture
     {
@@ -146,7 +158,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Play_PositionedFarApart_WithinCombFilteringWindow_BothSucceed()
         {
-            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 1f, ignoreDistanceGreaterThan: 5f);
+            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f, ignoreDistanceGreaterThan: 5f);
             SoundID id = NewGroupedSound(group, "CombDistanceSfx");
 
             IAudioPlayer player1 = BroAudio.Play(id, Vector3.zero);
@@ -159,6 +171,25 @@ namespace Ami.BroAudio.Tests
                 "Two positioned plays farther apart than _ignoreIfDistanceIsGreaterThan are exempt from comb-filtering even inside the time window.");
         }
 
+        // Negative control for the test above: the same pair only 1 unit apart - inside
+        // _ignoreIfDistanceIsGreaterThan - is rejected, so the acceptance above comes from the distance and not
+        // from the window having expired.
+        [UnityTest]
+        public IEnumerator Play_PositionedCloseTogether_WithinCombFilteringWindow_RejectsSecond()
+        {
+            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f, ignoreDistanceGreaterThan: 5f);
+            SoundID id = NewGroupedSound(group, "CombDistanceCloseSfx");
+
+            IAudioPlayer player1 = BroAudio.Play(id, Vector3.zero);
+            yield return WaitForPlaybackStart(player1, "the first play to start");
+            yield return WaitFrames(2);
+
+            IAudioPlayer player2 = BroAudio.Play(id, new Vector3(1f, 0f, 0f));
+
+            Assert.IsFalse(player2.IsActive,
+                "Two positioned plays closer than _ignoreIfDistanceIsGreaterThan get no exemption inside the time window.");
+        }
+
         // Characterizes TEST_FINDINGS #12: positional asymmetry, part 2. A global (2D) play has no
         // position to compare against a positioned one, so DefaultPlaybackGroup skips the distance check
         // entirely for a global/positioned mix and instead exempts the pair purely because
@@ -168,7 +199,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_12")]
         public IEnumerator Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance()
         {
-            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 1f, ignoreDistanceGreaterThan: 5f);
+            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f, ignoreDistanceGreaterThan: 5f);
             SoundID id = NewGroupedSound(group, "CombGlobalMixSfx");
 
             IAudioPlayer player1 = BroAudio.Play(id); // global (2D) play - no position
@@ -179,6 +210,25 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsTrue(player2.IsActive,
                 "A global/positioned mix is exempted purely because _ignoreIfDistanceIsGreaterThan > 0, with no actual distance comparison possible.");
+        }
+
+        // Negative control for the #12 pin above: the identical global-then-positioned pair with
+        // _ignoreIfDistanceIsGreaterThan at 0 is rejected. So the pin's acceptance is the distance setting's
+        // doing, not an expired window.
+        [UnityTest]
+        public IEnumerator Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond()
+        {
+            DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f, ignoreDistanceGreaterThan: 0f);
+            SoundID id = NewGroupedSound(group, "CombGlobalMixNoDistanceSfx");
+
+            IAudioPlayer player1 = BroAudio.Play(id); // global (2D) play - no position
+            yield return WaitForPlaybackStart(player1, "the first play to start");
+            yield return WaitFrames(2);
+
+            IAudioPlayer player2 = BroAudio.Play(id, Vector3.zero);
+
+            Assert.IsFalse(player2.IsActive,
+                "With _ignoreIfDistanceIsGreaterThan at 0, a global/positioned mix inside the window gets no exemption.");
         }
 
         // A custom IPlayableValidator passed to Play() replaces the entity's own PlaybackGroup entirely
