@@ -12,21 +12,25 @@ Detail lives in four section files; this file is the index, the ranking, and the
 | Time-dependent behavior | [inventory/time-dependent.md](inventory/time-dependent.md) |
 | Selection, policy, decorators | [inventory/selection-policy.md](inventory/selection-policy.md) |
 
-Status values: **covered** · **planned (phase N)** · **deferred** · **out of scope**
+Status values, here and in the section ledgers: **covered** · **partial** · **deferred** · **out of scope**.
+**covered** = the core contract is pinned by a test; **partial** = pinned for some inputs, with the gap
+named; **deferred** = not pinned, and testable; **out of scope** = deliberately not tested, with the reason.
+The tier sections below still carry the phase they were planned in, which records the build order.
 
 ## Coverage ledger
 
 | Tier | Status | Test files |
 |---|---|---|
-| 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs` |
-| 1 — Core playback | **covered** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs` |
-| 2 — Time-dependent | **covered** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `ClipDelayAndSchedulingTests.cs`, `ScheduledPlaybackContractTests.cs`, `BGMTransitionTests.cs`, `AlwaysPlayMusicAsBGMTests.cs`, `BGMChangedEventTests.cs` |
-| 3 — Selection and policy | **covered** (3.1-3.7) | `PlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `LocalizedAudioChangedSubscriptionTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
+| 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs`, `EaseCurveTests.cs` |
+| 1 — Core playback | **partial** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `VolumeFadeTests.cs` |
+| 2 — Time-dependent | **partial** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `ClipDelayAndSchedulingTests.cs`, `ScheduledPlaybackContractTests.cs`, `BGMTransitionTests.cs`, `AlwaysPlayMusicAsBGMTests.cs`, `BGMChangedEventTests.cs` |
+| 3 — Selection and policy | **partial** (3.1-3.7) | `PlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `LocalizedAudioChangedSubscriptionTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
 | 5 — Addressables | **covered** | `AddressablesTests.cs` |
 | 6 — MonoComponents | **covered** | `SoundSourceTests.cs`, `SoundVolumeTests.cs`, `SpectrumAnalyzerTests.cs` |
-| 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `SpatialAndPriorityTests.cs` |
+| 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `AuthoredPitchAndRandomizationTests.cs`, `SpatialAndPriorityTests.cs` |
+| Suite guards | **covered** | `OptionalPackageTests.cs`, `AudioClockProbeTests.cs` (PlayMode); `OptionalPackageEditorTests.cs`, `FindingCoverageTests.cs` (EditMode) |
 
-Tier status is the summary; the **per-behavior** ledger required by the plan's Definition of Done lives at
+Tier status is the summary, and a tier is **partial** when any of its rows below is; the **per-behavior** ledger required by the plan's Definition of Done lives at
 the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverage-ledger),
 [selection-policy](inventory/selection-policy.md#coverage-ledger),
 [time-dependent](inventory/time-dependent.md#coverage-ledger) and
@@ -68,6 +72,20 @@ Per-file detail beyond the tier ledger above:
   player carries into its next sound.
 - `PlayFadeInOverloadTests.cs` covers `Play(id, position, fadeIn)` and `Play(id, followTarget, fadeIn)`: each
   call places a 3D voice at (or tracking) its target and ramps it from silence over the given fade.
+- `VolumeFadeTests.cs` covers the timed half of `SetVolume` — per-type, per-`SoundID` and per-handle ramps on
+  the frame clock, a ramp reversed mid-flight, and a `Stop` fade that starts from the current level.
+- `AuthoredPitchAndRandomizationTests.cs` covers the entity's authored pitch (and a per-type pitch replacing
+  it, TEST_FINDINGS #55), per-play volume and pitch randomization, and master `SetPitch` (#56).
+- `EaseCurveTests.cs` (EditMode) covers `EaseExtension.SetEase` — the curve behind every fade — against
+  hand-derived literal values, never against `SetEase` itself, including out-of-range input (#53) and an
+  undefined `Ease` (#54).
+- The suite guards fail a run that silently covers less than it claims. `OptionalPackageTests.cs` (PlayMode)
+  and `OptionalPackageEditorTests.cs` (EditMode) fail when `PACKAGE_ADDRESSABLES` or `PACKAGE_LOCALIZATION`
+  is undefined in their assembly, since a suite behind that define would otherwise compile to nothing.
+  `AudioClockProbeTests.cs` fails when the DSP clock is not realtime on a machine that promises an audio
+  device (`BROAUDIO_CI_EXPECTS_AUDIO`), where the tests gated on `RequireRealtimeAudioClock` would
+  otherwise all be ignored. `FindingCoverageTests.cs` (EditMode) reconciles `[Category("Finding_N")]` tags
+  in both assemblies with the findings in TEST_FINDINGS.md, in both directions.
 
 Every PlayMode test runs against factory `RuntimeSetting` values: `BroAudioTestFixture` resets the asset after
 snapshotting it, since the asset is gitignored and a developer's copy may differ from the one CI generates.
@@ -87,8 +105,9 @@ the EditMode lane rather than alongside the PlayMode suite.
 **Caveat:** a file authored without a connected Unity Editor to compile and run it is not proven until it
 has been. Before trusting this ledger for a given file, confirm it has actually run green.
 
-`RuntimeSetting.DefaultAudioPlayerPoolSize` is **not** covered: it is read once at `SoundManager` bootstrap,
-which the persistent singleton passes before any test runs, so mutating it live has no observable effect.
+`RuntimeSetting.DefaultAudioPlayerPoolSize` is **deferred**: it is read when `SoundManager` bootstraps, so
+mutating it on the live manager has no effect. It is still testable — `TeardownTests` already destroys the
+manager and calls `SoundManager.Init()`, which bootstraps a fresh one that reads the setting.
 
 `Tests.asmdef` references `Unity.Localization` (needed for tier 0.6) and `UnityEngine.UI` (needed once
 tier 6 reached `SoundVolume`, which holds a `UnityEngine.UI.Slider` directly) — asmdef references are not
@@ -114,7 +133,7 @@ Established by probe or grep during ranking; they override anything in the secti
 - **`BroAudio.OnBGMChanged` is public**, forwarding to `MusicPlayer.OnBGMChanged`. No reflection needed — but it is a *static* event, so any test that subscribes must unsubscribe.
 - **`StopMode.Mute` is reachable** via the public `SetTransition(this IMusicPlayer, Transition, StopMode)` extension. It is a BGM transition mode, not a general stop mode — the lifecycle section's "unreachable" note is wrong on this point.
 - **Follow-target tracking is not observable** through `IAudioSourceProxy` — the proxy exposes no `transform`/`gameObject`.
-- **Localization has locales but no table.** `Assets/Localization/` holds three `Locale` assets and the settings asset — no `AssetTable`. `LocalizationClipStrategy` is testable in EditMode via `Inject()`; the full `Play()` → `SoundManager` → resolved clip path is not testable as authored.
+- **Localization has locales but no table.** `Assets/Localization/` holds three `Locale` assets and the settings asset — no `AssetTable`. `LocalizationClipStrategy` is testable in EditMode via `Inject()`; the full `Play()` → `SoundManager` → resolved clip path needs an `AssetTable` fixture first.
 
 ---
 
@@ -204,7 +223,10 @@ of riding along with the PlayMode suite.
 | 0.5 | `AudioEntity.GetRandomValue(baseValue, RandomFlag)` and the static range overload; `HasLoop`'s 4-arg overload (the 2-arg one needs a live `SoundManager`) | `Ami.BroAudio.Data.AudioEntity` | Low-medium |
 | 0.6 | `LocalizationClipStrategy.SelectClip` after `Inject()` with a lambda-supplied clip — sidesteps the missing AssetTable entirely | `Runtime/Utility/ClipSelection/` | Medium |
 
-`Utility.SliderToVolume` / `BroVolumeToSlider` piecewise mapping is **deferred** — it is editor-slider presentation math, not runtime behavior.
+`Utility.SliderToVolume` / `BroVolumeToSlider` piecewise mapping is **deferred**. It is runtime code, not
+editor presentation: `SoundVolume` maps its slider through it, and `SliderType.BroVolume` is that component's
+default. `SoundVolumeTests` drives only `SliderType.Linear`, and uses `VolumeToSlider` / `SliderToVolume` as
+its own oracle, so the `BroVolume` and `Logarithmic` curves have no literal pin.
 
 ## Tier 1 — Core playback (phase 2)
 
@@ -218,7 +240,7 @@ High risk, low timing complexity. Everything here is frame-clock or immediate.
 | 1.4 | **`IsActive` vs `IsPlaying` windows.** Queued-but-not-drained (active, not playing) and paused (active, not playing) | both properties, one frame apart | High — explicitly load-bearing per the source doc comments |
 | 1.5 | **Rejected `Play` returns an inert `Empty.AudioPlayer`.** Force it with a stub `IPlayableValidator` returning false | returned handle inert; a full fluent chain off it never NREs and never returns null | Medium — silent-failure path |
 | 1.6 | **Volume composition.** master (mixer dB, separate stage) vs per-`BroAudioType` vs per-`SoundID` vs `clip.Volume × entity.MasterVolume` (baked into one fader) | `AudioMixer.GetFloat("Master")` for master; `IAudioPlayer.GetVolume()` for the linear product | High — gates all audible output, and the four inputs compose at two different levels |
-| 1.7 | **Per-type volume reaches live and future players alike**, including exactly `1f` — the `Mathf.Approximately` skip in `PlayControl` was removed (TEST_FINDINGS #7) | live player's volume vs. a subsequently-played one | Medium — a regression reintroducing a default-value skip would only show on a fresh player |
+| 1.7 | **Per-type volume reaches live and future players alike**, including exactly `1f` — the `Mathf.Approximately` skip in `PlayControl` was removed (FIXED_ISSUES #7) | live player's volume vs. a subsequently-played one | Medium — a regression reintroducing a default-value skip would only show on a fresh player |
 | 1.8 | **Mixer track acquisition and return.** Every player gets a pooled `AudioMixerGroup`; recycling returns it silenced | `player.AudioSource.outputAudioMixerGroup` non-null and named `Track*` | High — routing is the backbone of every other mixer behavior |
 | 1.9 | **Pitch via `AudioSource`**, clamped to `[-3, 3]`, plus the deferred-fade path when `SetPitch` precedes playback | `player.AudioSource.pitch` | High — audible and gameplay-relevant |
 | 1.11 | **Lifecycle callbacks.** `OnStart` once (not re-fired on resume), `OnUpdate` per frame, `OnPause` per transition, `OnEnd` once with a still-valid `SoundID` | counters incremented from the callbacks | Medium-high — primary integration point for game code |
@@ -259,11 +281,13 @@ Real behaviors, deliberately not covered — cost far exceeds the confidence gai
 
 | Behavior | Why deferred |
 |---|---|
-| Generic track-pool exhaustion → unrouted playback fallback | Needs 37 concurrent voices. The behavioral fork is real and high-risk, but the setup cost is out of proportion. *Partial substitute:* exhaust the 4-slot **dominator** pool instead, which exercises the same `AudioTrackObjectPool` null-return path cheaply. |
+| Generic track-pool exhaustion → unrouted playback fallback | Needs 37 concurrent voices. Playing them is cheap; the complication is that at that count Unity's voice virtualization starts, and BroAudio's virtual-track release path moves tracks on its own, so which players are routed is not deterministic. *Partial substitute:* the 4-slot **dominator** pool is exhausted instead, which exercises the same `AudioTrackObjectPool` null-return path. |
 | Virtual-track release / reacquire | Needs actual voice virtualization past Max Real Voices plus a 0.5s grace period — not deterministically forceable in a small scene |
 | WebGL volume path | Needs the `UNITY_WEBGL` define; genuinely separate code, untestable in the Editor |
-| `Utility.SliderToVolume` / `BroVolumeToSlider` piecewise math | Editor-slider presentation, not runtime behavior |
-| `PlaybackGroup.Parent` / `GlobalPlaybackGroup` multi-level fallback | Low-traffic path; not traced end to end |
+| `Utility.SliderToVolume` / `BroVolumeToSlider` piecewise math, `BroVolume` and `Logarithmic` | Runtime code behind `SoundVolume`'s default slider; not yet pinned with literal values (see the tier 0 note) |
+| `GlobalPlaybackGroup` and `PlaybackGroup.Parent` fallback | Not low-traffic: every authored entity plays under it, because `AudioAsset.PlaybackGroup` links the global group and `BroUserDataGenerator` always assigns one. Untested because code-built entities have no `AudioAsset` and the fixture nulls the setting for determinism; needs an `AudioAsset`-backed test entity |
+| `RuntimeSetting.DefaultAudioPlayerPoolSize` | Needs a fresh bootstrap (destroy the manager, `SoundManager.Init()`), as `TeardownTests` does |
+| Full `Play()` → `SoundManager` → localized clip resolution, and `LocalizedAudioChanged` handlers firing | Needs an `AssetTable` with audio entries, committed as a fixture the way the addressable tones are. The strategy itself is covered at 0.6; the subscription guards by `LocalizedAudioChangedSubscriptionTests` |
 | Mid-playback `outputAudioMixerGroup` swap glitch behavior | Engine-level, flagged as unverified even in the engine notes |
 
 ### A seamless loop whose transition outlasts its clip
@@ -280,7 +304,6 @@ pins the bounded player count and the stretched period.
 
 | Behavior | Why |
 |---|---|
-| Full `Play()` → `SoundManager` → localized clip resolution, and `LocalizedAudioChanged` handlers firing | No `AssetTable` exists in the project. The strategy itself is covered at 0.6; the subscription guards by `LocalizedAudioChangedSubscriptionTests` |
 | Editor windows, inspectors, Library Manager | Explicit anti-goal |
 
 ---
@@ -306,7 +329,7 @@ All five were settled by close source reading plus the shipped `BroRuntimeSettin
    whether the handover carried a non-zero `ScheduledStartTime`.
 4. **Does `SetScheduledStartTime`'s pause quirk surface in `IAudioPlayer` state?** No — only in raw `AudioSource`
    timing. The code never touches `_stopMode` or `_onPaused` on that path, and an in-source comment confirms the
-   behavior is deliberate ("Some might consider this behavior a feature, so it has been left as is").
+   behavior is deliberate ("Intentionally kept as a feature.", in `ISchedulable.SetScheduledStartTime`).
 5. **Shipped `BroRuntimeSetting.asset` values:** `AudioFilterSlope: 1` (FourPole), `DefaultAudioPlayerPoolSize: 5`,
    `AlwaysPlayMusicAsBGM: 1`, `UpdateMode: 0`, `GlobalPlaybackGroup` **assigned**. (This asset lives under
    the gitignored `Assets/BroAudio/Resources/`, so it is local to each checkout. It also carried
@@ -318,3 +341,5 @@ One consequence worth carrying forward:
 - **`GlobalPlaybackGroup` being assigned does not affect code-built entities.** It is consulted only through
   `AudioAsset.LinkPlaybackGroup` and `PlaybackGroup`'s parent fallback, and a code-built entity has no
   `AudioAsset`. The plan's premise holds: voice-limit and comb-filtering tests must wire a group explicitly.
+  The flip side is a coverage gap, not a safe default: every authored entity *does* play under the global
+  group, so the suite does not run the configuration users ship (see Deferred).
