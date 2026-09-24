@@ -18,6 +18,9 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class DominatorEffectParameterTests : BroAudioTestFixture
     {
+        /// <summary>Hz. A cutoff this close to its default is back at its default.</summary>
+        private const float FrequencyTolerance = 1f;
+
         [UnityTest]
         public IEnumerator LowPassOthers_MovesDominatorLowPassParameter_LeavesEffectLowPassParameterUntouched()
         {
@@ -42,6 +45,8 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float effectLowPassAfter);
             Assert.AreEqual(effectLowPassBefore, effectLowPassAfter,
                 "LowPassOthers must not move Effect_LowPass — that parameter belongs to BroAudio.SetEffect.");
+
+            yield return StopAndAssertRevert(dominatorPlayer, BroName.Dominator_LowPassParaName, AudioConstant.MaxFrequency);
         }
 
         [UnityTest]
@@ -65,7 +70,60 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.AudioMixer.GetFloat(BroName.HighPassParaName, out float effectHighPassAfter);
             Assert.AreEqual(effectHighPassBefore, effectHighPassAfter,
                 "HighPassOthers must not move Effect_HighPass — that parameter belongs to BroAudio.SetEffect.");
+
+            yield return StopAndAssertRevert(dominatorPlayer, BroName.Dominator_HighPassParaName, AudioConstant.MinFrequency);
         }
+
+        /// <summary>
+        /// Stops the dominator and checks that its filter reverts on its own: DominatorPlayer chains its effect
+        /// with .While(PlayerIsPlaying), so once the player is recycled TweakTrackParameter tweaks the Main_*
+        /// parameter back to its default and SwitchMainTrackMode(false) puts Main back at full volume. Nothing
+        /// else resets these parameters - the base fixture's teardown leaves them to this same automation -
+        /// so a broken revert would silently filter or mute every later test in the run.
+        /// <para>
+        /// The revert is observed rather than assumed, and on failure this puts the parameters back itself
+        /// before reporting, like QuietOthers_WithZeroFadeTime_*, so one broken revert fails one test. The
+        /// filter's reset fade is the zero fade the call was made with, so the budget only has to outlast the
+        /// frame the .While() notices the stop.
+        /// </para>
+        /// </summary>
+        private static IEnumerator StopAndAssertRevert(IAudioPlayer dominatorPlayer, string parameterName, float defaultValue)
+        {
+            AudioMixer mixer = SoundManager.Instance.AudioMixer;
+            dominatorPlayer.Stop(0f);
+
+            float deadline = Time.realtimeSinceStartup + DefaultPlaybackWaitSeconds;
+            while (!(IsAt(mixer, parameterName, defaultValue) && IsAtFullVolume(mixer, BroName.MainTrackName))
+                   && Time.realtimeSinceStartup < deadline)
+            {
+                yield return null;
+            }
+
+            bool filterReverted = IsAt(mixer, parameterName, defaultValue);
+            bool mainRecovered = IsAtFullVolume(mixer, BroName.MainTrackName);
+            mixer.GetFloat(parameterName, out float filterAfterStop);
+            mixer.GetFloat(BroName.MainTrackName, out float mainAfterStop);
+            if (!filterReverted)
+            {
+                mixer.SafeSetFloat(parameterName, defaultValue);
+                mixer.SafeSetFloat(parameterName + "2", defaultValue);
+            }
+            if (!mainRecovered)
+            {
+                mixer.SafeSetFloat(BroName.MainTrackName, AudioConstant.FullDecibelVolume);
+                mixer.SafeSetFloat(BroName.MainDominatedTrackName, AudioConstant.MinDecibelVolume);
+            }
+
+            Assert.IsTrue(filterReverted,
+                $"{parameterName} must return to its default {defaultValue:F0}Hz once the dominator stops; it read " +
+                $"{filterAfterStop:F0}Hz after {DefaultPlaybackWaitSeconds}s (the test restored it so later tests are unaffected).");
+            Assert.IsTrue(mainRecovered,
+                $"Main must return to full volume once the dominator stops; it read {mainAfterStop:F2}dB after " +
+                $"{DefaultPlaybackWaitSeconds}s (the test restored it so later tests are unaffected).");
+        }
+
+        private static bool IsAt(AudioMixer mixer, string parameterName, float value)
+            => mixer.GetFloat(parameterName, out float current) && Mathf.Abs(current - value) <= FrequencyTolerance;
 
         [UnityTest]
         public IEnumerator LowPassOthers_InvalidFrequency_LogsErrorAndLeavesParameterUnchanged_UnlikeQuietOthersWarning()
