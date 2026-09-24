@@ -28,7 +28,7 @@ if a test carries a category this file does not record.
 | 29 | Editor / Clip editing | `GetResultClip` returns the original instance when nothing was edited | Open, characterized |
 | 31 | Editor / Asset writing | `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase | Open, characterized |
 | 32 | Editor / Transport | A positive `Delay` alone makes `HasDifferentPosition` true, with Start and End both at 0 | Open, characterized |
-| 34 | Editor / Logging | Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still carry no `[BroAudio]` prefix | Open, characterized |
+| 34 | Editor / Logging | Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still carry no `[BroAudio]` prefix | Open, not pinned |
 | 35 | MonoComponent / SoundSource | `Stop On Disable` silently does nothing when the object is disabled in the frame it was enabled | Open, characterized |
 | 36 | MonoComponent / SoundVolume | `Only Apply Once` applies only the *first* settings entry, on the very first enable | Open, characterized |
 | 37 | MonoComponent / SoundVolume | A setting typed `BroAudioType.All` writes the master volume, which `Reset On Disable` cannot restore | Open, characterized |
@@ -44,7 +44,7 @@ if a test carries a category this file does not record.
 | 48 | Teardown | `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs, so it throws once the manager is gone | Open, characterized |
 | 49 | Teardown | Release verbs on an `IAudioPlayer` handle that outlived the manager throw instead of no-op'ing | Open, characterized |
 | 50 | Teardown | `Fader.StopCoroutine`'s defensive no-op reaches the throwing `SoundManager.Instance` | Open, characterized |
-| 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, characterized |
+| 51 | Volume / Master | A zero-fade `SetVolume` cannot cancel an in-flight master fade, so the old ramp keeps writing | Open, not pinned |
 | 53 | Easing | `SetEase` discards `Mathf.Clamp01`'s return value, so out-of-range input reaches the curve and a ramp's last frame can land short of its target, or on NaN | Open, characterized |
 | 54 | Easing | An `Ease` outside the enum returns 0 for the whole fade instead of falling back to a curve | Open, characterized |
 | 55 | Pitch | A per-type pitch **replaces** the entity's authored pitch instead of scaling it | Open, characterized |
@@ -432,15 +432,14 @@ Status: Open, characterized. Pinned by
 ## 34. The Editor assembly was never swept for the `[BroAudio]` log prefix
 
 Findings #15 and #33 each fixed a handful of unprefixed logs, but neither was a sweep of the Editor
-assembly as a whole. Fifteen `Debug.Log*` calls under `Assets/BroAudio/Editor/` still emit without
-`Utility.LogTitle`, so a package consumer who trips one sees a bare console message with nothing
-identifying BroAudio as the source:
+assembly as a whole. Fifteen `Debug.Log*` calls in ten shipped files under `Assets/BroAudio/Editor/` still
+emit without `Utility.LogTitle`, so a package consumer who trips one sees a bare console message with
+nothing identifying BroAudio as the source:
 
 | File | Count |
 |---|---|
 | `Utility/FieldUsageFinder.cs` | 5 |
 | `Utility/SoundIDUpgrader.cs` | 2 (a third already carries a plain-text `[BroAudio]`) |
-| `Utility/BroUserDataGenerator.cs` | 2 |
 | `AudioPreview/AudioSourcePreviewStrategy.cs` | 1 |
 | `AudioPreview/EditorVolumeTransporter.cs` | 1 |
 | `EditorWindow/SpatialSettingsEditorWindow.cs` | 1 |
@@ -448,8 +447,14 @@ identifying BroAudio as the source:
 | `EntityPropertyDrawer/ReorderableClips.cs` | 1 |
 | `Extension/AttributeDrawer/ReadOnlyTextAreaAttributeDrawer.cs` | 1 |
 | `Extension/EditorScriptingExtension.cs` | 1 (the multi-float-field guard, not covered by #33) |
+| `Extension/ReflectionExtension.cs` | 1 (`CreateNewObjectWithReflection`, in the `Ami.Extension` namespace) |
 
-`Editor/DevTools/` is excluded — it is gated behind `BroAudio_DevOnly` and never ships.
+Counted by grepping `Assets/BroAudio/Editor/` for `Debug.Log*` calls whose line does not reference
+`LogTitle`, then reading each hit; commented-out calls are not counted. `Editor/DevTools/` is excluded —
+it is gated behind `BroAudio_DevOnly` and never ships — and so are the two `Debug.Log` calls in
+`Utility/BroUserDataGenerator.cs`, which sit inside `#if BroAudio_DevOnly` blocks. An earlier count of
+this finding listed those two and missed `ReflectionExtension.cs`; the total came out the same. Counting
+the DevOnly-gated pair too gives seventeen calls in eleven files.
 
 This is recorded rather than fixed because it is a mechanical sweep across ten files with no test
 pinning any of them, which is a different-shaped change from the three logs #33 fixed (those had to
@@ -461,7 +466,7 @@ Status: Open, characterized. Not pinned by a test.
 
 ## 35. `SoundSource`'s Stop On Disable is skipped for a sound that is still queued
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundSource.cs:55-61`
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundSource.cs`, `SoundSource.OnDisable`
 
 ```csharp
 protected virtual void OnDisable()
@@ -501,7 +506,7 @@ Status: Open, characterized. Pinned by
 
 ## 36. `SoundVolume`'s Only Apply Once applies only the first settings entry
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs:134-159`
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs`, `SoundVolume.OnEnable`
 
 ```csharp
 private void OnEnable()
@@ -536,8 +541,8 @@ Status: Open, characterized. Pinned by
 
 ## 37. A `SoundVolume` setting typed `BroAudioType.All` writes a volume Reset On Disable cannot restore
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs:39-85`,
-`Assets/BroAudio/Runtime/SoundManager/SoundManager.cs:170-192`
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs` (`SoundVolume.Setting.ApplyVolumeToSystem`,
+`RecordOrigin`, `ResetToOrigin`), `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs` (`SoundManager.SetVolume`)
 
 The audio type of a `Setting` is drawn as a flags field, so `All` (or Unity's Everything) is a legal choice.
 The two halves of the component then read that choice differently:
@@ -562,7 +567,7 @@ Status: Open, characterized. Pinned by
 
 ## 38. `SpectrumAnalyzer` decides whether it has a SoundSource once, in `Start`
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:68-90`
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs`, `SpectrumAnalyzer.Start` and `Update`
 
 ```csharp
 private void Start()
@@ -596,7 +601,8 @@ Status: Open, characterized. Pinned by
 
 ## 39. A `SpectrumAnalyzer` band narrower than one FFT bin runs away off the decibel scale
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:92-184`
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs`, `SpectrumAnalyzer.UpdateSpectrum` (its local
+`GetRMS`/`GetAverage`) and `GetFrequencyRangeIndex`
 
 `GetFrequencyRangeIndex` turns a band's frequency window into bin indices:
 
@@ -651,8 +657,8 @@ Status: Open, characterized. Pinned by
 
 ## 40. `SpectrumAnalyzer`'s per-band Weighted field is inspector-only
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs:20-21`,
-`Assets/BroAudio/Editor/MonoComponentEditor/SpectrumAnalyzerEditor.cs:123-148`
+**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs` (`SpectrumAnalyzer.Band._weighted`),
+`Assets/BroAudio/Editor/MonoComponentEditor/SpectrumAnalyzerEditor.cs` (`OnAddElement`, `OnDrawBandElement`)
 
 ```csharp
 [SerializeField, Min(1f)]
@@ -673,9 +679,9 @@ two bands equal, and the pin would survive the fix it exists to catch.
 
 ## 41. `Stop(onFinished)` on a recycled handle drops the callback, silently
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:44-47`,
-`Assets/BroAudio/Runtime/Extension/Tools/InstanceWrapper.cs:8` and `:34-37`,
-`Assets/BroAudio/Runtime/Player/EmptyInstance.cs:48-51`
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs` (the `IAudioStoppable.Stop` overloads),
+`Assets/BroAudio/Runtime/Extension/Tools/InstanceWrapper.cs` (`InstanceWrapper<T>.Instance` and `Recycle`),
+`Assets/BroAudio/Runtime/Player/EmptyInstance.cs` (`Empty.EmptyAudioPlayer`'s `IAudioStoppable.Stop` overloads)
 
 ```csharp
 void IAudioStoppable.Stop() => Instance?.Stop();
@@ -719,8 +725,8 @@ Status: Open, characterized. Pinned by
 
 ## 42. `AsDominator()` after playback has started cannot re-route the player
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs:255-262`,
-`Assets/BroAudio/Runtime/Player/AudioPlayer.cs:40`
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs` (`AudioPlayer.SetupAudioTrack`),
+`Assets/BroAudio/Runtime/Player/AudioPlayer.cs` (`AudioPlayer.IsDominator`)
 
 ```csharp
 private void SetupAudioTrack(IAudioPlaybackPref audioTypePref)
@@ -755,7 +761,8 @@ correct same-frame routing asserted by
 
 ## 43. `QuietOthers` with a zero fade time is overwritten before it takes effect
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs:181-188`, `:199-212`, `:239-260`
+**Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs`, `SetEffectTrackParameter`,
+`SwitchMainTrackMode`, `TweakTrackParameter` and `Tweak`
 
 ```csharp
 RestartCoroutine(TweakTrackParameter(tweaker, effect.Type, effect.IsDominator, onReset), ref tweaker.Coroutine);
@@ -796,8 +803,10 @@ also checks that `Main` returns to full volume once the dominator stops.
 
 ## 44. A looping dominator loses its Dominator track at the first handover seam
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs:118`, `:229`, `:334-338`, `:365`, `:402`;
-`Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:144-151`
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs` (`AudioPlayer.PlayControl`'s call to
+`SetupAudioTrack`, `ScheduleNextPlayback`'s warm-up wait and `RequestNextPlayer` call, `BeginHandover`,
+`ReceiveHandover`); `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs`
+(`AudioPlayerInstanceWrapper.UpdateInstance`'s decorator transfer)
 
 ```csharp
 if (!isEnd)
@@ -843,7 +852,7 @@ which asserts the decorator survives, the duck survives, and the track does not.
 
 ## 45. `TransferAddedEffectComponents` runs once per decorator, plus once, and the effect list multiplies at every seam
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:144-153`
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs`, `AudioPlayerInstanceWrapper.UpdateInstance`
 
 ```csharp
 if (Instance.TransferDecorators(out var decorators))
@@ -885,8 +894,8 @@ which asserts one filter carrying the added settings on each incoming player, li
 
 ## 46. `ResetSpatial` resets `rolloffMode` but leaves the `CustomRolloff` curve data behind
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.cs:172-184`, called from
-`AudioPlayer.Playback.cs:567` (`EndPlaying`, i.e. at the end of *every* playback, before `Recycle()`).
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.cs`, `AudioPlayer.ResetSpatial`, called from
+`AudioPlayer.EndPlaying` in `AudioPlayer.Playback.cs` (i.e. at the end of *every* playback, before `Recycle()`).
 
 ```csharp
 private void ResetSpatial()
@@ -907,13 +916,13 @@ private void ResetSpatial()
 Every scalar it names is genuinely reset, and the pooled player hands the next sound a clean source for
 all of them. `CustomRolloff` is the exception: the mode is reset away from `AudioRolloffMode.Custom`, but
 nothing ever calls `SetCustomCurve(AudioSourceCurveType.CustomRolloff, ...)` to clear the keyframes, and
-there is no scalar shortcut for it — `Utility.SetCustomCurveOrResetDefault` (`Utility.cs:78-84`) refuses
+there is no scalar shortcut for it — `Utility.SetCustomCurveOrResetDefault` (`Runtime/Utility/Utility.cs`) refuses
 that curve type outright and logs an error telling the caller to use `RolloffMode` to detect default
 instead. So an `AudioSource` that once played an entity with a custom rolloff curve carries that entity's
 raw keyframes for the rest of the run, across every later borrower of that pooled player.
 
 Inert today: `SetSpatial` only ever selects `Custom` together with a fresh `SetCustomCurve` call
-(`AudioPlayer.cs:127-131`), so nothing currently reads the stale curve. It becomes audible the moment any
+(`AudioPlayer.SetSpatial`), so nothing currently reads the stale curve. It becomes audible the moment any
 path sets `rolloffMode = Custom` without supplying a curve — the sound would inherit a previous,
 unrelated sound's attenuation shape.
 
@@ -926,7 +935,7 @@ clearing the curve in `ResetSpatial` and updating that test's final assertion.
 
 ## 48. `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs
 
-**Where:** `Assets/BroAudio/Runtime/BroAudio.cs:295-302`
+**Where:** `Assets/BroAudio/Runtime/BroAudio.cs`, both `BroAudio.SetEffect` overloads
 
 ```csharp
 public static IAutoResetWaitable SetEffect(Effect effect)
@@ -936,7 +945,7 @@ public static IAutoResetWaitable SetEffect(Effect effect, BroAudioType audioType
     => SoundManager.Instance.SetEffect(audioType, effect);
 ```
 
-Every other non-play verb on the facade goes through the null-safe `BroAudio.Manager` (`BroAudio.cs:31`),
+Every other non-play verb on the facade goes through the null-safe `BroAudio.Manager`,
 which returns null when there is no instance, so `Stop`, `Pause`, `UnPause`, `SetVolume` and `SetPitch` all
 degrade to a silent no-op during teardown. `SetEffect` reads the throwing `SoundManager.Instance` instead
 and so behaves like a play verb, throwing `BroAudioException` once the manager is gone.
@@ -955,8 +964,8 @@ update it.
 
 ## 49. Release verbs on a player handle that outlived the manager throw instead of no-op'ing
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs:19-26`, reached from
-`Assets/BroAudio/Runtime/Utility/InstanceWrapper.cs:8-27`
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs` (`AudioPlayerInstanceWrapper.LogInstanceIsNull`),
+reached from `Assets/BroAudio/Runtime/Extension/Tools/InstanceWrapper.cs` (`InstanceWrapper<T>.Instance` and `IsAvailable`)
 
 ```csharp
 protected T Instance => IsAvailable() ? _instance : null;   // logWarning defaults to true
@@ -993,7 +1002,7 @@ quietly widening it. The fix is one line — `LogInstanceIsNull` consulting `Sou
 
 ## 50. `Fader.StopCoroutine`'s defensive no-op reaches the throwing accessor
 
-**Where:** `Assets/BroAudio/Runtime/Player/FaderModule.cs:30`
+**Where:** `Assets/BroAudio/Runtime/Player/FaderModule.cs`, `Fader._coroutineExecutor`
 
 `Fader`'s coroutine executor is `SoundManager.Instance`. The guard is described as defensively no-op'ing
 when the manager is gone during teardown, but as written it dereferences the throwing accessor and would
@@ -1012,7 +1021,7 @@ builds a `Fader` directly with a recording `IAudioBus` so no player is orphaned.
 
 ## 51. A zero-fade `SetVolume` cannot cancel an in-flight master fade
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs:234-263`
+**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `SoundManager.SetMasterVolume` (the non-WebGL branch)
 
 ```csharp
 targetVol = targetVol.ToDecibel();
@@ -1034,7 +1043,7 @@ if (_broAudioMixer.SafeGetFloat(MasterTrackName, out float currentVol))
 }
 ```
 
-`RestartCoroutine` is the only thing that stops the previous ramp (`CoroutineExtension.cs:19-28` calls
+`RestartCoroutine` is the only thing that stops the previous ramp (`CoroutineExtension.RestartCoroutine` calls
 `SafeStopCoroutine` before starting the new one), and it is reached only on the `fadeTime != 0f` branch.
 `BroAudio.SetVolume(vol, 0f)` — the documented way to set master volume instantly — takes the other
 branch: it writes the parameter once and leaves any running fade alive, which then overwrites that value
@@ -1059,7 +1068,7 @@ stored coroutine on both the zero-fade branch and the early return.
 
 ## 53. `SetEase` discards `Mathf.Clamp01`'s return value
 
-**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs:7-10`
+**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs`, `EaseExtension.SetEase`
 
 ```csharp
 public static float SetEase(this float value, Ease ease)
