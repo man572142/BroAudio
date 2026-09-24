@@ -292,7 +292,8 @@ answer it. The same commit made the CI workflow upload its test-result files; th
 production code.
 
 This was never an open finding: the change was made to get CI running, and it had no entry here until a
-later review of the records. It takes a number from the sequence the two documents share.
+later review of the records. The maintainer has since confirmed they approved it. It takes a number from
+the sequence the two documents share.
 
 ## 73. The test suite reached the live player list by reflection
 

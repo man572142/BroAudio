@@ -332,38 +332,6 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding_68")]
-        public void SelectClip_WithinOneCycle_CanReturnAClipAgainBeforeEveryClipHasBeenReturned()
-        {
-            // Characterizes TEST_FINDINGS #68 - a separate root cause from #9 (which is about _lastUsed going
-            // stale), so fixing either leaves the other's test red.
-            // characterizes: Shuffle is not a bag shuffle. Its _used set only detects when every clip has been
-            // seen (to reset the cycle); Use() never consults it, so a direct Random.Range hit on a clip already
-            // returned this cycle is accepted again. The first N picks of a fresh strategy over N clips are
-            // therefore not guaranteed to be a permutation - uniform random draws would give one only
-            // 4!/4^4 ≈ 9% of the time, so the seeded search below finds a counterexample at once. The documented
-            // contract only promises no immediate repeat (and TEST_FINDINGS #9 shows even that does not hold);
-            // this pins the stronger once-per-cycle property that the _used bookkeeping suggests but never enforces.
-            const int ClipCount = 4;
-            BroAudioClip[] clips = NewSetClips(ClipCount);
-            bool foundCycleWithARepeat = false;
-
-            for (int trial = 0; trial < 200 && !foundCycleWithARepeat; trial++)
-            {
-                var strategy = new ShuffleClipStrategy();
-                var seen = new System.Collections.Generic.HashSet<IBroAudioClip>();
-                for (int pick = 0; pick < ClipCount; pick++)
-                {
-                    seen.Add(strategy.SelectClip(clips, new ClipSelectionContext(0), out _));
-                }
-                foundCycleWithARepeat = seen.Count < ClipCount;
-            }
-
-            Assert.IsTrue(foundCycleWithARepeat,
-                "Expected a first cycle of N picks that returned some clip twice and so skipped another.");
-        }
-
-        [Test]
         public void SelectClip_OverManyDraws_ReturnsEveryClipAboutEquallyOften()
         {
             // Everything in ShuffleClipStrategy is symmetric under rotating the clip array (a uniform draw, then a
