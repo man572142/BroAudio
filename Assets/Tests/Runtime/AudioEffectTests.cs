@@ -607,7 +607,7 @@ namespace Ami.BroAudio.Tests
         /// <see cref="BroName.EffectParaNameSuffix"/>. AudioPlayer.SetTrackEffect moves the level between
         /// them with AudioExtension.ChangeChannel, which mutes the side it leaves.
         /// </summary>
-        internal static void ReadTrackAndSend(AudioPlayer player, out string trackName, out float trackDb, out float sendDb)
+        private static void ReadTrackAndSend(AudioPlayer player, out string trackName, out float trackDb, out float sendDb)
         {
             AudioMixerGroup track = player.GetComponent<AudioSource>().outputAudioMixerGroup;
             Assert.IsTrue(track, "Precondition: the player must hold a pooled mixer track.");
