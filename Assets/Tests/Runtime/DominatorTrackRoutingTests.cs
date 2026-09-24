@@ -126,7 +126,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player, "the looping dominator to start playing");
 
             AudioPlayer firstInstance = InstanceOf(player);
-            Assert.IsNotNull(firstInstance, "Precondition: the handle should resolve to a live player.");
+            Assert.IsTrue(firstInstance, "Precondition: the handle should resolve to a live player.");
             StringAssert.StartsWith(BroName.DominatorTrackName, player.AudioSource.outputAudioMixerGroup.name,
                 "Precondition: the first player of a same-frame dominator is routed to a pooled Dominator track.");
 
@@ -220,14 +220,14 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(capacity, groupNames.Count, "The dominators within capacity should each hold a distinct Dominator track.");
 
             IAudioPlayer overflow = players[capacity];
-            Assert.IsNull(overflow.AudioSource.outputAudioMixerGroup,
+            Assert.IsFalse(overflow.AudioSource.outputAudioMixerGroup,
                 "characterizes: the dominator past capacity gets no mixer group - not a generic track.");
             Assert.IsTrue(overflow.IsPlaying, "The unrouted dominator still plays rather than being rejected.");
         }
 
         private static void AssertHoldsDistinctDominatorTrack(IAudioPlayer player, HashSet<string> names)
         {
-            Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "A dominator within capacity must be routed.");
+            Assert.IsTrue(player.AudioSource.outputAudioMixerGroup, "A dominator within capacity must be routed.");
             string name = player.AudioSource.outputAudioMixerGroup.name;
             StringAssert.StartsWith(BroName.DominatorTrackName, name, "A dominator within capacity must hold a Dominator track.");
             names.Add(name);
