@@ -103,12 +103,24 @@ namespace Ami.BroAudio.Editor.Tests
 
             transport.SetValue(3.4567f, TransportType.Start);
 
-            // 4th decimal digit is 7 (unambiguous either way a midpoint rule breaks ties) so this
-            // pins down "rounds to 3 digits" without depending on a float32 landing exactly on a
-            // .0005 tie — such a tie is not reliably reachable at float precision (values like
-            // 1.2345f / 1.0005f do not round-trip to an exact .5 at the 4th decimal), so the
-            // AwayFromZero-vs-banker's-rounding distinction specifically could not be pinned down here.
+            // 4th decimal digit is 7, so this pins "rounds to 3 digits" independently of how a midpoint
+            // tie is broken. The tie rule has its own pin below.
             Assert.AreEqual(3.457f, transport.StartPosition, 0.0001f);
+        }
+
+        [Test]
+        public void SetValue_Start_ExactMidpoint_RoundsAwayFromZero()
+        {
+            var transport = new Transport(1000f);
+
+            // A tie IS reachable at float precision when the value is a dyadic fraction: 0.0625f is exactly
+            // 1/16, it widens to the double 0.0625 exactly, and 0.0625 * 1000 is exactly 62.5. ClampAndRound
+            // uses MidpointRounding.AwayFromZero, so 62.5 -> 63 -> 0.063; banker's rounding (the Math.Round
+            // default) would give 62 -> 0.062. The tolerance is below half the 0.001 gap between the two.
+            transport.SetValue(0.0625f, TransportType.Start);
+
+            Assert.AreEqual(0.063f, transport.StartPosition, 0.0001f,
+                "An exact .0005 tie no longer rounds away from zero - the midpoint rule changed (0.062 means banker's rounding).");
         }
 
         [Test]
