@@ -1,5 +1,6 @@
 using System.Reflection;
 using Ami.BroAudio.Editor.Tests;
+using Ami.BroAudio.Tools;
 using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
@@ -119,6 +120,88 @@ namespace Ami.BroAudio.Tests
         {
             float roundTripped = x.ToDecibel().ToNormalizeVolume();
             Assert.That(roundTripped, Is.EqualTo(x).Within(RoundTripTolerancePercent).Percent);
+        }
+
+        #endregion
+
+        #region Slider <-> volume (SoundVolume's slider models)
+
+        // Literal oracles, derived by hand below, for the three slider models SoundVolume and the inspectors
+        // use. SoundVolumeTests reads its expected values back through these same functions, so only here is
+        // the mapping itself pinned. Do not replace a literal with a call to the function under test.
+        //
+        // Constants: MinVolume 0.0001, FullVolume 1, MaxVolume 10; MinLogValue -4 (log10 0.0001),
+        // FullVolumeLogValue 0, MaxLogValue 1; dB = 20 * log10(volume).
+        // BroVolume split points (dB): -80, -60, -36, -24, -12, -6, 0, 6, 20.
+        //   allowBoost true : 9 points, 8 segments, step 1/8 = 0.125 per segment.
+        //   allowBoost false: points up to 0 dB only (7 points), 6 segments, step 1/6.
+        //   Slider = step * segmentIndex + step * (dB - segmentStart) / segmentWidth.
+
+        // BroVolume, volume -> slider:
+        //   1.0,   boost : 0 dB, segment 6 [0, 6)            -> 6 * 0.125                         = 0.75
+        //   1.0,   !boost: 0 dB is the last point            -> 1
+        //   0.1,   boost : -20 dB, segment 3 [-24, -12)      -> 3 * 0.125 + (4 / 12) * 0.125      = 0.4166667
+        //   0.001, boost : -60 dB, segment 1 start           -> 1 * 0.125                         = 0.125
+        //   2.0,   boost : 6.0206 dB, segment 7 [6, 20)      -> 7 * 0.125 + (0.0206 / 14) * 0.125 = 0.8751839
+        //   0.5,   !boost: -6.0206 dB, segment 4 [-12, -6)   -> 4/6 + (5.9794 / 6) / 6            = 0.8327611
+        //   10,    boost : 20 dB is the last point           -> 1
+        [TestCase(SliderType.BroVolume, 1f, true, 0.75f)]
+        [TestCase(SliderType.BroVolume, 1f, false, 1f)]
+        [TestCase(SliderType.BroVolume, 0.1f, true, 0.4166667f)]
+        [TestCase(SliderType.BroVolume, 0.001f, true, 0.125f)]
+        [TestCase(SliderType.BroVolume, 2f, true, 0.8751839f)]
+        [TestCase(SliderType.BroVolume, 0.5f, false, 0.8327611f)]
+        [TestCase(SliderType.BroVolume, 10f, true, 1f)]
+        [TestCase(SliderType.BroVolumeNoField, 0.1f, true, 0.4166667f)] // same model, no numeric field
+        // Logarithmic, volume -> slider = InverseLerp(-4, max, log10 volume):
+        //   1.0,  boost (max 1) : (0 + 4) / 5  = 0.8      0.1, boost: (-1 + 4) / 5 = 0.6
+        //   0.01, !boost (max 0): (-2 + 4) / 4 = 0.5      10, !boost: log 1 is past max, clamped = 1
+        [TestCase(SliderType.Logarithmic, 1f, true, 0.8f)]
+        [TestCase(SliderType.Logarithmic, 0.1f, true, 0.6f)]
+        [TestCase(SliderType.Logarithmic, 0.01f, false, 0.5f)]
+        [TestCase(SliderType.Logarithmic, 10f, false, 1f)]
+        // Linear, volume -> slider = InverseLerp(0.0001, max, volume):
+        //   2.5, boost (max 10): 2.4999 / 9.9999 = 0.2499925      0.5, !boost (max 1): 0.4999 / 0.9999 = 0.49995
+        [TestCase(SliderType.Linear, 2.5f, true, 0.2499925f)]
+        [TestCase(SliderType.Linear, 0.5f, false, 0.49995f)]
+        public void VolumeToSlider_MatchesTheHandDerivedValue(SliderType sliderType, float volume, bool allowBoost, float expectedSlider)
+        {
+            Assert.That(Utility.VolumeToSlider(sliderType, volume, allowBoost), Is.EqualTo(expectedSlider).Within(0.0001f));
+        }
+
+        // BroVolume, slider -> volume (boost only: its 0.125 step is exact in binary, so the segment index the
+        // production code truncates to is not at the mercy of float division, as 1/6 would be):
+        //   0.75   : segment 6, progress 0   -> 0 dB                        -> 1
+        //   0.5    : segment 4, progress 0   -> -12 dB  -> 10^(-12/20)      -> 0.2511886
+        //   0.4375 : segment 3, progress 0.5 -> -24 + 12 * 0.5 = -18 dB     -> 10^(-0.9) = 0.1258925
+        //   1.0    : the top of the slider   -> MaxVolume (boost)           -> 10
+        [TestCase(SliderType.BroVolume, 0.75f, true, 1f)]
+        [TestCase(SliderType.BroVolume, 0.5f, true, 0.2511886f)]
+        [TestCase(SliderType.BroVolume, 0.4375f, true, 0.1258925f)]
+        [TestCase(SliderType.BroVolume, 1f, true, 10f)]
+        [TestCase(SliderType.BroVolume, 1f, false, 1f)] // the top of the slider without boost is FullVolume
+        [TestCase(SliderType.BroVolumeNoField, 0.5f, true, 0.2511886f)]
+        // Logarithmic, slider -> volume = 10^Lerp(-4, max, slider):
+        //   0.8, boost : -4 + 5 * 0.8 = 0 -> 1        0.5, boost : -1.5 -> 0.0316228     1, boost: 1 -> 10
+        //   0.5, !boost: -4 + 4 * 0.5 = -2 -> 0.01    0.75, !boost: -1 -> 0.1
+        [TestCase(SliderType.Logarithmic, 0.8f, true, 1f)]
+        [TestCase(SliderType.Logarithmic, 0.5f, true, 0.0316228f)]
+        [TestCase(SliderType.Logarithmic, 1f, true, 10f)]
+        [TestCase(SliderType.Logarithmic, 0.5f, false, 0.01f)]
+        [TestCase(SliderType.Logarithmic, 0.75f, false, 0.1f)]
+        // Linear, slider -> volume = slider * (boost ? 10 : 1): 0.25 -> 2.5 / 0.25.
+        [TestCase(SliderType.Linear, 0.25f, true, 2.5f)]
+        [TestCase(SliderType.Linear, 0.25f, false, 0.25f)]
+        public void SliderToVolume_MatchesTheHandDerivedValue(SliderType sliderType, float slider, bool allowBoost, float expectedVolume)
+        {
+            Assert.That(Utility.SliderToVolume(sliderType, slider, allowBoost), Is.EqualTo(expectedVolume).Within(0.0001f));
+        }
+
+        [Test]
+        public void BroVolumeToSlider_DefaultAllowBoost_IsTrue()
+        {
+            // 1.0 sits at 0.75 on the boosted slider and at 1 on the unboosted one (derivations above).
+            Assert.That(Utility.BroVolumeToSlider(1f), Is.EqualTo(0.75f).Within(0.0001f));
         }
 
         #endregion

@@ -77,9 +77,9 @@ namespace Ami.BroAudio.Editor.Tests
         {
             var entries = ReadDictionaryEntries(LoadShippedInstructionAsset());
             var textByKey = new Dictionary<int, string>();
-            foreach ((int key, string value) in entries)
+            foreach ((int key, string value) entry in entries)
             {
-                textByKey[key] = value;
+                textByKey[entry.key] = entry.value;
             }
 
             var missing = new List<Instruction>();
