@@ -14,8 +14,8 @@ Unreleased (after 3.2.3).
 | 5 | Clip selection | `SetSequenceId` silently did the wrong thing in the wrong play mode | `42fd0644` |
 | 6 | Clip selection | Single play mode accepted an empty clip and failed later | `bac5ed45` |
 | 7 | Volume | Setting a type volume to exactly 1 didn't reach newly started players | `42e1a940` |
-| 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `4eced071` |
-| 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text | `a9165aa5` |
+| 17 | Effects | `SetEffect(...).ForSeconds(...)` threw on the default fade time | `0817926a` |
+| 18 | Editor / Instructions | `Instruction.SoundSource_PositionMode` had no shipped text, and the other Sound Source tooltips were hardcoded | `a9165aa5` |
 | 15 | Logging | Five runtime logs in the `Ami.Extension` namespace carried no `Utility.LogTitle` prefix | `2b0552f1` |
 | 19 | Editor / Instructions | `BroInstruction.asset` key `15` was stale, belonging to no enum value | `a474a8a7` |
 | 16 | Effects | Resetting all effects could report completion once per effect instead of once | `48516f57` |
@@ -24,6 +24,8 @@ Unreleased (after 3.2.3).
 | 30 | Editor / Sample data | Trimming past the end of a clip spliced it with its own beginning | `48516f57` |
 | 33 | Editor / Logging | Three rect-splitting logs in the Editor assembly carried no `[BroAudio]` prefix | `b9a9069f` |
 | 52 | Editor / Instructions | `BroInstruction` had no `NameOf` class, so its serialized fields were reachable only by string literal | `b9a9069f` |
+| 63 | Logging | Nine runtime logs in the `Ami.BroAudio` namespaces carried no `Utility.LogTitle` prefix | `78ffd841` |
+| 64 | Editor / User data | A fresh clone never generated the user-data assets, because the import hook looked only at the first imported path | `35d5616e` |
 
 ---
 
@@ -115,6 +117,9 @@ the effect is queued again with the wait already attached, so it holds for the r
 then resets itself, exactly as it does with a non-zero fade. Silently doing nothing was the other
 option, but that would have left the effect applied forever with no error to explain why.
 
+The fix is `0817926a` on the `test` branch. An earlier copy of the same change, `4eced071`, was cited
+here before; it was rewritten before landing and is not an ancestor of `test`.
+
 ## 18. Editor / Instructions: `SoundSource_PositionMode` had no shipped text
 
 **What was wrong:** The Sound Source inspector's Position Mode tooltip was a hardcoded string
@@ -124,9 +129,17 @@ Because of that, `Instruction.SoundSource_PositionMode` (450) had no correspondi
 shipped asset, so anything that *did* resolve it through the normal path got back the
 `??????????` missing-text sentinel.
 
-**How it's fixed:** Added the tooltip text as key `450` in `BroInstruction.asset` (both the shipped
-copy and the `Resources~` source copy), and `SoundSourceEditor` now builds `_positionModeContent`
-via `_instruction.GetText(Instruction.SoundSource_PositionMode)` like the rest of the editor code.
+**How it's fixed:** Added the tooltip text as key `450` in the committed source copy of the asset,
+`Resources~/Editor/BroInstruction.asset` (the `Editor/Resources/` copy is gitignored and generated from
+it), and `SoundSourceEditor` now builds `_positionModeContent` via
+`_instruction.GetText(Instruction.SoundSource_PositionMode)` like the rest of the editor code.
+
+The same commit went further than the missing entry. The other six Sound Source tooltips (Play On Enable,
+Only Play Once, Stop On Disable, Override Fade Out, Override Playback Group, Delay) were also hardcoded
+literals; each gained an `Instruction` member (`SoundSource_PlayOnEnable` through `SoundSource_Delay`,
+values 451-456) and a matching asset key, and `SoundSourceEditor` now resolves all seven through the
+instruction system. The tooltip text itself is unchanged. The commit also carried unrelated test edits —
+see *Departures from the own-commit rule* below.
 
 ## 15. Five runtime logs in `Ami.Extension` carried no `[BroAudio]` prefix
 
@@ -234,3 +247,65 @@ Unlike every other entry here, this one was never an open finding: it came out o
 code itself rather than out of characterizing the library, so it has no number in
 [TEST_FINDINGS.md](TEST_FINDINGS.md). It takes the next free number in the sequence the two
 documents share.
+
+## 63. Nine runtime logs in the `Ami.BroAudio` namespaces carried no `[BroAudio]` prefix
+
+**What was wrong:** Every runtime log is supposed to start with `Utility.LogTitle`, the `[BroAudio]` tag,
+so a console message can be traced to the package. Nine `Debug.LogError`/`LogWarning` calls in six
+runtime files did not:
+
+- `BroAudioClip.GetAudioClip` (Addressables partial): the "still loading" warning;
+- `SoundID`: the entity-lookup failure, once in the legacy-ID upgrade and once in
+  `SoundIDExtension.TryConvertIdToEntity`;
+- `Rule.RuleMethod` and the `EmptyRule` constructor: the "rule not initialized" errors;
+- `PlaybackPreference.SetVelocity` and `SetSequenceId`: the wrong-play-mode refusals;
+- `SoundManager.TryGetAddressableEntity`: the "entity isn't marked as addressable" error;
+- `SoundManager.TryGetEntity`: the "SoundID hasn't been assigned" error.
+
+Several of these fire on ordinary misuse of public API — a `SetVelocity` on a non-Velocity sound, a
+`Play` with an unassigned `SoundID` — so users saw unattributed errors.
+
+**How it's fixed:** Each call now prefixes its message with `Utility.LogTitle`, exactly as the rest of the
+runtime does. The five equivalent logs in the generic `Ami.Extension` namespace were deliberately left
+out of this change and fixed separately (#15).
+
+This was never an open finding: it was a production change made while the suite was being built, and it
+had no entry here until a later review of the records. It takes a number from the sequence the two
+documents share.
+
+## 64. A fresh clone never generated the user-data assets
+
+**What was wrong:** BroAudio's per-project assets — `BroEditorSetting`, `BroRuntimeSetting`,
+`SoundManager.prefab` and the rest of `Assets/BroAudio/{Editor/,}Resources/` — are not under version
+control; `BroUserDataGenerator` builds them from `Resources~` the first time the package is imported.
+`AssetPostprocessorEditor` decided whether to run it by checking only the *first* path of each imported
+batch for the package name. On a project with no `Library/` folder, the first path of the big initial
+import is whatever sorts first — in this repository, an Addressables data asset — so the generator never
+ran and the project had no settings assets and no `SoundManager` prefab. CI starts from exactly that
+state, and nearly every test in both suites failed on it.
+
+**How it's fixed:** The postprocessor now scans every imported path for the package name, and a static
+flag makes the generator run at most once per domain reload instead of on every batch that happened to
+lead with a BroAudio asset. The first-run setup wizard is also skipped in batch mode, where nobody can
+answer it. The same commit made the CI workflow upload its test-result files; that part is not
+production code.
+
+This was never an open finding: the change was made to get CI running, and it had no entry here until a
+later review of the records. It takes a number from the sequence the two documents share.
+
+---
+
+## Departures from the own-commit rule
+
+[GOAL.md](GOAL.md) asks for every production change to land in its own commit, never folded into a diff
+that adds or edits tests. These commits did not, and are recorded here so the history reads correctly.
+The first two predate that wording in GOAL.md.
+
+| Commit | Production change | Folded in with |
+|---|---|---|
+| `48516f57` | Fixes #16, #20, #28 and #30 | A new test, `ClipEditingTests.Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround`, the #28 pins in `ClipEditingTests` rewritten, and the three #20 tests deleted from `EditorUtilityPureTests` |
+| `b9a9069f` | Fixes #33 and #52 | A review pass that edits test files across both suites (fixture, helper and comment changes) and the test docs |
+| `a9165aa5` | Fix #18, plus the six extra Sound Source `Instruction` entries | The removal of `ShippedDataTests`' "expected red" note for #18, and finding-number corrections in `ClipEditingTests` and `TransportAndRectMathTests` comments |
+
+Each fix is still correct as recorded above; only the commit boundary departs from the rule. Both
+testing plans point here from their *Amendments* sections.
