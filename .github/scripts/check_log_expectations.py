@@ -25,7 +25,8 @@ PREFIX_DEFINITION = re.compile(r"new\s+Regex\s*\(\s*Regex\.Escape\s*\(\s*Utility
 # (file name, message argument) -> the number of LogAssert.Expect calls that may use it.
 ALLOWED_UNTAGGED = {
     # AudioClip.GetData on a streaming clip: Unity's own error, untagged, logged before BroAudio's tagged one.
-    ("ClipEditingTests.cs", "TestAudioLibrary.AnyLogMessage"): 1,
+    # One per test that Trims a streaming clip: the Trim pin, #61's pin and its no-Trim contrast.
+    ("ClipEditingTests.cs", "TestAudioLibrary.AnyLogMessage"): 3,
 }
 
 EXPECT_CALL = re.compile(r"\bLogAssert\s*\.\s*Expect\s*\(")
