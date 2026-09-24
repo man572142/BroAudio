@@ -10,8 +10,9 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Fade-in/fade-out (clip setting, explicit one-shot override, custom ease), clip StartPosition/EndPosition
-    /// trims, and the Stop() re-entrancy guard. See Docs/inventory/time-dependent.md.
+    /// Fade-in/fade-out (clip setting, explicit one-shot override, custom ease), Stop()/Pause() falling back to
+    /// the clip's authored FadeOut, clip StartPosition/EndPosition trims, and the Stop() re-entrancy guards. See
+    /// Docs/inventory/time-dependent.md.
     /// <para>
     /// Two clocks are mixed throughout this file, per the inventory doc: fade *progress* runs on the frame
     /// clock (Fader.Update accumulates Utility.GetDeltaTime()), while the wait-to-start-fading gate on a
@@ -160,29 +161,169 @@ namespace Ami.BroAudio.Tests
                 observationTime);
         }
 
+        // A custom ease has to change the shape of the fade, not merely let it finish: each half samples its fade
+        // a third of the way in, where the chosen ease and the factory default sit far apart. Fade-in: OutCubic
+        // reads 1 - (2/3)^3 = 0.70 there, the factory InCubic 0.04. Fade-out: InCubic keeps 1 - (1/3)^3 = 0.96,
+        // the factory OutSine 0.5. Frame-clock slop moves the sample to anywhere between roughly 0.22 and 0.44 of
+        // the fade, which still leaves each threshold well clear of both curves.
+        // <para>
+        // Both fades are explicit overrides - Play(id, fadeIn) and Stop(fadeOut) - because that is where these
+        // setters apply: PlaybackPreference.TryGetOrConsumeOverride hands back the setter's ease only with a
+        // pending or base override, and otherwise keeps the factory ease even when the clip's own FadeIn or
+        // FadeOut is what runs.
+        // </para>
         [UnityTest]
-        public IEnumerator SetFadeInEase_AndSetFadeOutEase_StillReachTargetAndComplete()
+        public IEnumerator SetFadeInEase_AndSetFadeOutEase_ShapeExplicitFades()
         {
-            const float FadeSeconds = 0.4f;
-            AudioClip clip = NewClip(2f);
-            AudioEntity entity = NewEntity("EaseSfx", BroAudioType.SFX, clip);
-            entity.Clips[0].FadeIn = FadeSeconds;
-            SoundID id = IdOf(entity);
+            // Sampled on the frame clock inside a 10s voice, which a decoupled DSP clock could end first.
+            yield return RequireRealtimeAudioClock();
 
-            IAudioPlayer player = BroAudio.Play(id);
+            const float FadeSeconds = 3f;
+            const float SampleSeconds = 1f;
+            const float FadeInFloor = 0.3f;
+            const float FadeOutFloor = 0.8f;
+            SoundID id = NewSound("EaseSfx", BroAudioType.SFX, NewClip(10f));
+
+            IAudioPlayer player = BroAudio.Play(id, FadeSeconds);
             // Must be set in the same frame Play() was enqueued - before SoundManager.LateUpdate drains the
             // queue and PlayControl reads _fadeInData - mirroring the deferred-application pattern already
             // characterized for SetPitch in VolumePitchMixerTests.SetPitch_BeforePlaybackStarts_DefersFadeRatherThanSnapping.
             player.SetFadeInEase(Ease.OutCubic);
 
             yield return WaitForPlaybackStart(player);
-            yield return WaitUntilOrTimeout(() => player.GetVolume() >= NearTargetThreshold,
-                "a fade-in with a custom ease to still reach its target", FadeSeconds + 1.1f);
+            yield return new WaitForSeconds(SampleSeconds);
+            Assert.Greater(player.GetVolume(), FadeInFloor,
+                "A third of the way into an OutCubic fade-in the volume should already be well up - a read near 0 means the factory InCubic ran instead.");
+            // All the way to the target, so the fade-out below starts from full volume and its sample reads
+            // against the plain curve.
+            yield return WaitUntilOrTimeout(() => player.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the custom-eased fade-in to reach its target", FadeSeconds + 1f);
 
             player.SetFadeOutEase(Ease.InCubic);
             player.Stop(FadeSeconds);
+            yield return new WaitForSeconds(SampleSeconds);
+            Assert.IsTrue(player.IsActive, "The 3s fade-out should still be in flight a second in.");
+            Assert.Greater(player.GetVolume(), FadeOutFloor,
+                "A third of the way into an InCubic fade-out the volume should barely have dropped - a read near 0.5 means the factory OutSine ran instead.");
             yield return WaitForRecycle(player,
-                "a fade-out with a custom ease to still complete", FadeSeconds + 1.1f);
+                "the custom-eased fade-out to complete", FadeSeconds + 1f);
+        }
+
+        /// <summary>A clip long enough that no authored-fade test below reaches its natural end by accident.</summary>
+        private const float AuthoredFadeClipSeconds = 10f;
+
+        /// <summary>
+        /// The clip's authored FadeOut for the Stop()/Pause() tests below. Sampled a second in, the factory
+        /// fade-out ease (OutSine) reads 0.5 - a second clear of both ends of the fade.
+        /// </summary>
+        private const float AuthoredFadeOutSeconds = 3f;
+
+        // Stop() with no argument resolves FadeData.UseClipSetting: StopControl finds no override, so
+        // TryGetFadeOut falls back to the clip's authored FadeOut. Every other Stop pin in the suite passes a
+        // fade explicitly, which never reaches that fallback.
+        [UnityTest]
+        public IEnumerator Stop_WithoutAFade_FadesOutOverTheClipsAuthoredFadeOut()
+        {
+            // The voice has to outlast the frame-clocked fade, and a decoupled DSP clock can end it first.
+            yield return RequireRealtimeAudioClock();
+
+            AudioEntity entity = NewEntity("AuthoredStopFadeSfx", BroAudioType.SFX, NewClip(AuthoredFadeClipSeconds));
+            entity.Clips[0].FadeOut = AuthoredFadeOutSeconds;
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+            yield return WaitForPlaybackStart(player);
+
+            player.Stop();
+            yield return new WaitForSeconds(1f);
+
+            Assert.IsTrue(player.IsActive && player.IsPlaying,
+                "1s into the clip's 3s FadeOut the player should still be playing - Stop() must fade, not cut.");
+            float midFade = player.GetVolume();
+            Assert.Greater(midFade, 0.05f, "1s into a 3s fade-out the voice should still be audible.");
+            Assert.Less(midFade, NearTargetThreshold, "1s into a 3s fade-out the voice should already be well below full volume.");
+
+            yield return WaitForRecycle(player,
+                "Stop() to end playback once the clip's authored FadeOut completes", AuthoredFadeOutSeconds + 1f);
+        }
+
+        // Pause() takes the same fallback as Stop(): StopControl runs the clip's authored FadeOut before it
+        // reaches AudioSource.Pause(). UnPause(0f) then brings the player back at full volume from where it froze.
+        [UnityTest]
+        public IEnumerator Pause_WithoutAFade_FadesOutOverTheClipsAuthoredFadeOutThenFreezes()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            AudioEntity entity = NewEntity("AuthoredPauseFadeSfx", BroAudioType.SFX, NewClip(AuthoredFadeClipSeconds));
+            entity.Clips[0].FadeOut = AuthoredFadeOutSeconds;
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+            yield return WaitForPlaybackStart(player);
+
+            player.Pause();
+            yield return new WaitForSeconds(1f);
+
+            Assert.IsTrue(player.IsPlaying,
+                "1s into the clip's 3s FadeOut the source should still be playing - Pause() must fade before it pauses.");
+            float midFade = player.GetVolume();
+            Assert.Greater(midFade, 0.05f, "1s into a 3s fade-out the voice should still be audible.");
+            Assert.Less(midFade, NearTargetThreshold, "1s into a 3s fade-out the voice should already be well below full volume.");
+
+            yield return WaitUntilOrTimeout(() => !player.IsPlaying,
+                "the authored fade-out to finish and the pause to take effect", AuthoredFadeOutSeconds + 1f);
+            Assert.IsTrue(player.IsActive, "A faded pause leaves the player active, not recycled.");
+
+            int pausedAt = player.AudioSource.timeSamples;
+            Assert.Greater(pausedAt, 0, "Precondition: the playhead must have moved before the pause.");
+            yield return WaitDspSeconds(0.5);
+            Assert.AreEqual(pausedAt, player.AudioSource.timeSamples, "The paused playhead must not advance.");
+
+            player.UnPause(0f);
+            yield return WaitForPlaybackStart(player, "the player to resume");
+            Assert.GreaterOrEqual(player.AudioSource.timeSamples, pausedAt, "The resume must continue from where the pause froze it.");
+            Assert.AreEqual(AudioConstant.FullVolume, player.GetVolume(), LinearTolerance,
+                "UnPause(0f) must bring the player back at full volume, not at the silence the pause fade ended on.");
+        }
+
+        // StopControl's don't-double-fade branch: when Stop() arrives while the clip's own end-of-clip fade-out
+        // is already running, it waits that fade out instead of starting a fresh one. So playback ends when the
+        // natural fade would have, not a whole FadeOut after the Stop call.
+        // <para>
+        // A 6s FadeOut on a 7s clip opens the natural fade 1s in; Stop() lands 3s into it. Waiting the running
+        // fade out ends playback ~3s after the call; a restarted fade would take the full 6s. The budget sits
+        // 1.5s from each, and the check a second after the call rules out a Stop that cut the fade short.
+        // </para>
+        [UnityTest]
+        public IEnumerator Stop_WhileTheClipsOwnFadeOutRuns_WaitsItOutInsteadOfRestartingIt()
+        {
+            // The natural fade's start is DSP-gated and its progress frame-clocked; the two must run together.
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 7f;
+            const float ClipFadeOutSeconds = 6f;
+            const double StopIntoFadeSeconds = 3.0;
+            const float RecycleBudgetSeconds = 4.5f;
+            AudioEntity entity = NewEntity("DoubleFadeGuardSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            entity.Clips[0].FadeOut = ClipFadeOutSeconds;
+
+            double? startDsp = null;
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+            player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
+            yield return WaitForPlaybackStart(player);
+            yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire", DefaultPlaybackWaitSeconds);
+
+            double stopAtDsp = startDsp.Value + (ClipSeconds - ClipFadeOutSeconds) + StopIntoFadeSeconds;
+            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= stopAtDsp,
+                "the dsp clock to reach a point well inside the clip's own fade-out", ClipSeconds);
+            Assert.Less(player.GetVolume(), NearTargetThreshold,
+                "Precondition: the clip's own fade-out must already be running when Stop() is called.");
+
+            player.Stop();
+
+            yield return new WaitForSeconds(1f);
+            Assert.IsTrue(player.IsActive && player.IsPlaying,
+                "A second after Stop() the running fade-out still has ~2s to go - Stop() must not cut it short.");
+
+            yield return WaitForRecycle(player,
+                "playback to end when the already-running fade-out does (~3s after Stop), not a fresh 6s fade later",
+                RecycleBudgetSeconds);
         }
 
         [UnityTest]

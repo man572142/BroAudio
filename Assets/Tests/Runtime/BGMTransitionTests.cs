@@ -81,13 +81,19 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetTransition_WithStopModePause_PausesOutgoingBGMInPlaceAndItResumesOnUnPause()
         {
+            // The playhead comparisons below run on the DSP clock; one frame of a decoupled clock could carry the
+            // outgoing clip to its end before the transition pauses it.
+            yield return RequireRealtimeAudioClock();
+
             SoundID firstId = NewSound("StopModePauseBgmA", BroAudioType.Music, NewClip(4f));
             SoundID secondId = NewSound("StopModePauseBgmB", BroAudioType.Music, NewClip(4f));
 
             IAudioPlayer first = BroAudio.Play(firstId);
             first.AsBGM().SetTransition(Transition.Immediate); // first BGM - no prior player to transition off
             yield return WaitForPlaybackStart(first, "first BGM to start");
-            yield return WaitFrames(5); // let the playhead move so a frozen-vs-advancing check is meaningful
+            // Half a second of DSP time is many audio buffers, so the playhead is clearly off its start sample
+            // and "resumed at or after the paused position" cannot also be true of a restart from 0.
+            yield return WaitDspSeconds(0.5);
 
             IAudioPlayer second = BroAudio.Play(secondId);
             second.AsBGM().SetTransition(Transition.Immediate, StopMode.Pause);
@@ -97,7 +103,10 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(second, "the incoming BGM to be playing");
 
             int pausedSamples = first.AudioSource.timeSamples;
-            yield return WaitFrames(5);
+            Assert.Greater(pausedSamples, 0,
+                "Precondition: the outgoing playhead must have moved before the pause, or the resume check below cannot tell a resume from a restart.");
+            // Measured on the DSP clock, which is what moves a playhead: a few frames can fit inside one buffer.
+            yield return WaitDspSeconds(0.5);
             Assert.AreEqual(pausedSamples, first.AudioSource.timeSamples, "The paused outgoing BGM's playhead must not advance.");
 
             first.UnPause();
@@ -137,7 +146,11 @@ namespace Ami.BroAudio.Tests
         /// </summary>
         private const float TransitionBgmClipLength = 9f;
 
-        /// <summary>Wide enough that a 1s-in sample sits ≥1s clear of both ends under any fade ease.</summary>
+        /// <summary>
+        /// Wide enough that a 1s-in sample sits ≥1s clear of both ends of the fade. The volume bands the tests
+        /// read there are derived from the factory eases the base fixture pins before every test (fade-out
+        /// OutSine: 0.5 a third of the way in; fade-in InCubic: under 0.04), not from any ease whatever.
+        /// </summary>
         private const float TransitionFadeSeconds = 3f;
 
         // OnlyFadeOut is sequential like Default (MusicPlayer.HandleCurrentBGM waits on it), but
@@ -213,6 +226,47 @@ namespace Ami.BroAudio.Tests
                 "the incoming BGM's fade-in to reach full volume", TransitionFadeSeconds + 1.5f);
             Assert.Greater(Time.realtimeSinceStartup - startedAt, TransitionFadeSeconds - 1f,
                 "The fade-in should take roughly its stated time, not complete almost at once.");
+        }
+
+        // The other half of CrossFade, which SetTransition_CrossFade_OutgoingAndIncomingBGMOverlap stops short
+        // of: the overlap has to end. HandleCurrentBGM does not wait on a CrossFade, but StopCurrentPlayer still
+        // stops the outgoing BGM with the transition's fade, so it fades out alongside the incoming fade-in and
+        // is then ended for good. The clips outlast the whole test, so only the transition can end the outgoing
+        // one inside the window below.
+        [UnityTest]
+        public IEnumerator SetTransition_CrossFade_EndsOutgoingBGMOnceItsFadeOutCompletes()
+        {
+            yield return RequireRealtimeAudioClock();
+            // As in SetTransition_CrossFade_OutgoingAndIncomingBGMOverlap: the implicit auto-BGM transition is a
+            // CrossFade by factory default, so it is pinned away to leave the explicit one as the only source.
+            SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
+
+            SoundID firstId = NewSound("CrossfadeEndBgmA", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+            SoundID secondId = NewSound("CrossfadeEndBgmB", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+
+            IAudioPlayer first = BroAudio.Play(firstId);
+            first.AsBGM().SetTransition(Transition.Immediate);
+            yield return WaitForPlaybackStart(first, "first BGM to start");
+
+            IAudioPlayer second = BroAudio.Play(secondId);
+            second.AsBGM().SetTransition(Transition.CrossFade, TransitionFadeSeconds);
+            yield return WaitUntilOrTimeout(() => first.IsPlaying && second.IsPlaying,
+                "both BGMs to be audible at once as the CrossFade opens", DefaultPlaybackWaitSeconds);
+
+            yield return new WaitForSeconds(1f);
+            Assert.IsTrue(first.IsActive && first.IsPlaying,
+                "1s into a 3s CrossFade the outgoing BGM should still be playing - a CrossFade fades it, it does not cut it.");
+            float outgoingMidFade = first.GetVolume();
+            Assert.Greater(outgoingMidFade, 0.05f, "1s into a 3s CrossFade the outgoing BGM should still be audible.");
+            Assert.Less(outgoingMidFade, 0.95f, "1s into a 3s CrossFade the outgoing BGM should already be well below full volume.");
+            Assert.Less(second.GetVolume(), 0.5f, "1s into a 3s CrossFade the incoming BGM should still be well short of full volume.");
+
+            yield return WaitForRecycle(first,
+                "the outgoing BGM to end once its CrossFade fade-out completes (a timeout means the crossfade left it playing)",
+                TransitionFadeSeconds + 1f);
+            Assert.IsTrue(second.IsActive && second.IsPlaying, "Ending the outgoing BGM must leave the incoming one playing.");
+            yield return WaitUntilOrTimeout(() => second.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the incoming BGM's fade-in to reach full volume alongside the outgoing fade-out", DefaultPlaybackWaitSeconds);
         }
     }
 }
