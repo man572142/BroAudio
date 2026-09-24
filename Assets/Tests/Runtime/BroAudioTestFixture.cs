@@ -18,9 +18,10 @@ namespace Ami.BroAudio.Tests
     /// Base fixture for every PlayMode test.
     /// <para>
     /// SoundManager is a DontDestroyOnLoad singleton that survives the whole run, so isolation is solved
-    /// here once: unpause the game clock, stop everything and wait until the player pool and the master
-    /// fade have actually drained, put the mixer's effect parameters and the volumes back, restore the
-    /// on-disk RuntimeSetting, destroy what the test created. Do not re-solve it per test file.
+    /// here once: unpause the game clock, stop everything and wait until the player pool has drained,
+    /// destroy what the test created, wait out the master fade, put the mixer's effect parameters, the
+    /// on-disk RuntimeSetting and the volumes back, then check that the global state reads its defaults.
+    /// Do not re-solve it per test file.
     /// </para>
     /// <para>
     /// Every reset here is unconditional - a test that failed half-way through is the one most likely to
@@ -67,6 +68,17 @@ namespace Ami.BroAudio.Tests
                 _listener = listenerObject.AddComponent<AudioListener>();
             }
 
+#if BroAudio_InitManually
+            // Under manual init nothing bootstraps the manager on its own - the wait below would time out and
+            // every PlayMode test, TeardownTests' BroAudio_InitManually branches included, would fail in setup.
+            // A project on this define calls BroAudio.Init() itself; the suite does the same, once. Guarded
+            // because Init() has no "already have one" check and would leak a second manager.
+            if (!SoundManager.HasInstance)
+            {
+                BroAudio.Init();
+            }
+#endif
+
             // AudioMixer.SetFloat silently fails on the first Play Mode frame; SoundManager clears it in Start().
             yield return null;
             float deadline = Time.realtimeSinceStartup + 5f;
@@ -75,10 +87,33 @@ namespace Ami.BroAudio.Tests
                 Assert.Less(Time.realtimeSinceStartup, deadline, "SoundManager never bootstrapped.");
                 yield return null;
             }
+
+            // Resolved here, before any state is touched, so a renamed or moved member fails the test up front
+            // with a BroAudioException naming it - not later, disguised as a leak report from TearDown.
+            ResolveCurrentAudioPlayersMethod();
+
             _settingSnapshot = JsonUtility.ToJson(SoundManager.Instance.Setting);
-            ApplyFactoryRuntimeSetting(SoundManager.Instance.Setting);
+            FactoryGlobalPlaybackGroup = Track(ScriptableObject.CreateInstance<DefaultPlaybackGroup>());
+            FactoryGlobalPlaybackGroup.name = BroName.GlobalPlaybackGroupName;
+            ApplyFactoryRuntimeSetting(SoundManager.Instance.Setting, FactoryGlobalPlaybackGroup);
             yield return null;
         }
+
+        /// <summary>
+        /// The <see cref="RuntimeSetting.GlobalPlaybackGroup"/> every test runs under: a fresh
+        /// <see cref="DefaultPlaybackGroup"/> with its field initializers untouched, which is exactly what
+        /// BroUserDataGenerator creates for a new project - so the suite runs the configuration users ship
+        /// (a 0.04s comb-filtering window, same-frame plays not exempt, no voice limit), not a null group.
+        /// <para>
+        /// It reaches an entity only through <see cref="AudioAsset.PlaybackGroup"/> or as the parent a custom
+        /// group falls back to for a rule it does not override. <see cref="NewEntity"/>/<see cref="NewSound"/>
+        /// build entities with no AudioAsset and so stay outside it; build with
+        /// <see cref="NewAssetBackedEntity"/>/<see cref="NewAssetBackedSound"/> to play under it, as every
+        /// Library Manager entity does. Fresh per test and destroyed in TearDown, so its playing count and
+        /// lazily built rule list never carry over.
+        /// </para>
+        /// </summary>
+        protected DefaultPlaybackGroup FactoryGlobalPlaybackGroup { get; private set; }
 
         /// <summary>
         /// Puts every RuntimeSetting field a test can observe at its factory value, after the snapshot above has
@@ -88,19 +123,22 @@ namespace Ami.BroAudio.Tests
         /// curves, and a test must see the same settings on every machine. A test that needs another value sets
         /// it in its own body; TearDown puts the developer's asset back either way.
         /// <para>
-        /// ResetToFactorySettings covers the playback toggles; the fields it leaves alone are written here.
-        /// DefaultAudioPlayerPoolSize is read once at bootstrap, so resetting it has no effect on the run, and
-        /// the obsolete CombFilteringPreventionInSeconds is read by nothing.
+        /// ResetToFactorySettings covers the playback toggles; the fields it leaves alone are written here. The
+        /// obsolete CombFilteringPreventionInSeconds is read by nothing. DefaultAudioPlayerPoolSize is read only
+        /// when a SoundManager bootstraps: the run's first manager has already read the developer's value by the
+        /// time this runs, so the reset reaches only a manager rebuilt mid-run (TeardownTests re-initializes one),
+        /// which then caps its idle player pool at the factory size instead of the developer's. Nothing in the
+        /// suite depends on that cap: the pool instantiates a player whenever none is idle.
         /// </para>
         /// </summary>
-        private static void ApplyFactoryRuntimeSetting(RuntimeSetting setting)
+        private static void ApplyFactoryRuntimeSetting(RuntimeSetting setting, PlaybackGroup globalPlaybackGroup)
         {
 #if UNITY_EDITOR
             setting.ResetToFactorySettings();
 #endif
             setting.LogAccessRecycledPlayerWarning = true;
             setting.UpdateMode = RuntimeSetting.FactorySettings.UpdateMode;
-            setting.GlobalPlaybackGroup = null;
+            setting.GlobalPlaybackGroup = globalPlaybackGroup;
             setting.AddressablesNonPreloadedLogLevel = RuntimeSetting.FactorySettings.AddressablesNonPreloadedLogLevel;
         }
 
@@ -160,6 +198,23 @@ namespace Ami.BroAudio.Tests
 
             BroAudio.Stop(BroAudioType.All, 0f);
             yield return DrainAudioPlayers(leaks);
+
+            // Before any global state is put back, because a component's OnDisable is itself a writer of
+            // global state: a SoundVolume with Reset On Disable calls BroAudio.SetVolume per type from there.
+            // Destroyed after the resets below, it would overwrite them and hand its volumes to the next test.
+            // Destroy is deferred to the end of the frame, hence the frame. After the player drain, though, so
+            // nothing still playing loses its clip or entity underneath it.
+            foreach (UnityEngine.Object obj in _createdObjects)
+            {
+                if (obj)
+                {
+                    UnityEngine.Object.Destroy(obj);
+                }
+            }
+            _createdObjects.Clear();
+            yield return null;
+
+            // After the destruction, so a master fade that an OnDisable started is drained too.
             yield return DrainMasterVolumeFade(leaks);
 
 #if !UNITY_WEBGL
@@ -173,7 +228,7 @@ namespace Ami.BroAudio.Tests
             // gone, and this method has to stay a silent no-op both for TeardownTests (which destroys it;
             // its own [UnityTearDown] restores it first, but nothing here may depend on that ordering) and
             // for a run where BroAudioSetUp never got a manager to snapshot in the first place.
-            if (SoundManager.HasInstance)
+            if (SoundManager.HasInstance && _settingSnapshot != null)
             {
                 JsonUtility.FromJsonOverwrite(_settingSnapshot, SoundManager.Instance.Setting);
             }
@@ -203,17 +258,108 @@ namespace Ami.BroAudio.Tests
             }
             _bgmSubscriptions.Clear();
 
-            foreach (UnityEngine.Object obj in _createdObjects)
-            {
-                if (obj)
-                {
-                    UnityEngine.Object.Destroy(obj);
-                }
-            }
-            _createdObjects.Clear();
-            yield return null;
+            yield return VerifyGlobalStateRestored(leaks);
 
             ReportLeaks(leaks);
+        }
+
+        /// <summary>
+        /// Checks that the global state TearDown resets blindly actually reads its default afterwards - the
+        /// per-type playback preferences, and the dominator's Main_LowPass / Main_HighPass parameters, which
+        /// nothing here resets because DominatorPlayer's automation is supposed to revert them itself once
+        /// the drain has stopped its player.
+        /// <para>
+        /// Polled rather than read once: the per-type volume and pitch are written synchronously above and
+        /// normally cost no frame, but a filter tween or a dominator's auto-revert finishes on a later frame.
+        /// What survives <see cref="DrainTimeoutSeconds"/> is a leak - either a writer the resets above do not
+        /// reach, or a revert that never happened - and is reported by name. The dominator parameters are
+        /// then forced back so one broken revert is not inherited by every later test.
+        /// </para>
+        /// </summary>
+        private static IEnumerator VerifyGlobalStateRestored(List<string> leaks)
+        {
+            if (!SoundManager.HasInstance)
+            {
+                yield break;
+            }
+
+            float deadline = Time.realtimeSinceStartup + DrainTimeoutSeconds;
+            List<string> drift = DescribeGlobalStateDrift();
+            while (drift.Count > 0)
+            {
+                if (Time.realtimeSinceStartup > deadline)
+                {
+                    leaks.Add($"global state still off its default {DrainTimeoutSeconds}s after TearDown reset it: " +
+                              string.Join(", ", drift));
+#if !UNITY_WEBGL
+                    AudioMixer mixer = SoundManager.Instance.AudioMixer;
+                    mixer.SafeSetFloat(BroName.Dominator_LowPassParaName, AudioConstant.MaxFrequency);
+                    mixer.SafeSetFloat(BroName.Dominator_HighPassParaName, AudioConstant.MinFrequency);
+#endif
+                    yield break;
+                }
+
+                yield return null;
+                if (!SoundManager.HasInstance)
+                {
+                    yield break;
+                }
+                drift = DescribeGlobalStateDrift();
+            }
+        }
+
+        /// <summary>One entry per piece of global state that does not read its default right now.</summary>
+        private static List<string> DescribeGlobalStateDrift()
+        {
+            List<string> drift = new List<string>();
+            SoundManager manager = SoundManager.Instance;
+
+            foreach (BroAudioType audioType in ConcreteAudioTypes)
+            {
+                if (!manager.TryGetAudioTypePref(audioType, out IAudioPlaybackPref pref))
+                {
+                    continue;
+                }
+
+                if (!Mathf.Approximately(pref.Volume, AudioConstant.FullVolume))
+                {
+                    drift.Add($"{audioType} volume {pref.Volume:F3}");
+                }
+
+                if (!Mathf.Approximately(pref.Pitch, AudioConstant.DefaultPitch))
+                {
+                    drift.Add($"{audioType} pitch {pref.Pitch:F3}");
+                }
+
+#if !UNITY_WEBGL
+                // Only the two bits ResetTrackEffects clears. EffectType.Volume can be left set on a type by a
+                // non-dominator SetEffect(Volume), which nothing resets and nothing reads back.
+                EffectType filterBits = pref.EffectType & (EffectType.LowPass | EffectType.HighPass);
+                if (filterBits != EffectType.None)
+                {
+                    drift.Add($"{audioType} still routed through the effect track for {filterBits}");
+                }
+#endif
+            }
+
+#if !UNITY_WEBGL
+            AudioMixer mixer = manager.AudioMixer;
+            if (mixer)
+            {
+                if (!IsEffectParameterDefault(mixer, BroName.Dominator_LowPassParaName, AudioConstant.MaxFrequency))
+                {
+                    mixer.SafeGetFloat(BroName.Dominator_LowPassParaName, out float lowPass);
+                    drift.Add($"{BroName.Dominator_LowPassParaName} {lowPass:F0}Hz");
+                }
+
+                if (!IsEffectParameterDefault(mixer, BroName.Dominator_HighPassParaName, AudioConstant.MinFrequency))
+                {
+                    mixer.SafeGetFloat(BroName.Dominator_HighPassParaName, out float highPass);
+                    drift.Add($"{BroName.Dominator_HighPassParaName} {highPass:F0}Hz");
+                }
+            }
+#endif
+            return drift;
         }
 
         /// <summary>
@@ -260,15 +406,23 @@ namespace Ami.BroAudio.Tests
         /// </summary>
         private static IEnumerator DrainAudioPlayers(List<string> leaks)
         {
+            // TeardownTests destroys the manager; its own [UnityTearDown] restores it before this one runs, but
+            // nothing here may depend on that - a missing manager has no pool to leak. A method that never
+            // resolved has already failed BroAudioSetUp by name, which is the report; adding a leak on top
+            // would only bury it.
+            if (!SoundManager.HasInstance || _getCurrentAudioPlayersMethod == null)
+            {
+                yield break;
+            }
+
             float deadline = Time.realtimeSinceStartup + DrainTimeoutSeconds;
             while (true)
             {
-                if (!TryGetCurrentAudioPlayers(out IReadOnlyList<AudioPlayer> players))
+                if (!SoundManager.HasInstance)
                 {
-                    leaks.Add("SoundManager.GetCurrentAudioPlayers could not be resolved via reflection (renamed?), " +
-                              "so the player pool was never checked - update BroAudioTestFixture");
                     yield break;
                 }
+                IReadOnlyList<AudioPlayer> players = CurrentAudioPlayers();
 
                 // Costs no frame at all in the ordinary case: an immediate Stop recycles a player inside
                 // the call (TryGetFadeOut is false for fadeTime 0, so StopControl reaches EndPlaying ->
@@ -397,9 +551,10 @@ namespace Ami.BroAudio.Tests
         /// shared cleanup path cannot use it.
         /// </para>
         /// <para>
-        /// The dominator parameters (Main_LowPass / Main_HighPass / Main_Dominated) are not reset here and
-        /// do not need to be: DominatorPlayer chains its effect with .While(PlayerIsPlaying), so the
-        /// automation resets them itself once the drain above has stopped the player.
+        /// The dominator parameters (Main_LowPass / Main_HighPass / Main_Dominated) are not reset here:
+        /// DominatorPlayer chains its effect with .While(PlayerIsPlaying), so the automation is supposed to
+        /// reset them itself once the drain above has stopped the player. That this happened for Main_LowPass
+        /// and Main_HighPass is checked, not assumed, by <see cref="VerifyGlobalStateRestored"/>.
         /// </para>
         /// <para>
         /// The reset is then verified rather than waited out for a fixed number of frames. A zero-fade
@@ -458,36 +613,38 @@ namespace Ami.BroAudio.Tests
 #endif
 
         /// <summary>
+        /// Resolves SoundManager's private GetCurrentAudioPlayers once per run, through the throwing
+        /// <see cref="TestAudioLibrary.Reflected.Method"/>: a rename or a move of the pool fails BroAudioSetUp
+        /// with a <see cref="BroAudioException"/> naming the member, before the test body runs, instead of
+        /// surfacing in TearDown as an isolation leak that every PlayMode test would report.
+        /// ReflectionCanaryTests checks the same name directly.
+        /// </summary>
+        private static void ResolveCurrentAudioPlayersMethod()
+        {
+            _getCurrentAudioPlayersMethod ??= TestAudioLibrary.Reflected.Method(
+                typeof(SoundManager), TestAudioLibrary.Reflected.SoundManager.GetCurrentAudioPlayers);
+        }
+
+        /// <summary>
         /// SoundManager's live player list: every AudioPlayer currently checked out of the pool, whether it
         /// is playing, scheduled, paused or mid-handover. The method is private on SoundManager; the string
         /// literal it is looked up by lives once, in <see cref="TestAudioLibrary.Reflected.SoundManager"/>.
-        /// Returns false only if that reflection lookup fails, so the caller can report it instead of
-        /// throwing out of the middle of TearDown - deliberately NOT the throwing TestAudioLibrary.Reflected.Method,
-        /// which would replace a leak report with a TearDown exception.
+        /// Needs a live manager. Throws a <see cref="BroAudioException"/> naming the member if it no longer
+        /// resolves.
         /// </summary>
-        private static bool TryGetCurrentAudioPlayers(out IReadOnlyList<AudioPlayer> players)
+        protected static IReadOnlyList<AudioPlayer> CurrentAudioPlayers()
         {
-            players = Array.Empty<AudioPlayer>();
-            if (!SoundManager.HasInstance)
-            {
-                // TeardownTests destroys the manager; its own [UnityTearDown] restores it before this one
-                // runs, but nothing here may depend on that - a missing manager has no pool to leak.
-                return true;
-            }
-
-            _getCurrentAudioPlayersMethod ??= typeof(SoundManager).GetMethod(
-                TestAudioLibrary.Reflected.SoundManager.GetCurrentAudioPlayers, BindingFlags.Instance | BindingFlags.NonPublic);
-            if (_getCurrentAudioPlayersMethod == null)
-            {
-                return false;
-            }
-
-            players = (IReadOnlyList<AudioPlayer>)_getCurrentAudioPlayersMethod.Invoke(SoundManager.Instance, null);
-            return true;
+            ResolveCurrentAudioPlayersMethod();
+            return (IReadOnlyList<AudioPlayer>)_getCurrentAudioPlayersMethod.Invoke(SoundManager.Instance, null);
         }
 
         #region Library
-        /// <summary>Creates a tracked entity. Configure it further, then wrap it with <see cref="IdOf"/>.</summary>
+        /// <summary>
+        /// Creates a tracked entity. Configure it further, then wrap it with <see cref="IdOf"/>. It has no
+        /// AudioAsset, so no playback group applies to it unless one is wired onto it explicitly - which is what
+        /// lets most of the suite play one ID twice in quick succession. <see cref="NewAssetBackedEntity"/>
+        /// builds the shipped shape instead.
+        /// </summary>
         protected AudioEntity NewEntity(string name = "TestSfx", BroAudioType audioType = BroAudioType.SFX, params AudioClip[] clips)
         {
             AudioEntity entity = TestAudioLibrary.CreateEntity(name, audioType, clips);
@@ -498,6 +655,22 @@ namespace Ami.BroAudio.Tests
         /// <summary>Creates a tracked entity and returns its <see cref="SoundID"/> — the common case.</summary>
         protected SoundID NewSound(string name = "TestSfx", BroAudioType audioType = BroAudioType.SFX, params AudioClip[] clips)
             => IdOf(NewEntity(name, audioType, clips));
+
+        /// <summary>
+        /// Creates a tracked entity owned by its own tracked <see cref="AudioAsset"/>, as every entity authored
+        /// in the Library Manager is. Unlike <see cref="NewEntity"/>, it plays under
+        /// <see cref="FactoryGlobalPlaybackGroup"/>: the asset links it on first use. Two plays of the same ID in
+        /// one frame, or within 0.04s of each other, are therefore rejected - see DefaultPlaybackGroupTests.
+        /// </summary>
+        protected AudioEntity NewAssetBackedEntity(string name = "TestAssetSfx", BroAudioType audioType = BroAudioType.SFX, params AudioClip[] clips)
+        {
+            AudioAsset asset = Track(TestAudioLibrary.CreateAudioAsset(name + "Asset"));
+            return Track(TestAudioLibrary.CreateAssetBackedEntity(name, audioType, asset, clips));
+        }
+
+        /// <summary>Creates a tracked, AudioAsset-backed entity and returns its <see cref="SoundID"/>. See <see cref="NewAssetBackedEntity"/>.</summary>
+        protected SoundID NewAssetBackedSound(string name = "TestAssetSfx", BroAudioType audioType = BroAudioType.SFX, params AudioClip[] clips)
+            => IdOf(NewAssetBackedEntity(name, audioType, clips));
 
         protected static SoundID IdOf(AudioEntity entity) => new SoundID(entity);
 
