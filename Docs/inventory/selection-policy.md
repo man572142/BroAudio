@@ -53,6 +53,10 @@ Two setup facts apply to nearly every behavior below and are not repeated in eve
 
 ### Shuffle mode never repeats the immediately-previous clip, and cycles the full pool before allowing any repeat
 
+- **Actual behavior**: the heading is Shuffle's documented intent, and the code does not hold to it. It can
+  return the immediately-previous clip, and it does not return every clip once per cycle — which is not
+  part of its contract. Over many draws each clip's share is still uniform. When the fallback scan runs,
+  the `out index` can disagree with the clip actually returned.
 - **Observable**: `ShuffleClipStrategy.SelectClip` sequence over many calls — assert no two consecutive picks are equal, and every clip appears once before any clip repeats within a full-pool cycle.
 - **Setup**: `MulticlipsPlayMode = Shuffle`; 3+ set clips (2-clip case is a dedicated edge case, see below).
 - **Timing class**: EditMode-pure.
@@ -199,8 +203,8 @@ RuntimeSetting fields are **public plain fields** (not auto-properties), e.g. `p
 | `DefaultBGMTransition` / `DefaultBGMTransitionTime` | Transition type/time used by the auto-BGM path above | only applies when `AlwaysPlayMusicAsBGM` is true and a prior BGM is active |
 | `DefaultChainedPlayModeLoop` / `DefaultChainedPlayModeTransitionTime` | `AudioEntity.HasLoop()` (parameterless overload) falls back to these when a Chained-mode entity has neither `Loop` nor `SeamlessLoop` set | the 4-arg `HasLoop(out,out,loop,time)` overload takes explicit defaults instead and needs no `SoundManager` — prefer it for EditMode coverage of the fallback logic itself |
 | `LogAccessRecycledPlayerWarning` | Whether accessing a recycled `IAudioPlayer` logs a warning (`AudioPlayerInstanceWrapper.LogInstanceIsNull`) | orthogonal to selection but lives in the same settings object; cheap to cover alongside a decorator/group test that already recycles a player |
-| `GlobalPlaybackGroup` | The group every shipped entity plays under when its `AudioAsset` names none (`AudioAsset.PlaybackGroup` links it), and the parent fallback for any `PlaybackGroup` rule with `_isOverride == false` | **not** an edge case: `BroUserDataGenerator` always assigns a `DefaultPlaybackGroup` here, so every `Play` of an authored entity passes its rules. **Covered**: the PlayMode fixture sets it to a factory `DefaultPlaybackGroup` for every test, and `DefaultPlaybackGroupTests` plays `AudioAsset`-backed entities (`NewAssetBackedSound`) under it; code-built entities (`NewSound`) have no `AudioAsset` and stay outside it |
-| `AutomaticallyLoadAddressableAudioClips` | Gates automatic Addressables preloading on Play | **covered** — the on-state by `AddressablesTests.Play_WithAutomaticLoadingEnabled_LoadsTheAddressableClipAndPlaysIt` against the committed addressable tones; the factory off-state (logs an error, then loads and plays anyway) by `Play_WithTheFactoryDefaultAutomaticLoadingOff_LogsAnErrorThenLoadsAndPlaysAnyway`, and the log level's only effect by `Play_WithTheNonPreloadedLogLevelAtWarning_WarnsInsteadAndStillLoadsAndPlays`. A key that cannot load: `LoadAssetAsync_WithAKeyNoCatalogResolves_CompletesFailedAndBroAudioLogsNothingOfItsOwn`, and `Play_WithAKeyThatCannotLoad_ThrowsOutOfPlayControlAndStrandsThePlayerActiveAndSilent` (the player is stranded active and silent; TEST_FINDINGS #66) |
+| `GlobalPlaybackGroup` | The group every shipped entity plays under when its `AudioAsset` names none (`AudioAsset.PlaybackGroup` links it), and the parent fallback for any `PlaybackGroup` rule with `_isOverride == false` | **not** an edge case: `BroUserDataGenerator` always assigns a `DefaultPlaybackGroup` here, so every `Play` of an authored entity passes its rules. It reaches only `AudioAsset`-backed entities (`NewAssetBackedSound` in tests); code-built entities (`NewSound`) have no `AudioAsset` and stay outside it |
+| `AutomaticallyLoadAddressableAudioClips` | Gates automatic Addressables preloading on Play | on: the addressable clip is loaded and played. Off (the factory default): an error is logged, then the clip is loaded and played anyway; setting the non-preloaded log level to Warning only turns that error into a warning. A key that cannot load: `LoadAssetAsync` completes failed with no BroAudio log of its own, and `Play` throws out of `PlayControl`, leaving the player active and silent |
 
 ## EditMode unit-test candidates
 
@@ -224,44 +228,26 @@ No `SoundManager`, no `AudioEntity`, no ScriptableObject needed — construct th
 ## Could not determine statically
 
 - Whether `Assets/Localization/` actually has a registered `AssetTable`/`String Table Collection` with an `AudioClip` entry. Reading `Assets/Localization/Localization Settings.asset` directly shows `m_TableCollectionName:` empty in the sampled fields, and no table asset files exist under `Assets/Localization/` (only the three `Locale` assets and the settings asset) — suggesting the *locales* are configured but no actual localized *table* exists yet. This doesn't block testing `LocalizationClipStrategy` itself (the `Inject()` bypass documented above sidesteps it entirely), but it does mean the full `BroAudio.Play()` → `SoundManager` → real resolved `AudioClip` path for `MulticlipsPlayMode.Localization` is untestable as authored today. The orchestrator should confirm this in the live Editor (Window > Asset Management > Localization Tables) rather than trust this file-system read.
-- Exact behavior of `PlaybackGroup.Parent`/`GlobalPlaybackGroup` fallback when a rule's `_isOverride` is false and `GlobalPlaybackGroup` is itself null vs. pointing at another `DefaultPlaybackGroup` with its own rules — the code path exists in `Rule<T>.Initialize` but is a low-traffic edge case not exercised by anything read here; worth a quick live-Editor sanity check before writing tests, since chained-parent resolution (a group's parent's parent) is not obviously covered by the single `_parent` field's logic.
+- Exact behavior of `PlaybackGroup.Parent`/`GlobalPlaybackGroup` fallback when a rule's `_isOverride` is false and `GlobalPlaybackGroup` is itself null vs. pointing at another `DefaultPlaybackGroup` with its own rules — the code path exists in `Rule<T>.Initialize` but is a low-traffic edge case not exercised by anything read here; worth a quick live-Editor sanity check before writing tests, since chained-parent resolution (a group's parent's parent) is not obviously handled by the single `_parent` field's logic.
 - Whether `AudioEntity.Flags`/`ChangeClipPerLoop` combined with `Chained` mode (both drive the handover's `needNewClip` check via an `||`) produces any surprising interaction — not traced end-to-end here since it crosses into the handover/looping territory owned by a different section.
----
 
-## Coverage ledger
+## Further behaviors
 
-Status per behavior above, per the runtime plan's Definition of Done. **covered** = the core contract is
-pinned by a test; **partial** = pinned for some inputs, with the gap named; **deferred** = no test yet, and
-testable; **out of scope** = deliberately not tested, with the reason.
+Behaviors outside the entries above, stated in one line each.
 
-| Behavior | Status | Pinned by |
-|---|---|---|
-| Single mode always plays clips[0] | covered | `ClipSelectionTests.SelectClip_WithSetClips_AlwaysReturnsFirstClip` plus the null-array, null-reference and unset-clip cases |
-| Sequence mode cycles 0..N-1 and wraps | covered | `ClipSelectionTests.SelectClip_Repeatedly_CyclesThroughClipsAndWrapsToStart`, `_WithSingleClip_AlwaysReturnsIndexZero`, `_WithUnsetClipMidSequence_LogsErrorThenRestartsFromZero`, `Reset_RestartsDefaultSequenceFromZero` |
-| Sequence mode: named SequenceIds run independent cursors | covered | `ClipSelectionTests.SelectClip_WithTwoSequenceIds_AdvancesIndependently`, `_WithNullSequenceId_SharesDefaultCursor`, `Reset_WithSequenceId_OnlyResetsThatNamedCursor`; through `BroAudio.ResetMultiClipStrategy(id, sequenceId)` on a live manager by `ClipSelectionCursorTests.SetSequenceId_WithDifferentIds_*` |
-| `IAudioPlayer.CurrentPlayingClip` is the entity row picked for that play | covered | `ClipSelectionCursorTests.Play_SameSequenceEntityPlayedTwice_*`; null on a recycled handle in `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` |
-| Random mode: uniform when all Weights are 0, weighted otherwise | covered | Weighted: `ClipSelectionTests._WithAnyNonzeroWeight_NeverSelectsZeroWeightClips`, and the share of each non-zero weight, under a fixed seed, by `_WithWeightsOneAndThree_*`, `_WithWeightsOneTwoAndFive_*` and `_WithAZeroWeightBetweenTwoNonzeroOnes_*`. Uniform: `ClipSelectionTests.SelectClip_WithAllWeightsZero_DrawsEveryClipAboutEquallyOften` checks each clip's share over 4000 seeded draws, alongside the range check `SelectClip_WithAllWeightsZero_ReturnsIndexWithinRange`. |
-| Shuffle never repeats the previous clip, and cycles the pool | covered (as a finding) | `ClipSelectionTests.SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent` — the test pins the actual behavior, which contradicts the documented intent (TEST_FINDINGS #9). That a cycle is not a permutation either, by `SelectClip_WithinOneCycle_CanReturnAClipAgainBeforeEveryClipHasBeenReturned` (TEST_FINDINGS #68); that the long-run shares are still uniform, by `SelectClip_OverManyDraws_ReturnsEveryClipAboutEquallyOften` |
-| Shuffle vs Random: the guarantee Random does not make | covered | Same pair, plus `SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip` |
-| Velocity mode selects by highest Weight threshold not exceeded | covered | `ClipSelectionTests.SelectClip_WithValueBelowEveryThreshold_*`, `_WithValueBetweenThresholds_*`, `_WithValueAboveEveryThreshold_*`, `_WithNonMonotonicWeights_*` |
-| Chained mode maps PlaybackStage to a fixed clip index | covered | `ClipSelectionTests.SelectClip_AtStartStage/AtLoopStage/AtEndStage/AtNoneStage_*`, `_WithTooFewClipsForStage_*` |
-| Localization mode selects the row matching the active locale | covered | `LocalizationClipStrategyTests` (behind `PACKAGE_LOCALIZATION`) |
-| `SubscribeLocalizedAudioChanged` / `SoundID.LocalizedAudioChanged` | partial | `LocalizedAudioChangedSubscriptionTests` pins the guards (not Localization mode, no table/entry set). A handler actually firing needs an `AssetTable` fixture — deferred, see Deferred in TEST_INVENTORY.md. |
-| Localization-mode load / release / play without a table | covered | `LocalizationRuntimeGuardTests` (behind `PACKAGE_LOCALIZATION`): `LoadAssetAsync_ForALocalizationEntityWithoutATable_WarnsAndReturnsAnInvalidHandle`, `ReleaseVerbs_ForALocalizationEntityThatWasNeverLoaded_AreSilentNoOps`, `Play_ForALocalizationEntityWithoutATable_LogsOneErrorAndRecyclesWithoutSounding`. Everything past those guards — a resolved locale clip, the preload cache, a locale switch — stays deferred until an `AssetTable` fixture exists. |
-| ChangeClipPerLoop re-picks a clip on every loop iteration | covered | `LoopHandoverTests.Loop_WithChangeClipPerLoopAndSequence_AdvancesClipAtEachSeam` |
-| RandomFlag.Volume / RandomFlag.Pitch apply ± half-range jitter | covered | `ClipSelectionTests.GetRandomValueStatic_*` and `GetRandomValue_*` |
-| MaxPlayableCountRule rejects Play at the limit | covered | `PlaybackGroupTests.Play_BeyondMaxPlayableCount_RejectsThenAcceptsAfterASlotFrees` |
-| The voice-limit count increments at enqueue, not at audible start | covered | `PlaybackGroupTests.Play_TwoPlaysInSameFrame_BothCountAgainstLimitBeforeEitherStartsPlaying` |
-| CombFilteringRule rejects a same-ID replay in the window | covered | `PlaybackGroupTests.Play_SameID_WithinCombFilteringWindow_RejectsSecond` and the flag/position variants, whose exemption pins each have a rejecting negative control (`Play_PositionedCloseTogether_WithinCombFilteringWindow_RejectsSecond`, `Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond`; TEST_FINDINGS #12); acceptance once the window has passed by `PlaybackEdgeCaseTests.Play_SameIdAfterTheCombFilteringWindowExpires_IsAcceptedAgain` |
-| The shipped global playback group (`RuntimeSetting.GlobalPlaybackGroup`) and `PlaybackGroup`'s parent fallback | covered | `DefaultPlaybackGroupTests`, on entities built with `NewAssetBackedSound` so they play under the fixture's factory global group as a Library Manager entity does: `AssetBackedEntity_ResolvesToTheFactoryGlobalGroup_WhoseWindowIsFortyMilliseconds`, `Play_DistinctAssetBackedIdsInOneFrame_AreAllAcceptedAndPlay`, `Play_SameAssetBackedIdTwiceInOneFrame_RejectsTheSecondWithATaggedWarning`, `Play_SameAssetBackedIdPositionedInOneFrame_IsExemptOnlyBeyondTheFactoryDistance`, `Play_SameAssetBackedIdAfterTheWindow_IsAccepted`; the parent fallback of a custom group that does not override the rule by `Play_CustomGroupNotOverridingCombFiltering_FallsBackToTheGlobalGroupsWindow`. A replay one frame later but still inside 0.04 s depends on the frame rate and is not pinned. |
-| A custom IPlayableValidator overrides the entity's PlaybackGroup | covered | `PlaybackGroupTests.Play_WithCustomValidator_OverridesGroupEntirely` |
-| AsBGM() attaches a MusicPlayer decorator — composition, not a subtype swap | covered | `DecoratorAttachmentTests.AsBGM_CalledTwice_ReturnsTheSameMusicPlayerDecoratorInstance` (asserts via the private `_decorators` list) |
-| Calling AsBGM() twice returns the same decorator instance | covered | Same test |
-| AsDominator() attaches independently of AsBGM() | covered | `DecoratorAttachmentTests.AsBGM_AndAsDominator_CoexistOnTheSamePlayer` |
-| AlwaysPlayMusicAsBGM auto-attaches the BGM decorator | covered | `AlwaysPlayMusicAsBGMTests.AlwaysPlayMusicAsBGM_Enabled_*` and `_Disabled_*` |
-| Every chaining method is null-safe on a recycled/invalid player | partial | `PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal` covers the stale-handle path; the full fluent surface is not swept method by method. |
-| SetVelocity and SetSequenceId are guarded no-ops outside their own mode | deferred | No test calls either outside its own mode, so the guard never fires. `ClipSelectionCursorTests.SetVelocity_CalledBeforeQueueDrains_*` and `SetSequenceId_WithDifferentIds_*` run in the matching mode and pin the in-mode behavior instead. |
-| RuntimeSetting toggles that change Play behavior | partial | `AlwaysPlayMusicAsBGM` is covered above; `AutomaticallyLoadAddressableAudioClips` both ways by `AddressablesTests` (see the table above); `GlobalPlaybackGroup` by `DefaultPlaybackGroupTests` (row above). `DefaultAudioPlayerPoolSize` is **deferred**: it is read when `SoundManager` bootstraps, and a test can force a fresh bootstrap the way `TeardownTests` does (destroy the manager, call `SoundManager.Init()`), so it is testable. |
-
-"EditMode unit-test candidates", "Conflicts observed" and "Could not determine statically" elsewhere in this file
-are research notes, not behaviors, and carry no status.
+- **`IAudioPlayer.CurrentPlayingClip`** is the entity row picked for that play, and reads null on a
+  recycled handle.
+- **`SubscribeLocalizedAudioChanged` / `SoundID.LocalizedAudioChanged`** guard against an entity that is not
+  in Localization mode and one with no table or entry set; a handler fires only once a real `AssetTable`
+  resolves the entry.
+- **A Localization-mode entity with no table.** `LoadAssetAsync` warns and returns an invalid handle; the
+  release verbs are silent no-ops on an entity that was never loaded; `Play` logs one error and recycles
+  without sounding.
+- **The shipped global playback group.** An `AudioAsset`-backed entity resolves to the global group, whose
+  factory comb-filtering window is 0.04 s with same-frame plays not exempt: distinct IDs in one frame are
+  all accepted, the same ID twice in one frame rejects the second with a tagged warning, positioned plays
+  of one ID in one frame are exempt only beyond the factory distance, and a replay after the window is
+  accepted. A replay one frame later but still inside 0.04 s depends on the frame rate. A custom group
+  that does not override the rule falls back to the global group's window.
+- **Comb-filtering exemptions have a rejecting side.** Positioned plays close together, and a global play
+  followed by a positioned one with the distance exemption off, are both rejected inside the window.
