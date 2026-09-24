@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Reflection;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Tests;
 using Ami.Extension;
@@ -89,7 +91,22 @@ namespace Ami.BroAudio.Editor.Tests
             AudioEntity entity = Track(TestAudioLibrary.CreateEntity("BackingFields", BroAudioType.SFX));
             var entitySo = new SerializedObject(entity);
 
-            string[] members =
+            // The set comes from the type, not a hand list: every public auto-property whose compiler-generated
+            // backing field is serialized. A hand list drifted before (it lacked SpatialSetting and Priority, both
+            // of which SpatialAndPriorityTests writes through SetPrivateField).
+            var members = new List<string>();
+            foreach (PropertyInfo property in typeof(AudioEntity).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                FieldInfo backingField = typeof(AudioEntity).GetField($"<{property.Name}>k__BackingField", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (backingField != null && backingField.IsDefined(typeof(SerializeField), false))
+                {
+                    members.Add(property.Name);
+                }
+            }
+
+            // Floor for the derivation: the names the runtime suite actually reaches must all be in it, so an
+            // empty or partial set cannot pass.
+            string[] reachedByTheRuntimeSuite =
             {
                 nameof(AudioEntity.Loop),
                 nameof(AudioEntity.SeamlessLoop),
@@ -100,7 +117,11 @@ namespace Ami.BroAudio.Editor.Tests
                 nameof(AudioEntity.PitchRandomRange),
                 nameof(AudioEntity.Flags),
                 nameof(AudioEntity.TransitionTime),
+                nameof(AudioEntity.SpatialSetting),
+                nameof(AudioEntity.Priority),
             };
+            CollectionAssert.IsSubsetOf(reachedByTheRuntimeSuite, members,
+                "A member the runtime suite writes by its backing-field name is no longer a serialized auto-property.");
 
             foreach (string member in members)
             {

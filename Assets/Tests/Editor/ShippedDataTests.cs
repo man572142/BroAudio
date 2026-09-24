@@ -1,29 +1,59 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Ami.BroAudio.Editor.Setting;
 using Ami.BroAudio.Tools;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Data-integrity checks on the assets that actually ship in Editor/Resources — BroInstruction and
-    /// EditorSetting — rather than on in-memory fixtures. BroInstruction's <c>_dictionary</c> field is private
+    /// Data-integrity checks on the data BroAudio ships - the BroInstruction asset and EditorSetting's factory
+    /// values - rather than on in-memory fixtures. BroInstruction's <c>_dictionary</c> field is private
     /// serialized data; it is read here via <see cref="SerializedObject"/>, never mutated.
+    /// <para>
+    /// The BroInstruction checked is the COMMITTED one under <c>Resources~/Editor</c>, not the
+    /// <c>Editor/Resources</c> copy <c>Resources.Load</c> would find: that copy is gitignored and only created
+    /// from <c>Resources~</c> when absent, so it can be stale in either direction. <c>Resources~</c> is hidden
+    /// from the AssetDatabase (the trailing <c>~</c>), so the file is deserialized straight from disk.
+    /// </para>
     /// </summary>
     public class ShippedDataTests : BroEditorTestFixture
     {
-        private static BroInstruction LoadShippedInstructionAsset()
+        /// <summary>
+        /// The committed asset. This suite runs in the development project, where the package lives at
+        /// Assets/BroAudio (see <see cref="BroEditorTestFixture.TempFolder"/>'s note on the shipped subtree).
+        /// </summary>
+        private static string CommittedInstructionAssetPath =>
+            Path.Combine(Application.dataPath, "BroAudio", "Resources~", "Editor", BroName.InstructionFileName + ".asset");
+
+        private BroInstruction LoadShippedInstructionAsset()
         {
-            var asset = Resources.Load<BroInstruction>(BroName.InstructionFileName);
-            Assert.IsTrue(asset, $"Could not load the shipped {BroName.InstructionFileName} asset from Resources.");
+            string path = CommittedInstructionAssetPath;
+            Assert.IsTrue(File.Exists(path), $"The committed {BroName.InstructionFileName} asset is missing at {path}.");
+
+            // Loaded outside the AssetDatabase, so the objects are not assets: tracked and destroyed in TearDown.
+            BroInstruction asset = null;
+            foreach (UnityEngine.Object loaded in InternalEditorUtility.LoadSerializedFileAndForget(path))
+            {
+                Track(loaded);
+                if (!asset && loaded is BroInstruction instruction)
+                {
+                    asset = instruction;
+                }
+            }
+            Assert.IsTrue(asset, $"{path} did not deserialize to a {nameof(BroInstruction)}.");
             return asset;
         }
 
-        /// <summary>Read-only walk of the private _dictionary field via SerializedObject.</summary>
+        /// <summary>
+        /// Read-only walk of the private _dictionary field via SerializedObject. Fails on zero entries: every
+        /// check built on this list would otherwise pass on an empty or unreadable asset.
+        /// </summary>
         private static List<(int key, string value)> ReadDictionaryEntries(BroInstruction asset)
         {
             var entries = new List<(int, string)>();
@@ -38,17 +68,24 @@ namespace Ami.BroAudio.Editor.Tests
                 string value = element.FindPropertyRelative(BroInstruction.NameOf.Value).stringValue;
                 entries.Add((key, value));
             }
+            Assert.IsNotEmpty(entries, $"The {BroName.InstructionFileName} asset has no dictionary entries - every key-set check would pass vacuously.");
             return entries;
         }
 
         [Test]
-        public void EveryInstructionEnumValue_ResolvesToNonMissingText()
+        public void EveryInstructionEnumValue_HasNonEmptyTextInTheShippedAsset()
         {
+            var entries = ReadDictionaryEntries(LoadShippedInstructionAsset());
+            var textByKey = new Dictionary<int, string>();
+            foreach ((int key, string value) in entries)
+            {
+                textByKey[key] = value;
+            }
+
             var missing = new List<Instruction>();
             foreach (Instruction instruction in Enum.GetValues(typeof(Instruction)))
             {
-                string text = Instructions.GetText(instruction);
-                if (string.IsNullOrEmpty(text) || text == BroInstructionHelper.MissingText)
+                if (!textByKey.TryGetValue((int)instruction, out string text) || string.IsNullOrEmpty(text))
                 {
                     missing.Add(instruction);
                 }
@@ -132,13 +169,34 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void GetSpectrumColor_InRange_ReturnsTheStoredColor()
         {
-            EditorSetting setting = BroEditorUtility.EditorSetting;
+            // Expected values come from this test, not from the list GetSpectrumColor reads: a lookup that
+            // returned the wrong index, or the factory list regardless of what is stored, would still pass a
+            // check that read both sides from SpectrumBandColors. An in-memory instance keeps the write off the
+            // project's EditorSetting.
+            EditorSetting setting = NewScriptableObject<EditorSetting>();
+            setting.SpectrumBandColors = new List<Color> { Color.red, Color.green, Color.blue };
+
+            Assert.AreEqual(Color.red, setting.GetSpectrumColor(0));
+            Assert.AreEqual(Color.green, setting.GetSpectrumColor(1));
+            Assert.AreEqual(Color.blue, setting.GetSpectrumColor(2));
+        }
+
+        [Test]
+        public void ResetToFactorySettings_SpectrumColors_AreTheTenFactoryBands()
+        {
+            EditorSetting setting = NewScriptableObject<EditorSetting>();
             setting.ResetToFactorySettings();
 
-            Assert.AreEqual(setting.SpectrumBandColors[0], setting.GetSpectrumColor(0));
-
-            int lastIndex = setting.SpectrumBandColors.Count - 1;
-            Assert.AreEqual(setting.SpectrumBandColors[lastIndex], setting.GetSpectrumColor(lastIndex));
+            // Factory literals, written out here rather than read back from the list under test. The factory
+            // bands all carry alpha 150/256.
+            const float FactoryBandAlpha = 150f / 256f;
+            ColorUtility.TryParseHtmlString("#7CAEFF", out Color first);
+            ColorUtility.TryParseHtmlString("#6CFF75", out Color last);
+            first.a = FactoryBandAlpha;
+            last.a = FactoryBandAlpha;
+            Assert.AreEqual(10, setting.SpectrumBandColors.Count);
+            Assert.AreEqual(first, setting.GetSpectrumColor(0));
+            Assert.AreEqual(last, setting.GetSpectrumColor(9));
         }
 
         [Test]
