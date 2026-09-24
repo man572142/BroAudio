@@ -181,7 +181,9 @@ namespace Ami.BroAudio.Tests
 
         // BroAudio_InitManually only strips the auto-bootstrap attribute and exposes BroAudio.Init(), which
         // forwards to SoundManager.Init(). So the contract is: the attribute tracks the define, and Init() on
-        // an absent manager yields one that plays. The define is project-wide, so this assembly sees it too.
+        // an absent manager yields one that plays. The define is project-wide, so this assembly sees it too;
+        // the BroAudio_InitManually branches run in a build with the define set, where BroAudioSetUp calls
+        // BroAudio.Init() itself so that every test gets a manager.
         [UnityTest]
         public IEnumerator Init_WithManagerAbsent_BootstrapsAManagerThatPlays_AndAutoBootstrapTracksTheManualInitDefine()
         {
@@ -217,7 +219,7 @@ namespace Ami.BroAudio.Tests
         // `SoundManager.Instance.SetEffect(...)` directly, the same throwing accessor Play uses, not
         // `Manager?.`. So unlike every verb in ReleaseVerbs_OnBroAudioFacade_WithManagerDestroyed_
         // AreSilentNoOps above, SetEffect actually throws once the manager is destroyed. Characterizing
-        // the actual behavior here; reported as a possible inconsistency (see the report for this task).
+        // the actual behavior here; the possible inconsistency is recorded in TEST_FINDINGS #48.
         [UnityTest]
         [Category("Finding_48")]
         public IEnumerator SetEffect_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException()
@@ -231,8 +233,8 @@ namespace Ami.BroAudio.Tests
         }
 #endif
 
-        // Characterizes TEST_FINDINGS #49: the most consequential finding in this file. The task's premise was that a release
-        // verb called on an IAudioPlayer handle held from before the manager died would mirror the
+        // Characterizes TEST_FINDINGS #49: the most consequential finding in this file. One would expect a release
+        // verb called on an IAudioPlayer handle held from before the manager died to mirror the
         // facade's no-op contract (PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal already
         // pins that shape for a merely-*recycled* handle, with SoundManager still alive). That is NOT what
         // happens here, where SoundManager itself is also gone:
