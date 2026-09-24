@@ -26,6 +26,7 @@ Unreleased (after 3.2.3).
 | 52 | Editor / Instructions | `BroInstruction` had no `NameOf` class, so its serialized fields were reachable only by string literal | `b9a9069f` |
 | 63 | Logging | Nine runtime logs in the `Ami.BroAudio` namespaces carried no `Utility.LogTitle` prefix | `78ffd841` |
 | 64 | Editor / User data | A fresh clone never generated the user-data assets, because the import hook looked only at the first imported path | `35d5616e` |
+| 73 | Tests / Seam | The test suite could reach the live player list only by reflecting a private `SoundManager` method | `c7f2ba69` |
 
 ---
 
@@ -292,6 +293,19 @@ production code.
 
 This was never an open finding: the change was made to get CI running, and it had no entry here until a
 later review of the records. It takes a number from the sequence the two documents share.
+
+## 73. The test suite reached the live player list by reflection
+
+**What was wrong:** Every PlayMode test's setup and teardown needed `SoundManager`'s list of players
+currently checked out of the pool, and the only way to get it was to look up the private
+`GetCurrentAudioPlayers` method by name. Renaming that method, or moving the pool, compiled fine and then
+failed every PlayMode test at run time, which is the kind of refactor the suite exists to make safe.
+
+**How it's fixed:** `GetCurrentAudioPlayers` is now `internal`, and the runtime assembly grants
+`InternalsVisibleTo("Tests")` in `Runtime/AssemblyInfo.cs`, so the fixture calls it directly and a
+rename breaks the build instead. The maintainer asked for this seam; runtime behavior is unchanged.
+
+This was never an open finding. It takes a number from the sequence the two documents share.
 
 ---
 
