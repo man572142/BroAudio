@@ -55,15 +55,52 @@ namespace Ami.BroAudio.Tests
             return broClip;
         }
 
-        /// <summary>Creates a playable entity. Passing no clips generates one 1-second clip.</summary>
+        /// <summary>
+        /// Creates a playable entity. Passing no clips generates one 1-second clip.
+        /// <para>
+        /// The entity has no <see cref="AudioAsset"/>, so <see cref="AudioEntity.PlaybackGroup"/> is null unless a
+        /// test wires one onto <see cref="Reflected.AudioEntity.Group"/>, and the global playback group never
+        /// applies to it. <see cref="CreateAssetBackedEntity"/> builds the shape the Library Manager produces.
+        /// </para>
+        /// </summary>
         public static AudioEntity CreateEntity(string name, BroAudioType audioType, params AudioClip[] clips)
+            => BuildEntity(null, name, audioType, clips);
+
+        /// <summary>
+        /// An empty <see cref="AudioAsset"/>, the container the Library Manager puts every entity in. Its only
+        /// role here is the playback-group chain: <see cref="AudioAsset.PlaybackGroup"/> links itself to
+        /// <see cref="RuntimeSetting.GlobalPlaybackGroup"/> the first time it is read.
+        /// </summary>
+        public static AudioAsset CreateAudioAsset(string name = "TestAudioAsset")
+        {
+            AudioAsset asset = ScriptableObject.CreateInstance<AudioAsset>();
+            asset.name = name;
+            return asset;
+        }
+
+        /// <summary>
+        /// Creates a playable entity exactly like <see cref="CreateEntity"/>, but owned by
+        /// <paramref name="asset"/>, so that <see cref="AudioEntity.PlaybackGroup"/> falls back to the asset's
+        /// group and from there to <see cref="RuntimeSetting.GlobalPlaybackGroup"/> - the chain every shipped
+        /// entity plays through.
+        /// </summary>
+        public static AudioEntity CreateAssetBackedEntity(string name, BroAudioType audioType, AudioAsset asset, params AudioClip[] clips)
+        {
+            if (!asset)
+            {
+                throw new System.ArgumentNullException(nameof(asset), "Use CreateEntity for an entity without an AudioAsset.");
+            }
+            return BuildEntity(asset, name, audioType, clips);
+        }
+
+        private static AudioEntity BuildEntity(AudioAsset asset, string name, BroAudioType audioType, AudioClip[] clips)
         {
             if (clips == null || clips.Length == 0)
             {
                 clips = new[] { CreateClip(name: name + "Clip") };
             }
 
-            var entity = AudioEntity.CreateNewInstance(null, name, audioType);
+            var entity = AudioEntity.CreateNewInstance(asset, name, audioType);
             entity.Clips = new BroAudioClip[clips.Length];
             for (int i = 0; i < clips.Length; i++)
             {
@@ -162,8 +199,7 @@ namespace Ami.BroAudio.Tests
         public static BroAudioClip CreateAddressableBroClip(string guid)
         {
             var broClip = new BroAudioClip();
-            FieldInfo field = typeof(BroAudioClip).GetField(BroAudioClip.NameOf.AudioClipAssetReference, PrivateInstance);
-            field.SetValue(broClip, new UnityEngine.AddressableAssets.AssetReferenceT<AudioClip>(guid));
+            SetPrivateField(broClip, BroAudioClip.NameOf.AudioClipAssetReference, new UnityEngine.AddressableAssets.AssetReferenceT<AudioClip>(guid));
             return broClip;
         }
 
@@ -218,7 +254,7 @@ namespace Ami.BroAudio.Tests
                 }
                 type = type.BaseType;
             }
-            throw new System.MissingFieldException(target.GetType().Name, fieldName);
+            throw Reflected.Unresolved(target.GetType(), fieldName);
         }
 
         /// <summary>
@@ -230,6 +266,11 @@ namespace Ami.BroAudio.Tests
         /// <c>#if UNITY_EDITOR</c> in production, while this file's assembly (Tests.asmdef) targets every
         /// platform - so the Runtime suite still has to reach those particular members by string, which is
         /// what the constants below centralize.
+        /// <para>
+        /// ReflectionCanaryTests resolves every constant here against the production type its nested class is
+        /// named after, so a rename fails one test by name instead of whichever tests happen to reach the
+        /// member. A new nested class needs an entry in that canary's type map, or the canary fails.
+        /// </para>
         /// </summary>
         public static class Reflected
         {
@@ -281,33 +322,29 @@ namespace Ami.BroAudio.Tests
             }
 
             /// <summary>
-            /// Resolves a private instance field lazily, at first use, throwing a <see cref="BroAudioException"/>
-            /// that names the exact type and member instead of leaving a caller to dereference a null
-            /// FieldInfo. Reused instead of a new exception type per CLAUDE.md - a renamed reflection target
-            /// here is a genuine test-scaffolding setup error, not an expected "not found" gameplay path.
+            /// Resolves a private instance method lazily, at first use, throwing the same exception as
+            /// <see cref="GetPrivateField{T}"/>/<see cref="SetPrivateField"/> (see <see cref="Unresolved"/>)
+            /// instead of leaving a caller to dereference a null MethodInfo.
             /// </summary>
-            public static FieldInfo Field(System.Type type, string fieldName)
-            {
-                FieldInfo field = type.GetField(fieldName, PrivateInstance);
-                if (field == null)
-                {
-                    throw new BroAudioException($"Reflection: {type.Name}.{fieldName} could not be resolved. " +
-                        "Renamed or moved? Update TestAudioLibrary.Reflected and its caller.");
-                }
-                return field;
-            }
-
-            /// <summary>Resolves a private instance method lazily, at first use. See <see cref="Field"/>.</summary>
             public static MethodInfo Method(System.Type type, string methodName)
             {
                 MethodInfo method = type.GetMethod(methodName, PrivateInstance);
                 if (method == null)
                 {
-                    throw new BroAudioException($"Reflection: {type.Name}.{methodName} could not be resolved. " +
-                        "Renamed or moved? Update TestAudioLibrary.Reflected and its caller.");
+                    throw Unresolved(type, methodName);
                 }
                 return method;
             }
+
+            /// <summary>
+            /// The one exception every reflection lookup in the suite throws when a member no longer resolves:
+            /// a <see cref="BroAudioException"/> naming the exact type and member. Reused instead of a new
+            /// exception type per CLAUDE.md - a renamed reflection target is a genuine test-scaffolding setup
+            /// error, not an expected "not found" gameplay path.
+            /// </summary>
+            internal static BroAudioException Unresolved(System.Type type, string memberName)
+                => new BroAudioException($"Reflection: {type.Name}.{memberName} could not be resolved. " +
+                    "Renamed or moved? Update TestAudioLibrary.Reflected and its caller.");
         }
     }
 }
