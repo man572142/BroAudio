@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
@@ -23,12 +22,6 @@ namespace Ami.BroAudio.Tests
     public class AudioEffectTests : BroAudioTestFixture
     {
         private const float FrequencyTolerance = 1f;
-
-        // Anchored on the constant every BroAudio log is tagged with (Utility.LogTitle), not on any one
-        // message's wording - the log's TYPE plus this tag is the contract; the sentence is not
-        // (Docs/GOAL.md anti-goal: "Asserting on log text"). Regex.Escape because the tag's rich-text markup
-        // ("[BroAudio]" among it) contains regex metacharacters.
-        private static readonly Regex BroAudioLogPrefix = new Regex(Regex.Escape(Utility.LogTitle));
 
         private volatile int _capturedChannels = -1;
         private volatile int _capturedBufferLength = -1;
@@ -166,7 +159,7 @@ namespace Ami.BroAudio.Tests
             player.AddLowPassEffect();
             yield return WaitFrames(1);
 
-            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             player.AddLowPassEffect();
             yield return WaitFrames(1);
 
@@ -189,7 +182,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1); // Destroy() is deferred to end of frame
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect should destroy the component.");
 
-            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             player.RemoveLowPassEffect();
             yield return WaitFrames(1);
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "Removing again with nothing attached must stay a no-op, not throw or attach anything.");
@@ -251,12 +244,12 @@ namespace Ami.BroAudio.Tests
             // "this audio player has been recycled" warning instead of AudioPlayer's own !IsActive guard.
             IAudioPlayer inactivePlayer = concrete;
 
-            LogAssert.Expect(LogType.Error, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             inactivePlayer.AddLowPassEffect();
             yield return WaitFrames(1);
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "AddLowPassEffect on an inactive player must not attach anything.");
 
-            LogAssert.Expect(LogType.Error, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             inactivePlayer.RemoveLowPassEffect();
             yield return WaitFrames(1);
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect on an inactive player must not attach or leave anything behind either.");
@@ -302,7 +295,7 @@ namespace Ami.BroAudio.Tests
             player.AddLowPassEffect(proxy => proxy.cutoffFrequency = CutoffFrequency);
 
             AudioPlayer firstInstance = InstanceOf(player);
-            Assert.IsNotNull(firstInstance, "Precondition: the handle should resolve to a live player.");
+            Assert.IsTrue(firstInstance, "Precondition: the handle should resolve to a live player.");
             List<AudioPlayerDecorator> decorators = TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(
                 firstInstance, TestAudioLibrary.Reflected.AudioPlayer.Decorators);
             int decoratorCount = decorators == null ? 0 : decorators.Count;

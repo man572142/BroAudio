@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Text.RegularExpressions;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
 using Ami.Extension;
@@ -19,12 +18,6 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class DominatorEffectParameterTests : BroAudioTestFixture
     {
-        // Anchored on the constant every BroAudio log is tagged with (Utility.LogTitle), not on any one
-        // message's wording - the log's TYPE plus this tag is the contract; the sentence is not
-        // (Docs/GOAL.md anti-goal: "Asserting on log text"). Regex.Escape because the tag's rich-text markup
-        // ("[BroAudio]" among it) contains regex metacharacters.
-        private static readonly Regex BroAudioLogPrefix = new Regex(Regex.Escape(Utility.LogTitle));
-
         [UnityTest]
         public IEnumerator LowPassOthers_MovesDominatorLowPassParameter_LeavesEffectLowPassParameterUntouched()
         {
@@ -89,7 +82,7 @@ namespace Ami.BroAudio.Tests
             // DominatorPlayer.LowPassOthers even reaches SetAllEffectExceptDominator. The log's TYPE and
             // BroAudio's own tag are the contract (Docs/GOAL.md anti-goal: "Asserting on log text"); the
             // parameter staying put is what actually proves the guard rejected the call.
-            LogAssert.Expect(LogType.Error, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             dominator.LowPassOthers(0f, 0f);
             yield return WaitFrames(2);
 
@@ -103,7 +96,7 @@ namespace Ami.BroAudio.Tests
             // comparison below pass without the guard doing anything.
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MainDominatedTrackName, out float quietBefore),
                 "Precondition: " + BroName.MainDominatedTrackName + " must be an exposed mixer parameter for this check to mean anything.");
-            LogAssert.Expect(LogType.Warning, BroAudioLogPrefix);
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
             dominator.QuietOthers(0f, 0f);
             yield return WaitFrames(2);
 
