@@ -1,6 +1,6 @@
 # BroAudio Test Suite: Intent
 
-One-page summary of what the regression suite is for and the rules it is held to — the standard, not a report on the repository. Where the repository has departed from it, the departure is recorded in the plans' amendments and in [FIXED_ISSUES.md](FIXED_ISSUES.md). Full plans: [TESTING_PLAN.md](TESTING_PLAN.md) (runtime) and [TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md) (editor).
+One-page summary of what the regression suite is for and the rules it is held to — the standard, not a report on the repository. Where the repository has departed from it, the departure is recorded in the plans' amendments and in [FIXED_ISSUES.md](FIXED_ISSUES.md). Full plans, which this page overrides where they disagree: [TESTING_PLAN.md](TESTING_PLAN.md) (runtime) and [TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md) (editor). Writing a new test: [ADDING_A_TEST.md](ADDING_A_TEST.md).
 
 ## The goal
 
@@ -34,4 +34,6 @@ Ranked inventory of covered / deferred / out-of-scope behaviors: [TEST_INVENTORY
 
 ## Anti-goals
 
-Coverage targets. A test per method. `WaitForSeconds` sprinkled until it passes. Refactoring production code for testability without asking. Testing Editor windows or inspectors. Asserting on log text. Handing back tests that were never executed.
+Coverage targets. A test per method. `WaitForSeconds` sprinkled until it passes. Refactoring production code for testability without asking. Testing how Editor windows or inspectors draw. Asserting on log text. Handing back tests that were never executed.
+
+**Logs: expect the kind, never the sentence.** A test may expect a log when the log *is* the behavior (a refusal, a guard), but only by its `LogType` plus BroAudio's `[BroAudio]` tag — `LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix)` — never by its wording, so rewording a message cannot turn a test red. A log Unity emits without the tag is expected by `LogType` alone (`TestAudioLibrary.AnyLogMessage`). Building an inspector only to reach logic that does not draw is not inspector testing.
