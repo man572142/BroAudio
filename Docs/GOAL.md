@@ -32,6 +32,10 @@ This separates two questions that usually get tangled: *what does it do* (the te
 
 Ranked inventory of covered / deferred / out-of-scope behaviors: [TEST_INVENTORY.md](TEST_INVENTORY.md).
 
+## What CI enforces
+
+A green run has to mean what it says. Each leg must run every fixture its sources declare (derived from the code by `.github/scripts/derive_test_suites.py`, not from a hand-kept list), and fails on any Ignored, Inconclusive or otherwise verdict-less test that `.github/test-results-policy.json` does not allow with a reason. Besides the EditMode and PlayMode legs, an **EditMode-NoOptionalPackages** leg proves the package compiles and passes without Addressables and Localization, and a **nightly run in random order** catches a test that depends on another. Two static checks hold the rules below: `check_log_expectations.py` (logs by kind, never by sentence) and `check_fixed_issues_record.py` (a commit touching production code and tests together must also touch FIXED_ISSUES.md, or say why in a `No-Fixed-Issue: <reason>` trailer). Details: [ADDING_A_TEST.md](ADDING_A_TEST.md) §8.
+
 ## Anti-goals
 
 Coverage targets. A test per method. `WaitForSeconds` sprinkled until it passes. Refactoring production code for testability without asking. Testing how Editor windows or inspectors draw. Asserting on log text. Handing back tests that were never executed.
