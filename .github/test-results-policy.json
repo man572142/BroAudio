@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "Read by .github/scripts/check_test_suites.py after every Unity test leg.",
+    "allowedNonPassing: the only Ignored, Skipped, Explicit or Inconclusive results a leg may report and stay green.",
+    "Every other one fails it, because the runner counts none of them as failures and a green leg would then",
+    "mean less than it says. 'test' and 'message' are fnmatch globs over the test-case's fullname and its",
+    "reason message. 'when' / 'unless' name a condition the workflow passes per leg: expectsAudio (the leg's",
+    "image promises a realtime audio device) or randomOrder (the leg ran with -randomOrderSeed).",
+    "An entry needs a reason. Adding one is a decision to let a test not run, so make it narrow.",
+    "minimumFixtures: floors under the fixture derivation, to catch a source scan that stopped seeing the",
+    "suite. Deliberately far below the real counts - they are not a second inventory."
+  ],
+  "minimumFixtures": {
+    "EditMode": 10,
+    "PlayMode": 15
+  },
+  "allowedNonPassing": [
+    {
+      "test": "*.AddressablesTests.Play_WhileTheClipIsStillLoading_*",
+      "results": ["Inconclusive"],
+      "reason": "Editor Addressables in 'Use Asset Database' mode can complete a load synchronously, in which case the mid-load window the test is named for does not exist on that machine. The test Assumes the window rather than re-proving the synchronous path."
+    },
+    {
+      "test": "*",
+      "message": "*needs a realtime audio clock*",
+      "results": ["Ignored"],
+      "unless": "expectsAudio",
+      "reason": "RequireRealtimeAudioClock ignores a test when the DSP clock is not realtime, which is right on a machine with no audio device. Where the image promises one, AudioClockProbeTests fails the leg and this entry does not apply, so each gated test that was skipped is reported too."
+    },
+    {
+      "test": "*.IsolationContractTests.[BDE]_*",
+      "results": ["Inconclusive"],
+      "when": "randomOrder",
+      "reason": "B_, D_ and E_ check what the fixture restored after A_ or C_ mutated it, and Assume their predecessor ran first. A random order can run them before it; they then say so rather than pass vacuously."
+    }
+  ]
+}
