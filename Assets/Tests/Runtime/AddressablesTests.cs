@@ -1,4 +1,5 @@
 #if PACKAGE_ADDRESSABLES
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using Ami.BroAudio.Data;
@@ -275,6 +276,159 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsFalse(SoundManager.Instance.IsLoaded(id));
         }
+
+        #region Factory default and a failing key
+        /// <summary>
+        /// A well-formed AssetGUID that no asset in this project has, so the key is in no Addressables catalog
+        /// and every load of it fails. Only what BroAudio does around that failure is pinned, never how
+        /// Addressables itself reports it.
+        /// </summary>
+        private const string UnresolvableClipGuid = "0000000000000000000000000000dead";
+
+        /// <summary>Frames kept inside the log-collection window after its condition holds, for logs raised on completion.</summary>
+        private const int LogSettleFrames = 3;
+
+        // The factory default is AutomaticallyLoadAddressableAudioClips = false with the non-preloaded log at
+        // Error - so out of the box, playing an addressable entity nobody preloaded reports an error, and then
+        // (AudioPlayer.WaitForAddressablesToLoad: "load it no matter what the user has set") loads it and plays
+        // anyway. The error is a warning to the developer, not a refusal.
+        [UnityTest]
+        public IEnumerator Play_WithTheFactoryDefaultAutomaticLoadingOff_LogsAnErrorThenLoadsAndPlaysAnyway()
+        {
+            Assert.IsFalse(RuntimeSetting.FactorySettings.AutomaticallyLoadAddressableAudioClips,
+                "Precondition: automatic loading ships turned off.");
+            Assert.AreEqual(LogType.Error, RuntimeSetting.FactorySettings.AddressablesNonPreloadedLogLevel,
+                "Precondition: the non-preloaded message ships at Error level.");
+            SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = RuntimeSetting.FactorySettings.AutomaticallyLoadAddressableAudioClips;
+
+            AudioEntity entity = NewAddressableEntity("AddrFactoryDefault", TestAudioLibrary.AddressableClipGuids[0]);
+            Assert.IsFalse(entity.Clips[0].IsLoaded, "Precondition: nothing is preloaded.");
+
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+
+            yield return WaitUntilOrTimeout(() => player.IsPlaying,
+                "the non-preloaded clip to be loaded on demand and played", SlowAddressableWaitSeconds);
+            Assert.IsTrue(entity.Clips[0].IsLoaded, "characterizes: the play loads the clip itself despite automatic loading being off.");
+            Assert.IsNotNull(player.AudioSource.clip);
+        }
+
+        // AddressablesNonPreloadedLogLevel is only the severity of that one message: at Warning the same play
+        // warns instead of erroring, and loads and plays exactly the same way.
+        [UnityTest]
+        public IEnumerator Play_WithTheNonPreloadedLogLevelAtWarning_WarnsInsteadAndStillLoadsAndPlays()
+        {
+            SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = false;
+            SoundManager.Instance.Setting.AddressablesNonPreloadedLogLevel = LogType.Warning;
+
+            AudioEntity entity = NewAddressableEntity("AddrWarnLevel", TestAudioLibrary.AddressableClipGuids[1]);
+
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+
+            yield return WaitUntilOrTimeout(() => player.IsPlaying,
+                "the non-preloaded clip to be loaded on demand and played", SlowAddressableWaitSeconds);
+            Assert.IsTrue(entity.Clips[0].IsLoaded);
+        }
+
+        // A preload of a key no catalog knows returns the AssetReference's own handle, and it completes Failed.
+        // BroAudio adds no log of its own for the failure - the handle's status is the whole signal - and the
+        // entity keeps reading as not loaded.
+        [UnityTest]
+        public IEnumerator LoadAssetAsync_WithAKeyNoCatalogResolves_CompletesFailedAndBroAudioLogsNothingOfItsOwn()
+        {
+            AudioEntity entity = NewAddressableEntity("AddrBadKeyPreload", UnresolvableClipGuid);
+            Assert.IsTrue(entity.Clips[0].IsAddressablesAvailable(), "Precondition: a non-empty GUID makes the clip resolve through Addressables.");
+            SoundID id = IdOf(entity);
+
+            AsyncOperationHandle<AudioClip> handle = default;
+            var logs = new List<(LogType Type, string Message)>();
+            yield return CollectLogsUntil(() => handle = BroAudio.LoadAssetAsync(id),
+                () => handle.IsValid() && handle.IsDone, "the preload of the unresolvable key to complete", logs);
+
+            Assert.AreEqual(AsyncOperationStatus.Failed, handle.Status, "A key no catalog resolves fails the preload handle.");
+            Assert.IsFalse(SoundManager.Instance.IsLoaded(id), "The entity keeps reading as not loaded.");
+            Assert.IsFalse(logs.Exists(log => log.Message.Contains(Utility.LogTitle)),
+                "characterizes: BroAudio logs nothing of its own for a failed preload.");
+        }
+
+        // With automatic loading off (the factory default), PlayControl logs the non-preloaded error and loads the
+        // key itself inside WaitForAddressablesToLoad. When that load fails, the follow-up _clip.GetAudioClip()
+        // throws out of the coroutine rather than reporting and ending: in the Editor it reads
+        // AudioClipAssetReference.editorAsset.name, and editorAsset is null for a GUID with no asset (in a player
+        // build the same method's synchronous retry throws BroAudioException instead). The throw kills PlayControl
+        // before EndPlaying, so the player is stranded: accepted, silent, and checked out of the pool until
+        // something stops it - which the fixture's Stop(All, 0f) teardown does.
+        [UnityTest]
+        public IEnumerator Play_WithAKeyThatCannotLoad_ThrowsOutOfPlayControlAndStrandsThePlayerActiveAndSilent()
+        {
+            SoundManager.Instance.Setting.AutomaticallyLoadAddressableAudioClips = false;
+            AudioEntity entity = NewAddressableEntity("AddrBadKeyPlay", UnresolvableClipGuid);
+            BroAudioClip clip = entity.Clips[0];
+            SoundID id = IdOf(entity);
+
+            IAudioPlayer player = null;
+            var logs = new List<(LogType Type, string Message)>();
+            yield return CollectLogsUntil(() => player = BroAudio.Play(id),
+                () => clip.GetCurrentOperationHandle().IsValid() && clip.GetCurrentOperationHandle().IsDone,
+                "PlayControl's on-demand load of the unresolvable key to complete", logs);
+
+            Assert.IsTrue(logs.Exists(log => log.Type == LogType.Error && log.Message.Contains(Utility.LogTitle)),
+                "The non-preloaded error is logged first, as for any addressable clip nobody preloaded.");
+            Assert.IsTrue(logs.Exists(log => log.Type == LogType.Exception),
+                "characterizes: the failed load surfaces as an exception thrown out of the playback coroutine.");
+            Assert.IsTrue(player.IsActive, "characterizes: the player is never ended - it stays checked out of the pool.");
+            Assert.IsFalse(player.IsPlaying, "It never sounds.");
+            Assert.IsFalse(clip.IsLoaded);
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/>, then waits for <paramref name="condition"/> plus
+        /// <see cref="LogSettleFrames"/>, collecting every log in between instead of failing on it. For the
+        /// failing-key tests, whose logs come partly from Addressables itself, in a count and form this suite does
+        /// not pin - only BroAudio's side is asserted on afterwards. Scoped like AudioEffectTests'
+        /// RunAndCollectBroAudioErrorLogs: LogAssert.ignoreFailingMessages is static, so it is restored in a
+        /// finally, and the timeout is asserted only after that.
+        /// </summary>
+        private static IEnumerator CollectLogsUntil(Action action, Func<bool> condition, string what, List<(LogType Type, string Message)> logs)
+        {
+            void OnLog(string message, string stackTrace, LogType type)
+            {
+                logs.Add((type, message));
+            }
+
+            bool timedOut = false;
+            Application.logMessageReceived += OnLog;
+            bool previousIgnore = LogAssert.ignoreFailingMessages;
+            LogAssert.ignoreFailingMessages = true;
+            try
+            {
+                action();
+                float deadline = Time.realtimeSinceStartup + SlowAddressableWaitSeconds;
+                while (!condition())
+                {
+                    if (Time.realtimeSinceStartup > deadline)
+                    {
+                        timedOut = true;
+                        break;
+                    }
+                    yield return null;
+                }
+
+                for (int i = 0; i < LogSettleFrames; i++)
+                {
+                    yield return null;
+                }
+            }
+            finally
+            {
+                LogAssert.ignoreFailingMessages = previousIgnore;
+                Application.logMessageReceived -= OnLog;
+            }
+
+            Assert.IsFalse(timedOut, $"Timed out after {SlowAddressableWaitSeconds}s waiting for: {what}");
+        }
+        #endregion
 
         /// <summary>
         /// Rewinds the cleanup routine's record of when this entity last played, so it reads as stale now.
