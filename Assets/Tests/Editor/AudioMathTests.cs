@@ -1,4 +1,5 @@
 using System.Reflection;
+using Ami.BroAudio.Editor.Tests;
 using Ami.Extension;
 using NUnit.Framework;
 using UnityEngine;
@@ -25,19 +26,15 @@ namespace Ami.BroAudio.Tests
         /// Effect's (type, value, fading, isDominator) constructor is internal and this assembly has no
         /// InternalsVisibleTo (tests use reflection throughout, see TestAudioLibrary). Reflection is the only
         /// way to build a Volume-type Effect at an arbitrary value — unlike LowPass/HighPass/Custom there is
-        /// no public `Effect.Volume(...)` factory.
+        /// no public `Effect.Volume(...)` factory. Resolved through <see cref="EditorReflected"/>, which throws
+        /// naming the signature if it changes.
         /// </summary>
-        private static readonly ConstructorInfo _effectCtor = typeof(Effect).GetConstructor(
-            BindingFlags.NonPublic | BindingFlags.Instance,
-            null,
-            new[] { typeof(EffectType), typeof(float), typeof(Fading), typeof(bool) },
-            null);
+        private static ConstructorInfo EffectCtor =>
+            EditorReflected.Constructor(typeof(Effect), typeof(EffectType), typeof(float), typeof(Fading), typeof(bool));
 
         private static Effect CreateEffect(EffectType type, float rawValue)
         {
-            Assert.IsNotNull(_effectCtor, "Reflection: Effect(EffectType, float, Fading, bool) constructor not found - " +
-                "renamed or its signature changed? Update AudioMathTests.cs._effectCtor.");
-            return (Effect)_effectCtor.Invoke(new object[] { type, rawValue, new Fading(type), false });
+            return (Effect)EffectCtor.Invoke(new object[] { type, rawValue, new Fading(type), false });
         }
 
         #region ToDecibel / ToNormalizeVolume (0.2)
