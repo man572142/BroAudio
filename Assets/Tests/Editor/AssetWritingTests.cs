@@ -78,9 +78,10 @@ namespace Ami.BroAudio.Editor.Tests
             string path = EnsureTempResourcesFolder() + "/BroTestRuntimeSetting.asset";
 
             var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
-            // Needed so the Resources.Load existence check can see the new asset. Safe: no test writes a
-            // .cs file, so a refresh here cannot recompile and take the run down with a domain reload.
-            AssetDatabase.Refresh();
+            // Re-imports only the new asset so the Resources.Load existence check sees it. Scoped to the path on
+            // purpose: a project-wide AssetDatabase.Refresh() would also import any .cs file a developer saved
+            // mid-run, and the recompile's domain reload would take the whole run down.
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
             var second = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
 
             Assert.AreSame(first, second, "The second call created a new instance instead of returning the existing asset.");
@@ -96,7 +97,7 @@ namespace Ami.BroAudio.Editor.Tests
             string path = EnsureTempFolder() + "/BroTestNotInResources.asset";
 
             var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
-            AssetDatabase.Refresh();
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport); // same scoped import as above
             var second = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
 
             Assert.AreNotSame(first, second, "The Resources-based existence check now finds assets outside a Resources folder.");

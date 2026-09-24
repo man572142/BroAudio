@@ -1,7 +1,6 @@
 using System;
 using System.Reflection;
 using NUnit.Framework;
-using UnityEngine.Networking;
 
 namespace Ami.BroAudio.Editor.Tests
 {
@@ -10,29 +9,24 @@ namespace Ami.BroAudio.Editor.Tests
     /// No fixture behavior is exercised here, but every test still derives from BroEditorTestFixture per the
     /// suite's contract (see EditorUtilityPureTests).
     /// <para>
-    /// IssueReportMarkdown is <c>internal static</c> and this assembly has no InternalsVisibleTo (same
-    /// reflection pattern as AudioMathTests in the runtime suite), so its public static methods are invoked
-    /// via reflection rather than by direct reference.
+    /// IssueReportMarkdown is <c>internal static</c> and this assembly has no InternalsVisibleTo, so its
+    /// public static methods are invoked through <see cref="EditorReflected"/> rather than by direct reference.
     /// </para>
     /// </summary>
     public class IssueReportMarkdownTests : BroEditorTestFixture
     {
-        private static readonly Type _markdownType =
-            typeof(EditorSetting).Assembly.GetType("Ami.BroAudio.Editor.IssueReportMarkdown");
+        private static Type MarkdownType =>
+            EditorReflected.ResolveType(typeof(EditorSetting).Assembly, EditorReflected.IssueReportMarkdown.TypeName);
 
         private static string ComposeTitle(IssueReportDraft draft)
         {
-            Assert.IsNotNull(_markdownType, "IssueReportMarkdown type not found via reflection - was it renamed or moved?");
-            MethodInfo method = _markdownType.GetMethod("ComposeTitle", BindingFlags.Public | BindingFlags.Static);
-            Assert.IsNotNull(method, "Reflection: IssueReportMarkdown.ComposeTitle not found - renamed? Update IssueReportMarkdownTests.cs.");
+            MethodInfo method = EditorReflected.StaticMethod(MarkdownType, EditorReflected.IssueReportMarkdown.ComposeTitle);
             return (string)method.Invoke(null, new object[] { draft });
         }
 
         private static string BuildGitHubIssueURL(string title)
         {
-            Assert.IsNotNull(_markdownType, "IssueReportMarkdown type not found via reflection - was it renamed or moved?");
-            MethodInfo method = _markdownType.GetMethod("BuildGitHubIssueURL", BindingFlags.Public | BindingFlags.Static);
-            Assert.IsNotNull(method, "Reflection: IssueReportMarkdown.BuildGitHubIssueURL not found - renamed? Update IssueReportMarkdownTests.cs.");
+            MethodInfo method = EditorReflected.StaticMethod(MarkdownType, EditorReflected.IssueReportMarkdown.BuildGitHubIssueURL);
             return (string)method.Invoke(null, new object[] { title });
         }
 
@@ -65,7 +59,11 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.IsFalse(encodedTitle.Contains(" "), $"Encoded title still contains a literal space, which would break the URL: {encodedTitle}");
             Assert.IsFalse(encodedTitle.Contains("#"), $"Encoded title still contains a literal '#', which would truncate the URL at a fragment: {encodedTitle}");
             Assert.IsFalse(encodedTitle.Contains("&"), $"Encoded title still contains a literal '&', which would corrupt the query string: {encodedTitle}");
-            Assert.AreEqual(RawTitle, UnityWebRequest.UnEscapeURL(encodedTitle), "Escaped title did not round-trip back to the original via UnEscapeURL.");
+            // Decoded the way the receiving end reads a query string (form encoding: '+' is a space, then
+            // percent-decoding), with the BCL rather than UnityWebRequest.UnEscapeURL - the inverse of the very
+            // encoder production calls would share its mistakes and round-trip them away.
+            string decoded = Uri.UnescapeDataString(encodedTitle.Replace('+', ' '));
+            Assert.AreEqual(RawTitle, decoded, $"The escaped title does not decode back to the original. Encoded: {encodedTitle}");
         }
     }
 }

@@ -26,6 +26,10 @@ namespace Ami.BroAudio.Editor.Tests
         private const float DistinctiveFadeOut = 0.4f;
         private const float DistinctiveDelay = 0.5f;
         private const string DistinctiveGuid = "distinctive-guid";
+        // Entity-level stand-ins. Neither may equal a value either reset method writes (FullVolume, 0), or the
+        // "left alone" check below could not tell an untouched field from one the reset overwrote.
+        private const float DistinctiveMasterVolume = 0.37f;
+        private const float DistinctivePitch = 1.3f;
 
         private static void SetDistinctiveClipValues(SerializedProperty clipProp, string guid)
         {
@@ -87,7 +91,11 @@ namespace Ami.BroAudio.Editor.Tests
             // clip0/clip1 are already assigned by CreateEntity, so AudioClip itself starts non-default too.
             SetDistinctiveClipValues(target, DistinctiveGuid);
             SetDistinctiveClipValues(sibling, DistinctiveGuid + "-sibling");
+            so.FindBackingFieldProperty(nameof(AudioEntity.MasterVolume)).floatValue = DistinctiveMasterVolume;
+            so.FindBackingFieldProperty(nameof(AudioEntity.Pitch)).floatValue = DistinctivePitch;
             so.ApplyModifiedProperties();
+            Assert.AreEqual(DistinctiveMasterVolume, entity.MasterVolume, "Precondition: the entity's MasterVolume took the stand-in.");
+            Assert.AreEqual(DistinctivePitch, entity.Pitch, "Precondition: the entity's Pitch took the stand-in.");
 
             BroEditorUtility.ResetBroAudioClipSerializedProperties(target);
             so.ApplyModifiedProperties();
@@ -101,8 +109,8 @@ namespace Ami.BroAudio.Editor.Tests
 
             // The reset call was scoped to a single array element - everything else must be untouched.
             AssertDistinctiveClipValuesUnchanged(sibling, clip1, DistinctiveGuid + "-sibling");
-            Assert.AreEqual(AudioConstant.FullVolume, entity.MasterVolume);
-            Assert.AreEqual(AudioConstant.DefaultPitch, entity.Pitch);
+            Assert.AreEqual(DistinctiveMasterVolume, entity.MasterVolume, "The clip reset reached the entity's MasterVolume.");
+            Assert.AreEqual(DistinctivePitch, entity.Pitch, "The clip reset reached the entity's Pitch.");
         }
         #endregion
 

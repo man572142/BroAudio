@@ -95,13 +95,27 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
+        public void SplitRectHorizontal_CountForm_NullArray_LogsTheNullGuardsError()
+        {
+            // The count overload has no ratio-sum check, so the one tagged error it logs on a null array can only
+            // come from the shared SplitHorizontal helper's null guard. The ratios-form test below logs the same
+            // single error through that same guard.
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
+            Assert.DoesNotThrow(() =>
+                EditorScriptingExtension.SplitRectHorizontal(new Rect(0f, 0f, 100f, 50f), 2, 4f, null));
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [Test]
         public void SplitRectHorizontal_RatiosArrayForm_NullArray_LogsItsOwnErrorAndReturns()
         {
-            // Ratios sum to 1 here, so the guard that actually fires is the inner SplitHorizontal
-            // helper's own null check, not the ratio-sum check.
+            // Ratios sum to 1 here, so the ratio-sum guard passes and returns nothing; the single tagged error
+            // is the shared SplitHorizontal helper's null guard (isolated in the count-form test above). Exactly
+            // one error: NoUnexpectedReceived fails on a second one, e.g. from both guards firing.
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectHorizontal(new Rect(0f, 0f, 100f, 50f), 4f, null, 0.5f, 0.5f));
+            LogAssert.NoUnexpectedReceived();
         }
 
         [Test]
@@ -148,6 +162,9 @@ namespace Ami.BroAudio.Editor.Tests
             // the caller's local non-null, so asserting that would test C#, not this method.
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectVertical(new Rect(0f, 0f, 100f, 50f), 4f, rects, 0.5f, 0.5f));
+            // The "no log" half of #22, made explicit rather than left to the runner's unexpected-error check
+            // (which ignores warnings and plain logs).
+            LogAssert.NoUnexpectedReceived();
         }
         #endregion
     }

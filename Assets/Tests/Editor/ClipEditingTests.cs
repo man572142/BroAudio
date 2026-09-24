@@ -27,14 +27,9 @@ namespace Ami.BroAudio.Editor.Tests
     {
         private const float Tolerance = 1e-4f;
 
-        /// <summary>
-        /// AudioClipEditingHelper's private sample buffer. Reached through the shared lookup so a rename fails with a
-        /// message naming the member; the name lives here because TestAudioLibrary.Reflected sits in the runtime
-        /// test assembly, which cannot see this Editor-only type.
-        /// </summary>
-        private const string SampleDataFieldName = "_sampleDatas";
+        /// <summary>AudioClipEditingHelper's private sample buffer; see <see cref="EditorReflected"/>.</summary>
         private static System.Reflection.FieldInfo SampleDataField =>
-            TestAudioLibrary.Reflected.Field(typeof(AudioClipEditingHelper), SampleDataFieldName);
+            TestAudioLibrary.Reflected.Field(typeof(AudioClipEditingHelper), EditorReflected.AudioClipEditingHelper.SampleDatas);
 
         /// <summary>1000 Hz is the lowest rate AudioClip.Create honours; below it Unity caps and logs an error.</summary>
         private const int SampleRate = 1000;
