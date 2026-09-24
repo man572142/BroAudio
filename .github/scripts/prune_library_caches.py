@@ -7,13 +7,14 @@ so all but the rarest push produces a key nobody has used and uploads another ~8
 alongside the copy the previous push left behind. Nothing will ever read that older copy -
 the restore-keys prefix resolves to the newest match - but it holds its share of the
 repository's 10 GB allowance until eviction reclaims it, and eviction is by least-recent
-use, so what it reclaims first is usually the entry the next run wanted. Two test modes
-make it ~1.75 GB a push, which is a handful of pushes to fill 10 GB.
+use, so what it reclaims first is usually the entry the next run wanted. With one Library
+per matrix leg, a push adds that much per leg, which is a handful of pushes to fill 10 GB.
 
 So after each save, drop every entry on this branch whose key starts with this leg's prefix
-except the one this run just used. The branch is left holding exactly one Library per test
-mode. Scoping the listing to this ref keeps main's caches and the other leg's out of reach,
-which is what lets the two matrix legs prune in parallel without racing.
+except the one this run just used. The branch is left holding exactly one Library per leg.
+Scoping the listing to this ref keeps main's caches out of reach, and the prefix keeps the
+other legs' out of reach - provided no leg's prefix is a prefix of another's, which test.yml's
+matrix is laid out to guarantee. That is what lets the legs prune in parallel without racing.
 
 Reads its inputs from the environment, all of which test.yml sets:
     GH_TOKEN         a token with actions: write, for the gh calls
