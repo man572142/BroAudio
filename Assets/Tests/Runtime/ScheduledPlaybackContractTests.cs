@@ -101,6 +101,35 @@ namespace Ami.BroAudio.Tests
                 "pitch-doubled playback to end well before the clip's natural 3s length", 2.3f);
         }
 
+        // The direction that can truncate: lowering pitch mid-play must push the derived end *out*. PlayControl
+        // ends playback at _playbackEndDspTime whether or not the voice has reached the end of its clip, so a
+        // rescale that regressed to a no-op would cut the slowed clip at its unpitched length.
+        [UnityTest]
+        public IEnumerator SetPitch_BelowOneMidPlay_LengthensDerivedRemainingDuration()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            // Near the start of a 3s clip, half pitch leaves ~6s of audio. The sample point sits 1.5s past the
+            // unpitched end and 1.5s short of the pitched one, and the recycle budget ends 1.5s past the pitched
+            // end, so a truncating build fails the first check and an over-stretched one the second.
+            const float ClipSeconds = 3f;
+            const float Pitch = 0.5f;
+            const double StillPlayingAtDspSeconds = 4.5;
+            const float RecycleBudgetSeconds = 3f;
+            SoundID id = NewSound("PitchLengthenSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitUntilOrTimeout(() => player.AudioSource.timeSamples > 0, "playback to audibly start", DefaultPlaybackWaitSeconds);
+
+            player.SetPitch(Pitch);
+
+            yield return WaitDspSeconds(StillPlayingAtDspSeconds);
+            Assert.IsTrue(player.IsActive && player.IsPlaying,
+                $"At half pitch a {ClipSeconds}s clip must still be playing {StillPlayingAtDspSeconds}s in - ending near {ClipSeconds}s means the derived end was not rescaled.");
+
+            yield return WaitForRecycle(player,
+                "half-pitch playback to end near twice the clip's length", RecycleBudgetSeconds);
+        }
+
         // Contrast case: once SetScheduledEndTime has been called explicitly,
         // _isEndTimeDerivedFromClip is false and RecalculateScheduledEndTime declines to touch it -
         // a later pitch change must NOT move the explicit end time.
