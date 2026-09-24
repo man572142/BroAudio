@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.BroAudio.Tools;
@@ -88,10 +87,6 @@ namespace Ami.BroAudio.Tests
                 yield return null;
             }
 
-            // Resolved here, before any state is touched, so a renamed or moved member fails the test up front
-            // with a BroAudioException naming it - not later, disguised as a leak report from TearDown.
-            ResolveCurrentAudioPlayersMethod();
-
             _settingSnapshot = JsonUtility.ToJson(SoundManager.Instance.Setting);
             FactoryGlobalPlaybackGroup = Track(ScriptableObject.CreateInstance<DefaultPlaybackGroup>());
             FactoryGlobalPlaybackGroup.name = BroName.GlobalPlaybackGroupName;
@@ -177,8 +172,6 @@ namespace Ami.BroAudio.Tests
 
         /// <summary>Prefix for the teardown's own log lines, so they are greppable and never mistaken for BroAudio's.</summary>
         private const string TestLogTitle = "[BroAudioTests] ";
-
-        private static MethodInfo _getCurrentAudioPlayersMethod;
 
         [UnityTearDown]
         public IEnumerator BroAudioTearDown()
@@ -407,10 +400,8 @@ namespace Ami.BroAudio.Tests
         private static IEnumerator DrainAudioPlayers(List<string> leaks)
         {
             // TeardownTests destroys the manager; its own [UnityTearDown] restores it before this one runs, but
-            // nothing here may depend on that - a missing manager has no pool to leak. A method that never
-            // resolved has already failed BroAudioSetUp by name, which is the report; adding a leak on top
-            // would only bury it.
-            if (!SoundManager.HasInstance || _getCurrentAudioPlayersMethod == null)
+            // nothing here may depend on that - a missing manager has no pool to leak.
+            if (!SoundManager.HasInstance)
             {
                 yield break;
             }
@@ -613,29 +604,14 @@ namespace Ami.BroAudio.Tests
 #endif
 
         /// <summary>
-        /// Resolves SoundManager's private GetCurrentAudioPlayers once per run, through the throwing
-        /// <see cref="TestAudioLibrary.Reflected.Method"/>: a rename or a move of the pool fails BroAudioSetUp
-        /// with a <see cref="BroAudioException"/> naming the member, before the test body runs, instead of
-        /// surfacing in TearDown as an isolation leak that every PlayMode test would report.
-        /// ReflectionCanaryTests checks the same name directly.
-        /// </summary>
-        private static void ResolveCurrentAudioPlayersMethod()
-        {
-            _getCurrentAudioPlayersMethod ??= TestAudioLibrary.Reflected.Method(
-                typeof(SoundManager), TestAudioLibrary.Reflected.SoundManager.GetCurrentAudioPlayers);
-        }
-
-        /// <summary>
         /// SoundManager's live player list: every AudioPlayer currently checked out of the pool, whether it
-        /// is playing, scheduled, paused or mid-handover. The method is private on SoundManager; the string
-        /// literal it is looked up by lives once, in <see cref="TestAudioLibrary.Reflected.SoundManager"/>.
-        /// Needs a live manager. Throws a <see cref="BroAudioException"/> naming the member if it no longer
-        /// resolves.
+        /// is playing, scheduled, paused or mid-handover. Read through the internal accessor the runtime
+        /// assembly exposes to this one (InternalsVisibleTo), so a refactor of the pool breaks the build
+        /// instead of every test. Needs a live manager.
         /// </summary>
         protected static IReadOnlyList<AudioPlayer> CurrentAudioPlayers()
         {
-            ResolveCurrentAudioPlayersMethod();
-            return (IReadOnlyList<AudioPlayer>)_getCurrentAudioPlayersMethod.Invoke(SoundManager.Instance, null);
+            return SoundManager.Instance.GetCurrentAudioPlayers();
         }
 
         #region Library

@@ -317,7 +317,6 @@ namespace Ami.BroAudio.Tests
             public static class SoundManager
             {
                 public const string LoadedEntityLastPlayedTime = "_loadedEntityLastPlayedTime";
-                public const string GetCurrentAudioPlayers = "GetCurrentAudioPlayers";
                 public const string LocalizedRuntime = "_localizedRuntime";
             }
 

@@ -10,7 +10,7 @@ namespace Ami.BroAudio.Tests
     /// <summary>
     /// Resolves every name in <see cref="TestAudioLibrary.Reflected"/> against the production type it belongs
     /// to, so a rename or a move fails here, once, naming each member - instead of failing whichever tests
-    /// happen to reach it, or every PlayMode test's setup in the case of SoundManager.GetCurrentAudioPlayers.
+    /// happen to reach it.
     /// <para>
     /// Plain NUnit, no <see cref="BroAudioTestFixture"/>: nothing here plays audio or needs a SoundManager, and
     /// it must stay green while the manager cannot bootstrap, so it can tell the two failures apart.
