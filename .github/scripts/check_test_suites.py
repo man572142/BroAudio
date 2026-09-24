@@ -66,6 +66,27 @@ def message_of(case):
     return ""
 
 
+# The suite's own test assemblies. An installed package can ship its own tests into the same run (the
+# full-package leg reports a TestStub fixture that no BroAudio source declares), and those are neither the
+# derivation's business nor this check's.
+OWN_ASSEMBLIES = {"Tests", "EditorTests"}
+
+
+def own_suites(root):
+    """Yields every test-suite node that sits inside one of OWN_ASSEMBLIES."""
+    def walk(node, inside):
+        for child in node.findall("test-suite"):
+            here = inside
+            if child.get("type") == "Assembly":
+                name = re.sub(r"\.dll$", "", (child.get("name") or "").replace("\\", "/").rsplit("/", 1)[-1],
+                              flags=re.IGNORECASE)
+                here = name in OWN_ASSEMBLIES
+            if here:
+                yield child
+            yield from walk(child, here)
+    yield from walk(root, False)
+
+
 def read_report(path):
     """Returns a Report for an NUnit report, or None for anything else.
 
@@ -81,7 +102,7 @@ def read_report(path):
     if root.tag != "test-run":
         return None
     fixtures = set()
-    for suite in root.iter("test-suite"):
+    for suite in own_suites(root):
         if suite.get("type") not in FIXTURE_TYPES:
             continue
         # classname is absent on a ParameterizedFixture; fullname carries the class there.
@@ -90,7 +111,7 @@ def read_report(path):
             # "Thing(1)" - a parameterized instance without a classname - is still the class Thing.
             fixtures.add(re.sub(r"\(.*\)$", "", name.rsplit(".", 1)[-1]))
     non_passing = []
-    for case in root.iter("test-case"):
+    for case in (c for suite in own_suites(root) for c in suite.findall("test-case")):
         outcome = outcome_of(case)
         if outcome:
             non_passing.append((case.get("fullname") or case.get("name") or "?", outcome, message_of(case)))
