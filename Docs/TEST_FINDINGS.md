@@ -6,9 +6,19 @@ Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
 
 The tests that pin a finding carry `[Category("Finding_N")]`, so `-testCategory Finding_14` selects
-everything that pins #14, in either suite. A finding left deliberately unpinned says **Not pinned** in
-its own section, with the reason; `FindingCoverageTests` (EditMode) fails if a finding has neither, or
-if a test carries a category this file does not record.
+everything that pins #14, in either suite. A finding left deliberately unpinned says **Not pinned** on
+the `Status:` line of its own section, with the reason, and its row in the summary table says "not
+pinned" too. `FindingCoverageTests` (EditMode) holds this file to that, in both directions:
+
+- every section is pinned by a runnable test (a `[Test]`-family method that is neither `[Ignore]`d nor
+  `[Explicit]`) or carries the "Not pinned" note on its `Status:` line — a note anywhere else in the
+  section does not count;
+- a pin behind an `#if` that is false in the current compilation (`PACKAGE_ADDRESSABLES` for #14,
+  `!UNITY_WEBGL` for #45 and #48) is accepted as gated out; the gate is read from the test source itself;
+- every `Finding_N` category names a section of this file, and no section noted "Not pinned" also has a pin;
+- the summary table lists exactly the sections, once each, and a row's Status cell says "not pinned"
+  exactly when its section's `Status:` line does;
+- no number is both open here and recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md), and none has two sections.
 | # | Area | Finding | Status |
 |---|---|---|---|
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
@@ -51,6 +61,10 @@ if a test carries a category this file does not record.
 | 56 | Pitch | Master `SetPitch` writes every concrete type's pref, unlike master `SetVolume` | Open, characterized |
 | 57 | Volume / Fade | A timed per-type `SetVolume` ramps live players but stores the target instantly, so a sound started mid-fade begins at the end value | Open, characterized |
 | 58 | Looping / Stop | `Stop` with a fade on a looping sound goes silent at the current iteration's end, while the handle stays active for the rest of the fade | Open, characterized |
+| 59 | Looping / Seamless | A `SeamlessLoop` whose `TransitionTime` outlasts the clip loops once per `TransitionTime`, not once per clip | Open, characterized |
+| 60 | Playback / Validation | `Play(id, (Transform)null)` throws a raw `NullReferenceException` before any validation runs | Open, characterized |
+| 61 | Editor / Clip editing | A failed `Trim` leaves a zeroed sample buffer behind that later edits apply to | Open, characterized |
+| 62 | Editor / Rect math | `Scoping(Rect, Rect)` clamps a scope-local rect against the scope's global edge | Open, characterized |
 
 ---
 
@@ -219,7 +233,15 @@ globally and positionally within the comb-filtering window never triggers preven
 together the two plays are — which is precisely the situation the rule exists to catch.
 
 The in-source `TODO` shows this is known and unresolved rather than intended; the AudioListener's position is
-the obvious candidate for the missing global position. Characterized by `PlaybackGroupTests`.
+the obvious candidate for the missing global position.
+
+Status: Open, characterized. Pinned by
+`PlaybackGroupTests.Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance`,
+with a 10 s window so the acceptance cannot come from the window expiring. Two negative controls show the
+exemption is the distance setting's doing: `Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond`
+(the same pair with the threshold at 0 is rejected) and
+`Play_PositionedCloseTogether_WithinCombFilteringWindow_RejectsSecond` (two positioned plays inside the
+threshold are rejected).
 
 ## 13. `HasLoop` writes its out parameter even when it returns false
 
@@ -368,8 +390,9 @@ never added — output length is `totalSamples / channels - 1`, not `totalSample
 downmixing a stereo clip in the Clip Editor loses the final sample frame.
 
 Status: Open, characterized. Covered by
-`ClipEditingTests.ConvertToMono_Downmixing_OffsetsGroupingAndDropsFinalGroup`. The `SelectOneChannel`
-path does **not** have this bug — it keeps the full frame count.
+`ClipEditingTests.ConvertToMono_Downmixing_AveragesEachFrameButDropsTheFinalFrame`, which asserts that every
+frame that *is* emitted averages its own L/R pair — the grouping is not offset — and that the output is one
+frame short. The `SelectOneChannel` path does **not** have this bug — it keeps the full frame count.
 
 ## 26. `Reverse` transposes stereo channels
 
@@ -888,7 +911,9 @@ looping Music entity, where `RuntimeSetting.AlwaysPlayMusicAsBGM` attaches `Musi
 Status: **Open, characterized.** Pinned by
 `AudioEffectTests.Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter`,
 which asserts one filter carrying the added settings on each incoming player, list lengths of 3 and 9, and
-2 and 8 untagged refusals at the first two seams. The list is private, so it is read by reflection.
+2 and 8 untagged refusals at the first two seams. The list is private, so it is read by reflection. A seam's
+refusals are counted as the largest group of identical untagged `LogType.Log` messages in that seam's window,
+so an unrelated untagged log cannot shift the count, and the test never reads what the message says.
 
 ---
 
@@ -1210,3 +1235,107 @@ characterized.
 
 Status: **Open, characterized.** Pinned by
 `LoopHandoverTests.Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd`.
+
+## 59. A `SeamlessLoop` whose `TransitionTime` outlasts the clip loops once per `TransitionTime`
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `PlayControl` and `ScheduleNextPlayback`
+
+For a seamless loop, `PlayControl` first waits out its own fade-in (`while (_clipVolume.IsFading)`), then
+calls `_pref.ApplySeamlessFade()` — which makes both fades `TransitionTime` long — and starts
+`ScheduleNextPlayback`. That coroutine waits until `_playbackEndDspTime - seamlessFadeOut - warmUpTime` and
+schedules the successor at `_playbackEndDspTime - seamlessFadeOut`, clamped to *now*.
+
+When `TransitionTime` is longer than the clip, both points are already in the past, so the successor is
+scheduled at once. Nothing recurses: the successor's own `PlayControl` parks on its `TransitionTime`-long
+fade-in before it reaches `ScheduleNextPlayback`, so each player spawns exactly one successor, one
+`TransitionTime` after it started. The loop's period therefore stretches from the clip length to the
+`TransitionTime`. The clip's own voice still ends after one clip length, so a 0.5 s clip with a 1.5 s
+transition sounds for 0.5 s, then the rest of each 1.5 s period is a fade running over silence — not the
+continuous loop `SeamlessLoop` promises. The number of live players stays bounded (each one fades out and
+recycles), so this is a timing defect, not a leak.
+
+No clean fix is implied: clamping `TransitionTime` to the clip length, or scheduling successors by clip
+length with overlapping fades, are both behavior changes to decide, so it stays characterized.
+
+Status: Open, characterized. Pinned by
+`LoopHandoverTests.SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount`,
+which plays a 0.5 s clip with a 1.5 s transition for three transitions and asserts between 3 and 6 player
+starts (a per-clip period would show about 9), at most 4 players live at once, and that the caller's handle
+still drives the loop and `Stop` recycles every player. A fix that restores the clip-length period turns
+the upper bound red.
+
+## 60. `Play(id, (Transform)null)` throws a raw `NullReferenceException` before any validation
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.Playback.cs`,
+`SoundManager.Play(SoundID, Transform, float, IPlayableValidator)`
+
+```csharp
+if (IsPlayable(id, customValidator, followTarget.position, out var entity, out var player))
+```
+
+`followTarget.position` is evaluated as an argument to `IsPlayable`, so a null target is dereferenced before
+`IsPlayable` looks at the `SoundID`, the entity or the playback group. Every overload that takes a
+`Transform` reaches this line, including the fade-in one. The caller gets a raw `NullReferenceException` out
+of the `BroAudio` facade — not a `BroAudioException`, and not the logged error plus inert `Empty.AudioPlayer`
+that every other invalid-input path returns. Even `SoundID.Invalid` never logs its own error when paired
+with a null target. This conflicts with the project rule that expected "invalid input" gameplay paths log
+and return rather than throw.
+
+The throw happens before `_audioPlayerPool.Extract()`, so nothing is checked out of the pool and nothing
+leaks. It is distinct from the teardown case, where `SoundManager.Instance` throws first because the
+manager is gone.
+
+Status: Open, characterized. Pinned by
+`ErrorPathTests.Play_WithANullFollowTarget_ThrowsNullReferenceExceptionBeforeAnyValidation`, which asserts
+the throw for both `Transform` overloads and for `SoundID.Invalid` (with no log expected, so a validation
+log arriving first would fail it), that no voice starts, and — as the contrast — that `Play(SoundID.Invalid)`
+without a target logs and returns an inactive player.
+
+## 61. A failed `Trim` leaves a zeroed sample buffer that later edits apply to
+
+**Where:** `Assets/BroAudio/Runtime/Extension/AudioExtension.cs`, `AudioExtension.TryGetSampleData`, and
+`Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`, `AudioClipEditingHelper.Trim`
+
+`TryGetSampleData` allocates its `out` array before it calls `AudioClip.GetData`, and hands that array back
+even when `GetData` fails and it returns false. `Trim` writes the out parameter straight into
+`_sampleDatas` (`HasEdited = _originalClip.TryGetSampleData(out _sampleDatas, ...)`), so after a failed
+Trim — a streaming clip is the documented way to make `GetData` refuse — the helper holds a buffer of zeros
+the size of the requested range that was never read from the clip.
+
+`CanEdit` then reads true, and every later edit (`AdjustVolume`, `Reverse`, …) runs on that silence and
+sets `HasEdited`. `GetResultClip` would then build its result from the zeroed buffer, i.e. silence — this
+last step is suspected rather than observed, because the result clip is re-created as a streamed clip whose
+content the test cannot read back. Without the failed Trim the same helper is not editable: its lazy read
+fails through `GetSampleData`, which returns null on failure.
+
+Status: Open, characterized. Pinned by
+`ClipEditingTests.Trim_OnStreamingClip_LeavesAZeroedBufferThatLaterEditsApplyTo`, which asserts that after
+the failed Trim `CanEdit` is true, `AdjustVolume` reports an edit, and the private buffer is ten zeros.
+Contrast: `ClipEditingTests.StreamingClip_WithoutAFailedTrim_IsNotEditable`.
+
+## 62. `Scoping(Rect, Rect)` clamps a scope-local rect against the scope's global edge
+
+**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `EditorScriptingExtension.Scoping(Rect, Rect, Vector2)`
+
+```csharp
+Rect rect = new Rect(originRect.position.Scoping(scope, offset), originRect.size);
+rect.xMax = rect.xMax > scope.xMax ? scope.xMax : rect.xMax;
+rect.yMax = rect.yMax > scope.yMax ? scope.yMax : rect.yMax;
+```
+
+The first line converts the rect into scope-local coordinates; the clamp then compares it against
+`scope.xMax`/`scope.yMax`, which are global. With the scope at the origin the two agree, which is why the
+bug is invisible there. Off the origin — and real callers pass an `EditorWindow`'s `position`, which is
+not at the origin — it goes wrong both ways:
+
+- a local rect that overhangs the scope but whose local `xMax`/`yMax` stay under the global edge is not
+  clamped at all (scope (100, 100, 50, 50), local rect (10, 10, 80, 90) keeps its full 80 × 90);
+- once the local `xMax`/`yMax` pass the global edge, they are cut back to that global value instead of to
+  `scope.width`/`scope.height` (local (10, 10, 200, 200) becomes 140 × 140, where a correct clamp gives 40 × 40).
+
+`DeScope(Rect, Rect, Vector2)` has the same clamp but produces global coordinates, so it is correct.
+
+Status: Open, characterized. Pinned by
+`RectScopingTests.Scoping_OffOriginScope_ClampsLocalRectAgainstGlobalEdge` and
+`RectScopingTests.Scoping_OffOriginScope_LocalRectPastTheGlobalEdge_IsClampedToTheGlobalEdge`. Contrast:
+`RectScopingTests.DeScope_OffOriginScope_ClampsGlobalRectAgainstGlobalEdge`.

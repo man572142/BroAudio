@@ -22,13 +22,13 @@ The tier sections below still carry the phase they were planned in, which record
 | Tier | Status | Test files |
 |---|---|---|
 | 0 — EditMode units | **covered** (0.1–0.6) | `ClipSelectionTests.cs`, `AudioMathTests.cs`, `LocalizationClipStrategyTests.cs`, `EaseCurveTests.cs` |
-| 1 — Core playback | **partial** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `VolumeFadeTests.cs` |
-| 2 — Time-dependent | **partial** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `ClipDelayAndSchedulingTests.cs`, `ScheduledPlaybackContractTests.cs`, `BGMTransitionTests.cs`, `AlwaysPlayMusicAsBGMTests.cs`, `BGMChangedEventTests.cs` |
-| 3 — Selection and policy | **partial** (3.1-3.7) | `PlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `LocalizedAudioChangedSubscriptionTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
-| 5 — Addressables | **covered** | `AddressablesTests.cs` |
+| 1 — Core playback | **partial** (1.1–1.11) | `PlaybackLifecycleTests.cs`, `VolumePitchMixerTests.cs`, `VolumeFadeTests.cs`, `MixerTrackRecycleTests.cs`, `PlaybackEdgeCaseTests.cs`, `ErrorPathTests.cs` |
+| 2 — Time-dependent | **partial** (2.1-2.11) | `FadeAndTrimTests.cs`, `LoopHandoverTests.cs`, `ClipDelayAndSchedulingTests.cs`, `ScheduledPlaybackContractTests.cs`, `BGMTransitionTests.cs`, `AlwaysPlayMusicAsBGMTests.cs`, `BGMChangedEventTests.cs`, `BGMEdgeCaseTests.cs` |
+| 3 — Selection and policy | **partial** (3.1-3.7) | `PlaybackGroupTests.cs`, `DefaultPlaybackGroupTests.cs`, `ClipSelectionCursorTests.cs`, `LocalizedAudioChangedSubscriptionTests.cs`, `LocalizationRuntimeGuardTests.cs`, `DecoratorAttachmentTests.cs`, `DominatorEffectParameterTests.cs`, `DominatorTrackRoutingTests.cs`, `ChainedLoopDefaultSettingTests.cs` |
+| 5 — Addressables | **covered** | `AddressablesTests.cs`, `OptionalPackageTeardownTests.cs` |
 | 6 — MonoComponents | **covered** | `SoundSourceTests.cs`, `SoundVolumeTests.cs`, `SpectrumAnalyzerTests.cs` |
-| 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `AuthoredPitchAndRandomizationTests.cs`, `SpatialAndPriorityTests.cs` |
-| Suite guards | **covered** | `OptionalPackageTests.cs`, `AudioClockProbeTests.cs` (PlayMode); `OptionalPackageEditorTests.cs`, `FindingCoverageTests.cs` (EditMode) |
+| 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `OptionalPackageTeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `AuthoredPitchAndRandomizationTests.cs`, `SpatialAndPriorityTests.cs` |
+| Suite guards | **covered** | `OptionalPackageTests.cs`, `AudioClockProbeTests.cs`, `ReflectionCanaryTests.cs` (PlayMode); `OptionalPackageEditorTests.cs`, `FindingCoverageTests.cs`, `EditorRunIsolationGuard.cs` (EditMode) |
 
 Tier status is the summary, and a tier is **partial** when any of its rows below is; the **per-behavior** ledger required by the plan's Definition of Done lives at
 the bottom of each inventory file — [lifecycle](inventory/lifecycle.md#coverage-ledger),
@@ -79,23 +79,63 @@ Per-file detail beyond the tier ledger above:
 - `EaseCurveTests.cs` (EditMode) covers `EaseExtension.SetEase` — the curve behind every fade — against
   hand-derived literal values, never against `SetEase` itself, including out-of-range input (#53) and an
   undefined `Ease` (#54).
+- `MixerTrackRecycleTests.cs` covers what a mixer track looks like when it goes back to the pool — muted by
+  `SilenceTrackBeforeReturn`, on its dry side and its effect send — and that the next play takes that same
+  track back (behind `!UNITY_WEBGL`, where tracks exist).
+- `DefaultPlaybackGroupTests.cs` runs `AudioAsset`-backed entities (`NewAssetBackedSound`) under the
+  factory global playback group every shipped entity plays under — its 0.04 s comb-filtering window with
+  same-frame plays not exempt — and `PlaybackGroup`'s parent fallback to it.
+- `ErrorPathTests.cs` covers misuse the rest of the suite never drives: a clip slot with no `AudioClip`, a
+  null follow target (TEST_FINDINGS #60), `UnPause` on a player that is not paused or is fading out, and
+  per-type `SetVolume`/`SetPitch` with `BroAudioType.None` or Unity's "Everything" (-1).
+- `PlaybackEdgeCaseTests.cs` covers the far side of the comb-filtering window, a pause that outlasts the rest
+  of the clip, a looping entity with a clip `Delay`, and the one place BroAudio writes `AudioSource.volume`
+  (a player with no mixer track).
+- `BGMEdgeCaseTests.cs` covers `OnBGMChanged` staying quiet across a looping BGM's handover seam, and what
+  `StopMode.Mute` amounts to: the muted player keeps running silently and is never recycled until stopped.
+- `LocalizationRuntimeGuardTests.cs` (behind `PACKAGE_LOCALIZATION`) covers load, release and play of a
+  Localization entity with no table — every path reachable without an `AssetTable` fixture.
+- `OptionalPackageTeardownTests.cs` extends `TeardownTests`' sweep to the Addressables/Localization facade
+  verbs: release verbs no-op with the manager gone, load/query verbs throw `BroAudioException`.
 - The suite guards fail a run that silently covers less than it claims. `OptionalPackageTests.cs` (PlayMode)
   and `OptionalPackageEditorTests.cs` (EditMode) fail when `PACKAGE_ADDRESSABLES` or `PACKAGE_LOCALIZATION`
-  is undefined in their assembly, since a suite behind that define would otherwise compile to nothing.
+  is not compiled in exactly when the run expects it: undefined on an ordinary run, since a suite behind that
+  define would otherwise compile to nothing, and still defined on the CI leg that removed both packages on
+  purpose (`-broaudioCiExpectsNoOptionalPackages`).
   `AudioClockProbeTests.cs` fails when the DSP clock is not realtime on a machine that promises an audio
   device (`BROAUDIO_CI_EXPECTS_AUDIO`), where the tests gated on `RequireRealtimeAudioClock` would
   otherwise all be ignored. `FindingCoverageTests.cs` (EditMode) reconciles `[Category("Finding_N")]` tags
-  in both assemblies with the findings in TEST_FINDINGS.md, in both directions.
+  on runnable tests in both assemblies with the findings in TEST_FINDINGS.md, in both directions, and holds
+  that file's summary table to its sections and FIXED_ISSUES.md to disjoint numbers.
+  `ReflectionCanaryTests.cs` resolves every name in `TestAudioLibrary.Reflected` against its production type
+  in one place, so a production rename fails once, by name, instead of in whichever tests reach it.
+  `EditorRunIsolationGuard.cs` is the EditMode assembly's `[SetUpFixture]`: it compares the settings
+  assets' bytes on disk, the EditorPrefs keys BroAudio writes, the clipboard and the temp folder before the
+  first test and after the last.
 
 Every PlayMode test runs against factory `RuntimeSetting` values: `BroAudioTestFixture` resets the asset after
 snapshotting it, since the asset is gitignored and a developer's copy may differ from the one CI generates.
+That includes `GlobalPlaybackGroup`, which the fixture sets to a fresh factory `DefaultPlaybackGroup` per
+test — the configuration users ship. It reaches only `AudioAsset`-backed entities (`NewAssetBackedSound`);
+code-built ones (`NewSound`) have no asset and play outside any group, which is what lets most tests play
+one ID twice in quick succession. Under `BroAudio_InitManually` the fixture calls `BroAudio.Init()` once
+itself, as a project on that define must.
+
+TearDown drains every player, then destroys the objects the test tracked — before any global state is put
+back, since a component's `OnDisable` (a `SoundVolume` with Reset On Disable) is itself a writer of it —
+then resets effect parameters and volumes, and finally verifies, by polling, that the per-type volume and
+pitch prefs, the per-type LowPass/HighPass effect bits and the dominator's `Main_LowPass` / `Main_HighPass`
+read their defaults. Anything left over is reported under the test's name.
 Provoked logs are checked by `LogType` and BroAudio's tag (`TestAudioLibrary.BroAudioLogPrefix`), never by
-their sentence; a log with no tag is checked by its `LogType` alone.
+their sentence; a log with no tag is checked by its `LogType` alone. CI enforces this with
+`.github/scripts/check_log_expectations.py`, whose short allowlist names each untagged Unity log a test may
+expect.
 
 Findings any of these files surfaced are logged in [TEST_FINDINGS.md](TEST_FINDINGS.md), keyed to the
-file that found them. Every fixture passes in isolation, so no test depends on another having run
-(`run_tests` has no shuffle/seed option, so per-fixture isolation is the closest substitute for the
-Definition of Done's shuffled-order requirement).
+file that found them. Every fixture passes in isolation, so no test depends on another having run, and a
+nightly CI run executes every leg in a random order (`-randomOrderSeed`) to catch a test that only passes
+after another. The only tests allowed to report Inconclusive under a random order are listed in
+`.github/test-results-policy.json`.
 
 **Tier 0 lives in the EditMode assembly.** `ClipSelectionTests.cs`, `AudioMathTests.cs` and
 `LocalizationClipStrategyTests.cs` are plain `[Test]`s with no `[UnityTest]` and no `SoundManager`, so they
@@ -152,16 +192,25 @@ Per-file test files, each verified passing in isolation: `IsolationContractTests
 `EditorUtilityPureTests`, `TransportSetValueTests`, `TransportHasDifferentPositionTests`,
 `RectSplitRatioTests`, `RectScopingTests`, `EditorReflectionNamingTests`, `ShippedDataTests`,
 `IssueReportMarkdownTests`, `SerializedPropertyResetTests`, `SerializedTransportTests`, `ClipEditingTests`,
-`AssetWritingTests`,
-plus the relocated `ClipSelectionTests`, `AudioMathTests`, `LocalizationClipStrategyTests` (the last
-behind `PACKAGE_LOCALIZATION`).
+`AssetWritingTests`, `CoreDataAndUpdaterTests`, `FindingCoverageTests`, `OptionalPackageEditorTests`,
+plus the relocated `ClipSelectionTests`, `AudioMathTests`, `EaseCurveTests`, `LocalizationClipStrategyTests`
+(the last behind `PACKAGE_LOCALIZATION`). Two non-fixture files support them: `EditorReflected`, the one
+place every non-public editor member the assembly reaches by name is kept and looked up (failing with a
+`BroAudioException` that names the member), and `EditorRunIsolationGuard`, the assembly-wide
+`[SetUpFixture]` described below.
 
 The isolation contract lives in `BroEditorTestFixture`
 (`Assets/Tests/Editor/BroEditorTestFixture.cs`): JSON snapshot/restore of the on-disk `EditorSetting` and
-`RuntimeSetting` plus `EditorUtility.ClearDirty`, restore of the `LastEditAudioAsset` EditorPref and
-`EditorGUIUtility.systemCopyBuffer`, and an `Assets/EditorTestsScratch_Temp/` folder deleted in
-TearDown. `IsolationContractTests` guards the fixture itself. `git status` is clean after a run; nothing
-under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/` is touched.
+`RuntimeSetting` with each asset's dirty bit put back the way the test found it (not cleared, which would
+discard a developer's unsaved edit), restore of the `LastEditAudioAsset` EditorPrefs key — deleted again if
+the test created it — and of `EditorGUIUtility.systemCopyBuffer`, and an `Assets/EditorTestsScratch_Temp/`
+folder deleted in TearDown. Every TearDown step runs even when an earlier one throws, `OnTearDown`
+included, and the failures are rethrown together. `IsolationContractTests` guards the fixture itself
+(`E_SettingAssets_DirtyBitIsRestoredAfterAMutatingTest` for the dirty bit). The per-test restore works in
+memory, so `EditorRunIsolationGuard` checks the whole run from outside: the settings files' bytes on disk,
+BroAudio's EditorPrefs keys, the clipboard and the temp folder, before the first test and after the last.
+`git status` is clean after a run; nothing under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/` is
+touched.
 
 `AssetWritingTests` needs its own containment mechanism on top of that, because new entities are not
 written beside the asset they belong to: `AudioAssetEditor` writes them to `EditorSetting.AssetOutputPath`.
@@ -172,10 +221,10 @@ developer's real path in TearDown.
 
 | Tier | Status | Test files |
 |---|---|---|
-| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportSetValueTests.cs`, `TransportHasDifferentPositionTests.cs`, `RectSplitRatioTests.cs`, `RectScopingTests.cs`, `EditorReflectionNamingTests.cs`, `IssueReportMarkdownTests.cs`. One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted (see [FIXED_ISSUES.md](FIXED_ISSUES.md)), so there is nothing left to test. |
-| E1 — shipped-data integrity | **covered** | `ShippedDataTests.cs` |
+| E0 — pure functions | **covered** | `EditorUtilityPureTests.cs`, `TransportSetValueTests.cs` (including the exact-midpoint rounding, `SetValue_Start_ExactMidpoint_RoundsAwayFromZero`), `TransportHasDifferentPositionTests.cs`, `RectSplitRatioTests.cs`, `RectScopingTests.cs` (off-origin scopes, TEST_FINDINGS #62), `EditorReflectionNamingTests.cs`, `IssueReportMarkdownTests.cs`, `CoreDataAndUpdaterTests.cs` (`GetMaxAcceptableClipCount`, `TryParseCoreData`, and the `BroUpdater` version gates, driven against in-memory settings). One E0 target, the `GetSerializedEnumIndex` / `GetAudioTypeByIndex` round-trip, is **out of scope**: both helpers were dead code with a broken round-trip and were deleted (see [FIXED_ISSUES.md](FIXED_ISSUES.md)), so there is nothing left to test. |
+| E1 — shipped-data integrity | **covered** | `ShippedDataTests.cs`, which reads the **committed** `BroInstruction` asset under `Resources~/Editor` rather than the gitignored local copy, so a stale copy cannot hide or fake a gap |
 | E2 — SerializedProperty operations | **covered** | `SerializedPropertyResetTests.cs`, `SerializedTransportTests.cs` |
-| E3 — clip editing | **covered** | `ClipEditingTests.cs` |
+| E3 — clip editing | **covered** | `ClipEditingTests.cs`, including a failed `Trim` on a streaming clip (TEST_FINDINGS #61) |
 | E4 — asset-writing paths | **covered** | `AssetWritingTests.cs` |
 
 ### Out of scope (Editor suite)
@@ -223,10 +272,10 @@ of riding along with the PlayMode suite.
 | 0.5 | `AudioEntity.GetRandomValue(baseValue, RandomFlag)` and the static range overload; `HasLoop`'s 4-arg overload (the 2-arg one needs a live `SoundManager`) | `Ami.BroAudio.Data.AudioEntity` | Low-medium |
 | 0.6 | `LocalizationClipStrategy.SelectClip` after `Inject()` with a lambda-supplied clip — sidesteps the missing AssetTable entirely | `Runtime/Utility/ClipSelection/` | Medium |
 
-`Utility.SliderToVolume` / `BroVolumeToSlider` piecewise mapping is **deferred**. It is runtime code, not
-editor presentation: `SoundVolume` maps its slider through it, and `SliderType.BroVolume` is that component's
-default. `SoundVolumeTests` drives only `SliderType.Linear`, and uses `VolumeToSlider` / `SliderToVolume` as
-its own oracle, so the `BroVolume` and `Logarithmic` curves have no literal pin.
+`Utility.SliderToVolume` / `VolumeToSlider` / `BroVolumeToSlider` — runtime code behind `SoundVolume`, whose
+default slider is `SliderType.BroVolume` — are pinned against hand-derived literals for `Linear`,
+`Logarithmic` and `BroVolume`, with and without boost, by `AudioMathTests.VolumeToSlider_MatchesTheHandDerivedValue`
+and `SliderToVolume_MatchesTheHandDerivedValue`.
 
 ## Tier 1 — Core playback (phase 2)
 
@@ -284,21 +333,16 @@ Real behaviors, deliberately not covered — cost far exceeds the confidence gai
 | Generic track-pool exhaustion → unrouted playback fallback | Needs 37 concurrent voices. Playing them is cheap; the complication is that at that count Unity's voice virtualization starts, and BroAudio's virtual-track release path moves tracks on its own, so which players are routed is not deterministic. *Partial substitute:* the 4-slot **dominator** pool is exhausted instead, which exercises the same `AudioTrackObjectPool` null-return path. |
 | Virtual-track release / reacquire | Needs actual voice virtualization past Max Real Voices plus a 0.5s grace period — not deterministically forceable in a small scene |
 | WebGL volume path | Needs the `UNITY_WEBGL` define; genuinely separate code, untestable in the Editor |
-| `Utility.SliderToVolume` / `BroVolumeToSlider` piecewise math, `BroVolume` and `Logarithmic` | Runtime code behind `SoundVolume`'s default slider; not yet pinned with literal values (see the tier 0 note) |
-| `GlobalPlaybackGroup` and `PlaybackGroup.Parent` fallback | Not low-traffic: every authored entity plays under it, because `AudioAsset.PlaybackGroup` links the global group and `BroUserDataGenerator` always assigns one. Untested because code-built entities have no `AudioAsset` and the fixture nulls the setting for determinism; needs an `AudioAsset`-backed test entity |
 | `RuntimeSetting.DefaultAudioPlayerPoolSize` | Needs a fresh bootstrap (destroy the manager, `SoundManager.Init()`), as `TeardownTests` does |
-| Full `Play()` → `SoundManager` → localized clip resolution, and `LocalizedAudioChanged` handlers firing | Needs an `AssetTable` with audio entries, committed as a fixture the way the addressable tones are. The strategy itself is covered at 0.6; the subscription guards by `LocalizedAudioChangedSubscriptionTests` |
+| Full `Play()` → `SoundManager` → localized clip resolution, and `LocalizedAudioChanged` handlers firing | Needs an `AssetTable` with audio entries, committed as a fixture the way the addressable tones are. The strategy itself is covered at 0.6; the subscription guards by `LocalizedAudioChangedSubscriptionTests`; load, release and play of an entity with no table by `LocalizationRuntimeGuardTests` |
 | Mid-playback `outputAudioMixerGroup` swap glitch behavior | Engine-level, flagged as unverified even in the engine notes |
 
 ### A seamless loop whose transition outlasts its clip
 
 This case was once left untested for fear that `ScheduleNextPlayback`'s negative wait window would recurse
-without bound into an uncatchable `StackOverflowException`. It does not: the incoming player's `PlayControl`
-parks on `while (_clipVolume.IsFading)` for its `TransitionTime`-long fade-in before it reaches
-`ScheduleNextPlayback`, and `Fader.Fade` starts that fade synchronously, so each player spawns one successor per
-transition. The loop's period stretches from the clip length to the `TransitionTime`.
-`LoopHandoverTests.SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount`
-pins the bounded player count and the stretched period.
+without bound into an uncatchable `StackOverflowException`. It does not, and it is now pinned: the loop
+period stretches from the clip length to the `TransitionTime` while the player count stays bounded. The
+mechanism and the pinning test are recorded as [TEST_FINDINGS #59](TEST_FINDINGS.md).
 
 ## Out of scope
 
@@ -340,6 +384,7 @@ One consequence worth carrying forward:
 
 - **`GlobalPlaybackGroup` being assigned does not affect code-built entities.** It is consulted only through
   `AudioAsset.LinkPlaybackGroup` and `PlaybackGroup`'s parent fallback, and a code-built entity has no
-  `AudioAsset`. The plan's premise holds: voice-limit and comb-filtering tests must wire a group explicitly.
-  The flip side is a coverage gap, not a safe default: every authored entity *does* play under the global
-  group, so the suite does not run the configuration users ship (see Deferred).
+  `AudioAsset`. The plan's premise holds: voice-limit and comb-filtering tests on code-built entities must
+  wire a group explicitly. Every authored entity *does* play under the global group, so the fixture now sets
+  a factory global group for every test and `DefaultPlaybackGroupTests` plays `AudioAsset`-backed entities
+  under it — the configuration users ship.

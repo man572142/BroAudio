@@ -449,9 +449,14 @@ Relay the artifact URL to the user; a subagent's final report is not shown to th
   the worked example.
 - `ShippedDataTests` is green because the shipped asset is correct, not because a test grew an exclusion
   list: every `Instruction` member resolves to real text, and every asset key is a defined member.
-- Every fixture named in `.github/required-test-suites.json` appears in the results of its leg. A suite
-  that compiled to nothing is absent rather than red, so without that check a green run can cover less
-  than it claims.
+- Every fixture the test sources declare appears in the results of its leg, and reaches a verdict. A
+  suite that compiled to nothing is absent rather than red, so without that check a green run can cover
+  less than it claims. CI derives the required fixtures from the sources themselves
+  (`.github/scripts/derive_test_suites.py`: each fixture's assembly, and the `#if` conditions around it
+  evaluated for that leg's packages and symbols) rather than from a hand-kept list, and
+  `check_test_suites.py` fails a leg on a derived fixture that is missing, a fixture the derivation did not
+  expect, or an Ignored, Skipped, Explicit or Inconclusive result that `.github/test-results-policy.json`
+  does not allow.
 - No production code changed without the maintainer asking. If a test is impossible without a seam,
   **propose the seam, stop, ask.**
 - The Opus 5 review has run and every item is either fixed or explicitly dismissed in writing.
