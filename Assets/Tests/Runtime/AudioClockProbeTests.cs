@@ -15,8 +15,9 @@ namespace Ami.BroAudio.Tests
     /// <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/>. It calls <c>Assert.Ignore</c> when the DSP clock is off
     /// wall time by more than <see cref="BroAudioTestFixture.RealtimeAudioClockTolerance"/>, which is right for a developer machine and silent on CI: an ignored test
     /// is not a failure, so an image that lost its PulseAudio null sink reports green with the heart of the
-    /// suite never executed. <c>check_test_suites.py</c> cannot catch it either — the fixtures are all
-    /// present in the results, they simply ran nothing.
+    /// suite never executed. The fixtures are all present in the results, they simply ran nothing; on a CI
+    /// leg that promises audio, <c>check_test_suites.py</c> also fails each of those ignores, but this probe
+    /// is the one that names the cause and works in any runner.
     /// </para>
     /// <para>
     /// This is the same hole <see cref="OptionalPackageTests"/> closes for optional packages, and it draws
