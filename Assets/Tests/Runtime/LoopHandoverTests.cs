@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
 using Ami.Extension;
@@ -37,13 +36,6 @@ namespace Ami.BroAudio.Tests
     [Category("Slow")]
     public class LoopHandoverTests : BroAudioTestFixture
     {
-        // Lazy, not a static field initializer: a rename now throws (TestAudioLibrary.Reflected.Method)
-        // the first time a test actually calls GetActivePlayers, naming the missing member - not at type
-        // load, where it would take down every test in this fixture behind one unrelated-looking error.
-        private static MethodInfo _getCurrentAudioPlayersMethod;
-        private static MethodInfo GetCurrentAudioPlayersMethod => _getCurrentAudioPlayersMethod ??=
-            TestAudioLibrary.Reflected.Method(typeof(SoundManager), TestAudioLibrary.Reflected.SoundManager.GetCurrentAudioPlayers);
-
         /// <summary>
         /// All active, audibly-playing AudioPlayer instances for a SoundID - mirrors the filter behind the
         /// public BroAudio.HasAnyPlayingInstances, but returns the players themselves so a test can inspect
@@ -51,7 +43,7 @@ namespace Ami.BroAudio.Tests
         /// </summary>
         private static List<AudioPlayer> GetActivePlayers(SoundID id)
         {
-            var all = (IReadOnlyList<AudioPlayer>)GetCurrentAudioPlayersMethod.Invoke(SoundManager.Instance, null);
+            var all = CurrentAudioPlayers();
             var matches = new List<AudioPlayer>();
             foreach (AudioPlayer candidate in all)
             {
@@ -674,7 +666,7 @@ namespace Ami.BroAudio.Tests
         // filters on IsPlaying, which a player fading out past its clip's end no longer reports.
         private static List<AudioPlayer> GetCheckedOutPlayers(SoundID id)
         {
-            var all = (IReadOnlyList<AudioPlayer>)GetCurrentAudioPlayersMethod.Invoke(SoundManager.Instance, null);
+            var all = CurrentAudioPlayers();
             var matches = new List<AudioPlayer>();
             foreach (AudioPlayer candidate in all)
             {
