@@ -31,8 +31,9 @@ namespace Ami.BroAudio.Tests
         {
             // LogAccessRecycledPlayerWarning changes nothing but whether a warning is emitted, and
             // asserting on log text is an anti-goal here — so AudioSource is checked with the warning both
-            // on and off to pin that it resolves to null whichever way the flag is set, while the warning
-            // itself is consumed (LogAssert.Expect) rather than tested.
+            // on and off to pin that it resolves to null whichever way the flag is set. The warning is
+            // matched by LogType and BroAudio's tag only: LogAssert.Expect fails the test if it is never
+            // logged, so its presence is pinned, but its wording is not.
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = true;
 
             SoundID id = NewSound("StaleHandleSfx", BroAudioType.SFX, NewClip(0.2f));
@@ -72,14 +73,37 @@ namespace Ami.BroAudio.Tests
             Assert.IsNotNull(afterBGM, "AsBGM on a stale handle must still return a usable object, not null.");
         }
 
+        /// <summary>
+        /// Long enough that no player in the Stop tests below can end on its own inside anything they
+        /// wait for, so only the Stop call can explain a player going inactive.
+        /// </summary>
+        private const float LongerThanAnyWaitClipSeconds = 10f;
+
+        /// <summary>
+        /// DSP time a pause/resume test lets play before pausing. The pause pins below compare playheads,
+        /// so the one they capture has to be clearly off the start sample: a playhead of 0 would make
+        /// "resumed at or after the paused position" true of a restart from 0 as well. Half a second is
+        /// many audio buffers (one is ~21 ms), so the playhead cannot still be sitting at 0.
+        /// </summary>
+        private const double PrePauseDspSeconds = 0.5;
+
+        /// <summary>
+        /// DSP time a paused source is watched for movement. Measured on the DSP clock, which is what
+        /// moves the playhead: a handful of frames can fit inside one audio buffer and prove nothing.
+        /// </summary>
+        private const double FrozenPlayheadDspSeconds = 0.5;
+
         // The suite's own teardown isolation depends on Stop(All, 0f) reliably clearing every type.
+        // A zero-fade Stop recycles inside the call - TryGetFadeOut reports no fade, so StopControl reaches
+        // EndPlaying before StartCoroutine returns - which is what lets this assert with no wait at all. The
+        // clips outlast the whole test, so a Stop that did nothing cannot be rescued by playback ending.
         [UnityTest]
         public IEnumerator Stop_WithAllFlag_DeactivatesEveryConcreteType()
         {
             List<IAudioPlayer> players = new List<IAudioPlayer>();
             foreach (BroAudioType audioType in ConcreteAudioTypes)
             {
-                SoundID id = NewSound("AllFlag_" + audioType, audioType, NewClip(2f));
+                SoundID id = NewSound("AllFlag_" + audioType, audioType, NewClip(LongerThanAnyWaitClipSeconds));
                 players.Add(BroAudio.Play(id));
             }
 
@@ -90,17 +114,24 @@ namespace Ami.BroAudio.Tests
 
             BroAudio.Stop(BroAudioType.All, 0f);
 
-            foreach (IAudioPlayer player in players)
+            for (int i = 0; i < players.Count; i++)
             {
-                yield return WaitForRecycle(player, "every player to stop after Stop(All, 0f)");
+                Assert.IsFalse(players[i].IsActive,
+                    $"Stop(All, 0f) must have recycled the {ConcreteAudioTypes[i]} player by the time the call returns.");
+            }
+
+            yield return WaitFrames(2);
+            for (int i = 0; i < players.Count; i++)
+            {
+                Assert.IsFalse(players[i].IsActive, $"The stopped {ConcreteAudioTypes[i]} player must stay stopped.");
             }
         }
 
         [UnityTest]
         public IEnumerator Stop_WithSingleFlag_LeavesOtherTypesPlaying()
         {
-            SoundID sfxId = NewSound("SingleFlagSfx", BroAudioType.SFX, NewClip(2f));
-            SoundID musicId = NewSound("SingleFlagMusic", BroAudioType.Music, NewClip(2f));
+            SoundID sfxId = NewSound("SingleFlagSfx", BroAudioType.SFX, NewClip(LongerThanAnyWaitClipSeconds));
+            SoundID musicId = NewSound("SingleFlagMusic", BroAudioType.Music, NewClip(LongerThanAnyWaitClipSeconds));
 
             IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
             IAudioPlayer musicPlayer = BroAudio.Play(musicId);
@@ -108,25 +139,61 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", DefaultPlaybackWaitSeconds);
 
             BroAudio.Stop(BroAudioType.SFX, 0f);
+            Assert.IsFalse(sfxPlayer.IsActive, "Stop(SFX, 0f) must have recycled the SFX player by the time the call returns.");
 
-            yield return WaitForRecycle(sfxPlayer, "the SFX player to stop");
             yield return WaitFrames(2);
 
             Assert.IsTrue(musicPlayer.IsActive, "Stopping SFX must not deactivate a Music player.");
             Assert.IsTrue(musicPlayer.IsPlaying, "Stopping SFX must not stop a Music player.");
         }
 
+        // BroAudio.Stop(SoundID) forwards to SoundManager.StopPlayer, which matches live players by exact id:
+        // every instance of that id stops, and a different id - of the same BroAudioType, so a match by type
+        // would catch it - plays on. The clips carry no FadeOut, so the clip setting Stop(id) falls back to
+        // resolves to no fade and each matching player recycles inside the call.
+        [UnityTest]
+        public IEnumerator Stop_BySoundID_StopsEveryInstanceOfThatIdAndLeavesOtherIdsPlaying()
+        {
+            SoundID targetId = NewSound("IdStopTargetSfx", BroAudioType.SFX, NewClip(LongerThanAnyWaitClipSeconds));
+            SoundID otherId = NewSound("IdStopOtherSfx", BroAudioType.SFX, NewClip(LongerThanAnyWaitClipSeconds));
+
+            // The second instance is positioned while the first plays globally. Under the fixture's factory
+            // settings no playback group applies at all; were a default one configured, its comb-filtering
+            // rule would reject a same-frame replay of one id, but it lets through a pair where only one is
+            // played globally - so this stays two live instances either way.
+            IAudioPlayer targetGlobal = BroAudio.Play(targetId);
+            IAudioPlayer targetPositioned = BroAudio.Play(targetId, Vector3.zero);
+            IAudioPlayer other = BroAudio.Play(otherId);
+
+            yield return WaitUntilOrTimeout(() => targetGlobal.IsPlaying && targetPositioned.IsPlaying && other.IsPlaying,
+                "both instances of the target id and the other id to start playing", DefaultPlaybackWaitSeconds);
+
+            BroAudio.Stop(targetId);
+
+            Assert.IsFalse(targetGlobal.IsActive, "Stop(id) must stop the globally played instance of that id.");
+            Assert.IsFalse(targetPositioned.IsActive, "Stop(id) must stop every instance of that id, not only the first one it finds.");
+            Assert.IsTrue(other.IsActive && other.IsPlaying, "Stop(id) must leave a different id of the same BroAudioType playing.");
+
+            yield return WaitFrames(2);
+            Assert.IsFalse(BroAudio.HasAnyPlayingInstances(targetId), "No instance of the stopped id may be playing a frame later.");
+            Assert.IsTrue(other.IsPlaying, "The other id must still be playing a frame later.");
+        }
+
         // "Freeze in place": no playhead loss, no re-fade-in, no double OnStart.
         [UnityTest]
         public IEnumerator Pause_ThenUnPause_FreezesAndResumesFromSamePosition()
         {
+            // The playhead comparisons below run on the DSP clock; one frame of a decoupled clock could carry the
+            // clip to its end before the pause lands.
+            yield return RequireRealtimeAudioClock();
+
             int onStartCount = 0;
             SoundID id = NewSound("PauseSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
             player.OnStart(_ => onStartCount++);
 
             yield return WaitForPlaybackStart(player);
-            yield return WaitFrames(3);
+            yield return WaitDspSeconds(PrePauseDspSeconds);
             Assert.AreEqual(1, onStartCount, "OnStart should have fired once by the time playback is underway.");
 
             player.Pause();
@@ -134,7 +201,9 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(player.IsActive, "A paused player must remain active - pause does not deactivate.");
 
             int capturedTimeSamples = player.AudioSource.timeSamples;
-            yield return WaitFrames(5);
+            Assert.Greater(capturedTimeSamples, 0,
+                "Precondition: the playhead must have moved before the pause, or the resume check below cannot tell a resume from a restart.");
+            yield return WaitDspSeconds(FrozenPlayheadDspSeconds);
             Assert.AreEqual(capturedTimeSamples, player.AudioSource.timeSamples, "A paused AudioSource must not advance its playhead.");
 
             player.UnPause();
@@ -274,18 +343,21 @@ namespace Ami.BroAudio.Tests
         }
 
         // Facade broadcast: BroAudio.Pause(BroAudioType)/UnPause(BroAudioType) forward to
-        // SoundManager.Pause(BroAudioType, ...), which matches every live player by type flags
-        // (SoundManager.Playback.cs ~229-241). Only the matching type must freeze/resume.
+        // SoundManager.Pause(BroAudioType, ...), which matches every live player by type flags. Only the
+        // matching type must freeze/resume.
         [UnityTest]
         public IEnumerator Pause_ByBroAudioType_AffectsOnlyThatTypeAndUnPauseResumesFromSamePosition()
         {
+            // Playhead comparisons on the DSP clock, as in Pause_ThenUnPause_FreezesAndResumesFromSamePosition.
+            yield return RequireRealtimeAudioClock();
+
             SoundID sfxId = NewSound("TypePauseSfx", BroAudioType.SFX, NewClip(3f));
             SoundID musicId = NewSound("TypePauseMusic", BroAudioType.Music, NewClip(3f));
             IAudioPlayer sfxPlayer = BroAudio.Play(sfxId);
             IAudioPlayer musicPlayer = BroAudio.Play(musicId);
 
             yield return WaitUntilOrTimeout(() => sfxPlayer.IsPlaying && musicPlayer.IsPlaying, "both players to start playing", DefaultPlaybackWaitSeconds);
-            yield return WaitFrames(3);
+            yield return WaitDspSeconds(PrePauseDspSeconds);
 
             BroAudio.Pause(BroAudioType.SFX);
             yield return WaitUntilOrTimeout(() => !sfxPlayer.IsPlaying, "the SFX player to pause", DefaultPlaybackWaitSeconds);
@@ -294,7 +366,9 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(musicPlayer.IsPlaying, "Pausing by BroAudioType.SFX must not touch a Music player.");
 
             int pausedSamples = sfxPlayer.AudioSource.timeSamples;
-            yield return WaitFrames(5);
+            Assert.Greater(pausedSamples, 0,
+                "Precondition: the SFX playhead must have moved before the pause, or the resume check below cannot tell a resume from a restart.");
+            yield return WaitDspSeconds(FrozenPlayheadDspSeconds);
             Assert.AreEqual(pausedSamples, sfxPlayer.AudioSource.timeSamples, "The paused SFX playhead must not advance.");
 
             BroAudio.UnPause(BroAudioType.SFX);
@@ -305,9 +379,8 @@ namespace Ami.BroAudio.Tests
         }
 
         // Facade broadcast: BroAudio.Pause(SoundID)/UnPause(SoundID) forward to
-        // SoundManager.Pause(SoundID, ...), matching live players by exact id (SoundManager.Playback.cs
-        // ~206-222) rather than by type - a second player of the same type but a different SoundID
-        // must be left untouched.
+        // SoundManager.Pause(SoundID, ...), matching live players by exact id rather than by type - a
+        // second player of the same type but a different SoundID must be left untouched.
         [UnityTest]
         public IEnumerator Pause_BySoundID_AffectsOnlyThatIdNotOtherPlayersOfTheSameType()
         {

@@ -30,7 +30,8 @@ namespace Ami.BroAudio.Tests
     /// </para>
     /// <para>
     /// A SeamlessLoop whose TransitionTime exceeds the clip is covered by
-    /// SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount.
+    /// SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount, which
+    /// characterizes the stretched loop period logged as TEST_FINDINGS #59.
     /// </para>
     /// </summary>
     [Category("Slow")]
@@ -148,6 +149,172 @@ namespace Ami.BroAudio.Tests
                 "OnEnd must fire exactly once, at the real end of the sound, no matter how many seams it crossed.");
         }
 
+        /// <summary>
+        /// Records every seam at which a caller's handle is re-pointed at a new player (what
+        /// AudioPlayerInstanceWrapper.UpdateInstance does at BeginHandover), as the DSP time it was first seen.
+        /// Polled once per frame, so each entry is at most a frame late.
+        /// </summary>
+        private sealed class HandoverRecorder
+        {
+            private readonly IAudioPlayer _handle;
+            private AudioPlayer _current;
+
+            public readonly List<double> SeamDspTimes = new List<double>();
+
+            public HandoverRecorder(IAudioPlayer handle)
+            {
+                _handle = handle;
+                _current = InstanceOf(handle);
+            }
+
+            public int Count => SeamDspTimes.Count;
+
+            public void Poll()
+            {
+                AudioPlayer instance = InstanceOf(_handle);
+                if (instance && instance != _current)
+                {
+                    _current = instance;
+                    SeamDspTimes.Add(AudioSettings.dspTime);
+                }
+            }
+        }
+
+        // The rest of what ReceiveHandover carries besides the finished volume the test above pins: a pitch set
+        // mid-play (PlaybackHandoverData.Pitch, applied before the incoming player resolves its own end time) and
+        // the follow target (inside the handed-over PlaybackPreference). A pitch below 1 is the case that can
+        // truncate: the seam player has to both keep the pitch and derive its end from it, or each iteration is
+        // cut to the unpitched clip length. So the pitch is read back on the handle after two seams, and the
+        // period between those two seams - both whole iterations played at the new pitch - is measured on the
+        // DSP clock: ClipSeconds / Pitch (2.5s) if the seam player honours it, ClipSeconds (1s) if it does not.
+        // The tolerance puts the acceptance edge at the midpoint between the two, 0.75s - more than two slow
+        // frames - from either outcome.
+        [UnityTest]
+        public IEnumerator Play_WithPlainLoop_PitchBelowOneAndFollowTargetRideAcrossTwoSeams()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 1f;
+            const float Pitch = 0.4f;
+            const double PitchedPeriodSeconds = ClipSeconds / Pitch;
+            const double PeriodToleranceSeconds = 0.75;
+            AudioEntity entity = NewEntity("PitchedLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
+            SoundID id = IdOf(entity);
+
+            Transform target = Track(new GameObject("LoopFollowTarget")).transform;
+            target.position = new Vector3(3f, 0f, 0f);
+
+            IAudioPlayer player = BroAudio.Play(id, target);
+            yield return WaitForPlaybackStart(player);
+            player.SetPitch(Pitch);
+            Assert.AreEqual(Pitch, player.AudioSource.pitch, 0.001f, "Precondition: an immediate SetPitch must land on the first player.");
+
+            HandoverRecorder seams = new HandoverRecorder(player);
+            float deadline = Time.realtimeSinceStartup + (HandoverWaitSeconds * 2);
+            while (seams.Count < 2)
+            {
+                Assert.Less(Time.realtimeSinceStartup, deadline,
+                    $"Timed out after {seams.Count} seam(s): the pitched loop stopped handing over.");
+                seams.Poll();
+                yield return null;
+            }
+
+            Assert.IsTrue(player.IsActive, "The caller's handle must still be live after two handovers.");
+            Assert.AreEqual(Pitch, player.AudioSource.pitch, 0.001f,
+                "A pitch set mid-play must ride across both seams (PlaybackHandoverData.Pitch) rather than reset to the entity's 1.0.");
+            double period = seams.SeamDspTimes[1] - seams.SeamDspTimes[0];
+            Assert.AreEqual(PitchedPeriodSeconds, period, PeriodToleranceSeconds,
+                $"The seam player must play the whole clip at the carried pitch: one iteration lasts ClipSeconds / Pitch " +
+                $"({PitchedPeriodSeconds}s), not the unpitched {ClipSeconds}s - measured {period:F3}s.");
+
+            // The follow target rides in the handed-over PlaybackPreference; AudioPlayer.Update re-reads it every
+            // frame, so a player that lost it would stay wherever it was spawned.
+            AudioPlayer current = InstanceOf(player);
+            Assert.AreEqual(AudioConstant.SpatialBlend_3D, player.AudioSource.spatialBlend, 0.001f,
+                "A follow-target play is forced to 3D, and the seam player must be as well.");
+            target.position = new Vector3(-4f, 0f, 2f);
+            yield return WaitFrames(2);
+            Assert.AreSame(current, InstanceOf(player), "Precondition: no seam fell inside the two frames the follow check waits.");
+            Assert.Less(Vector3.Distance(target.position, current.transform.position), 0.001f,
+                "The seam player must keep following the target the sound was played with.");
+        }
+
+        // An in-flight SetVolume fade, a per-type SetEffect and a fixed Play position, each carried across the
+        // seams of a plain loop. ScheduleNextPlayback bakes the fading track volume's current value, target,
+        // remaining time and ease into the handover, and ReceiveHandover resumes the fade from there; the handed-
+        // over PlaybackPreference keeps the position; ReceiveHandover overrides the incoming player's track effects
+        // with the outgoing player's. The fade is 3s against 0.5s iterations, so it spans several seams. Halfway
+        // through, a fade that snapped to its target at a seam reads 0.2 and one that was dropped reads 1; the
+        // factory fade-out ease (OutSine) puts a correctly carried fade near 0.45, well inside the band below.
+        [UnityTest]
+        public IEnumerator Play_WithPlainLoop_InFlightFadeTrackEffectAndPositionRideAcrossSeams()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 0.5f;
+            const float TargetVolume = 0.2f;
+            const float FadeSeconds = 3f;
+            const float MidFadeSampleSeconds = FadeSeconds / 2f;
+            const float MidFadeFloor = 0.25f;
+            const float MidFadeCeiling = 0.9f;
+            Vector3 position = new Vector3(5f, 0f, 0f);
+            AudioEntity entity = NewEntity("FadingLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
+            SoundID id = IdOf(entity);
+
+#if !UNITY_WEBGL
+            // Per-type, so the first player routes through the effect send; the fixture resets it in TearDown.
+            BroAudio.SetEffect(Effect.LowPass(800f), BroAudioType.SFX);
+#endif
+
+            IAudioPlayer player = BroAudio.Play(id, position);
+            yield return WaitForPlaybackStart(player);
+#if !UNITY_WEBGL
+            Assert.AreNotEqual(EffectType.None, InstanceOf(player).CurrentActiveTrackEffects & EffectType.LowPass,
+                "Precondition: the first player must start routed through the LowPass effect.");
+#endif
+
+            player.SetVolume(TargetVolume, FadeSeconds);
+            HandoverRecorder seams = new HandoverRecorder(player);
+            float fadeStartedAt = Time.realtimeSinceStartup;
+            while (Time.realtimeSinceStartup - fadeStartedAt < MidFadeSampleSeconds)
+            {
+                seams.Poll();
+                yield return null;
+            }
+
+            float midFade = player.GetVolume();
+            Assert.GreaterOrEqual(seams.Count, 1, "Precondition: the fade must have crossed at least one seam by its midpoint.");
+            Assert.Greater(midFade, MidFadeFloor,
+                $"Halfway through a {FadeSeconds}s fade, across {seams.Count} seam(s), the volume should still be above its {TargetVolume} target - a read at the target means a seam completed the fade early.");
+            Assert.Less(midFade, MidFadeCeiling,
+                $"Halfway through a {FadeSeconds}s fade, across {seams.Count} seam(s), the volume should be well below full - a read near 1 means a seam dropped the fade.");
+
+            float deadline = Time.realtimeSinceStartup + (FadeSeconds - MidFadeSampleSeconds) + 1.5f;
+            while (Mathf.Abs(player.GetVolume() - TargetVolume) > LinearTolerance)
+            {
+                Assert.Less(Time.realtimeSinceStartup, deadline,
+                    $"Timed out waiting for the carried fade to land on {TargetVolume} (last read {player.GetVolume():F3}, {seams.Count} seam(s)) - a fade restarted at each seam never finishes on time.");
+                seams.Poll();
+                yield return null;
+            }
+
+            Assert.GreaterOrEqual(seams.Count, 3, "The fade should have been carried across several seams, not settled on one player.");
+            Assert.IsTrue(player.IsActive, "The caller's handle must still be live after the seams.");
+
+            AudioPlayer current = InstanceOf(player);
+            Assert.Less(Vector3.Distance(position, current.transform.position), 0.001f,
+                "The seam player must play at the position the sound was played at.");
+            Assert.AreEqual(AudioConstant.SpatialBlend_3D, player.AudioSource.spatialBlend, 0.001f,
+                "A positioned play is forced to 3D, and the seam player must be as well.");
+#if !UNITY_WEBGL
+            Assert.AreNotEqual(EffectType.None, current.CurrentActiveTrackEffects & EffectType.LowPass,
+                "The seam player must still route through the LowPass effect: ReceiveHandover overrides its track " +
+                "effects with the ones the outgoing player carried, so a handover that lost them would clear it.");
+#endif
+        }
+
         // A seamless loop's transition time is applied as both the outgoing player's fade-out and the
         // incoming player's fade-in, and BeginHandover runs before the fade-out starts - so for the whole
         // transition window, two distinct players are simultaneously active and audible (a real crossfade).
@@ -178,8 +345,11 @@ namespace Ami.BroAudio.Tests
             // second before this became unreachable, while a plain loop's ~0.1s warm-up overlap can never reach
             // it at all.
             const double MinOverlapSeconds = TransitionSeconds / 2d;
-            // Both clip volumes traverse the full 0..1 range across the window, so requiring a quarter of it
-            // is unmistakable under any fade Ease while staying far from the float tolerances.
+            // Both clip volumes traverse the full 0..1 range across the window, and the overlap the scan measures
+            // spans most of it, so requiring a quarter of that travel is unmistakable under the factory seamless
+            // eases the base fixture pins (OutCubic in, OutSine out) while staying far from the float tolerances.
+            // It is not a claim about every ease: a steep enough curve can move less than a quarter across a
+            // partial window.
             const float MinVolumeTravel = 0.25f;
             AudioEntity entity = NewEntity("SeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
@@ -273,8 +443,13 @@ namespace Ami.BroAudio.Tests
         {
             yield return RequireRealtimeAudioClock();
 
+            // The intro is long because the "only the intro player" check below has to sit well clear of the
+            // moment the loop player is pre-spawned - its warm-up plus the chained transition before the intro's
+            // end - per the fixture's rule that a decisive window is at least a second wide. The loop and outro
+            // stay short so the stages keep cycling quickly.
+            const float IntroSeconds = 2f;
             const float ClipSeconds = 0.3f;
-            AudioClip introClip = NewClip(ClipSeconds, "Intro");
+            AudioClip introClip = NewClip(IntroSeconds, "Intro");
             AudioClip loopClip = NewClip(ClipSeconds, "Loop");
             AudioClip outroClip = NewClip(ClipSeconds, "Outro");
             AudioEntity entity = NewEntity("ChainedSfx", BroAudioType.SFX, introClip, loopClip, outroClip);
@@ -298,7 +473,7 @@ namespace Ami.BroAudio.Tests
 
             // Wait past a second loop-stage seam to confirm the loop stage keeps re-chaining to itself,
             // rather than the earlier handover having been a one-off.
-            double keepLoopingUntilDsp = startDsp.Value + (ClipSeconds * 3);
+            double keepLoopingUntilDsp = startDsp.Value + IntroSeconds + (ClipSeconds * 2);
             yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= keepLoopingUntilDsp,
                 "the dsp clock to pass a second loop-stage seam", HandoverWaitSeconds);
             Assert.IsTrue(BroAudio.HasAnyPlayingInstances(id),
@@ -523,7 +698,13 @@ namespace Ami.BroAudio.Tests
         // transition). A loop spawning once per clip would show about 9, and unbounded recursion would never
         // return from Play. The bounds sit a full start clear of both.
         // </para>
+        // <para>
+        // Characterizes TEST_FINDINGS #59: the stretched period is pinned as-is, not endorsed - a 0.5s clip
+        // that sounds once per 1.5s is not what a seamless loop promises. A fix that restores the clip-length
+        // period turns the MaxStarts assertion red, which is the intended, deliberate update point.
+        // </para>
         [UnityTest]
+        [Category("Finding_59")]
         public IEnumerator SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount()
         {
             yield return RequireRealtimeAudioClock();
