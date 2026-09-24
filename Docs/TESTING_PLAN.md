@@ -243,3 +243,6 @@ these entries explain why this plan's text differs from them.
   the commits themselves are named.
 - **Log assertions.** "Asserting on log text" stays an anti-goal. Expecting a log by its `LogType` and
   BroAudio's `[BroAudio]` tag, without matching its sentence, is allowed, as GOAL.md spells out.
+- **Inventory split.** Phase 1's per-area sections moved out of `Docs/TEST_INVENTORY.md` into
+  `Docs/inventory/`, which describe behavior only. The Definition of Done's coverage marks live in
+  TEST_INVENTORY.md's per-behavior ledger, the one place coverage status is recorded.

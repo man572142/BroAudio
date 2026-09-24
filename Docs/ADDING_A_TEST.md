@@ -124,8 +124,11 @@ A committed fixture asset needs a reason Unity forces on it, as with the address
 
 ## 7. Update the records
 
-- Mark the behavior in its section ledger under `Docs/inventory/`: **covered**, **partial** (with the gap
-  named), **deferred** or **out of scope** (with the reason), citing the test as `Class.Method`.
+- Mark the behavior in the per-behavior ledger of [TEST_INVENTORY.md](TEST_INVENTORY.md): **covered**,
+  **partial** (with the gap named), **deferred** or **out of scope** (with the reason), citing the test as
+  `Class.Method`. TEST_INVENTORY is the only place coverage status is recorded.
+- If the test pins a behavior the section files under `Docs/inventory/` do not describe, add it there as
+  behavior only — what it does and how it can be observed, with no status, test verdict or finding state.
 - List a new test file in [TEST_INVENTORY.md](TEST_INVENTORY.md). There is no CI list to add it to: the
   fixtures each leg must run are derived from the sources by `.github/scripts/derive_test_suites.py` (the
   owning asmdef picks the leg, the `#if`s around the class are evaluated for that leg), and a derived

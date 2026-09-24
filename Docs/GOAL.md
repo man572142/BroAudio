@@ -30,7 +30,7 @@ This separates two questions that usually get tangled: *what does it do* (the te
 | Runtime (PlayMode) | `Assets/Tests/Runtime/` | One `SoundManager` singleton persists across the whole run; a base fixture stops, drains, and restores state per test. |
 | Editor (EditMode) | `Assets/Tests/Editor/` | The project on disk leaks state; the fixture snapshots and restores settings assets, prefs, clipboard, and a temp output folder. |
 
-Ranked inventory of covered / deferred / out-of-scope behaviors: [TEST_INVENTORY.md](TEST_INVENTORY.md).
+What each behavior is and how it can be observed: the section files under `Docs/inventory/`, which describe behavior only. The ranking and every behavior's coverage status (covered / partial / deferred / out of scope): [TEST_INVENTORY.md](TEST_INVENTORY.md), the one place status is recorded.
 
 ## What CI enforces
 
