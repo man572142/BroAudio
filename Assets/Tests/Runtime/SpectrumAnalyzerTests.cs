@@ -25,8 +25,9 @@ namespace Ami.BroAudio.Tests
     /// <para>
     /// Two tests play a real tone end to end - the band-coverage check and the Weighted pin, which needs a
     /// band carrying real energy for a weighting to have anything to act on. They are the only ones whose
-    /// result depends on the engine actually producing spectrum data, so they say so and ignore themselves
-    /// when the buffer never leaves zero. Every test that needs playback to survive more than a frame first
+    /// result depends on the engine actually producing spectrum data; both gate on a realtime audio clock
+    /// first, so a buffer that never leaves zero after that is a failure, not a reason to skip. Every test
+    /// that needs playback to survive more than a frame first
     /// calls RequireRealtimeAudioClock: without an audio output device the DSP clock runs hundreds of times
     /// faster than wall time and a clip is over before the analyzer ever sees it.
     /// </para>
@@ -490,8 +491,14 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Ignores the calling test unless the engine actually fills the spectrum buffer. Everything else in
+        /// Fails the calling test unless the engine actually fills the spectrum buffer. Everything else in
         /// this file is written to hold on an all-zero spectrum; the two tone-driven tests cannot be.
+        /// <para>
+        /// Both callers have already passed RequireRealtimeAudioClock, so a device is mixing in real time and
+        /// a playing 440Hz tone has every reason to show up. A spectrum that stays at zero there is a broken
+        /// analyzer or a broken source hookup, not a machine without audio, so it must not be an
+        /// Assert.Ignore: an ignored test is not a failure, and the #40 pin would silently stop running.
+        /// </para>
         /// </summary>
         private static IEnumerator WaitForSpectrumData(SpectrumAnalyzer analyzer, float timeout = 2f)
         {
@@ -507,7 +514,9 @@ namespace Ami.BroAudio.Tests
                 }
                 yield return null;
             }
-            Assert.Ignore("The audio engine returned an all-zero spectrum for a playing tone - this test needs a device that actually mixes.");
+            Assert.Fail("The spectrum stayed all-zero for " + timeout + "s while a 440Hz tone was playing on a realtime " +
+                "audio clock. The device is mixing (RequireRealtimeAudioClock passed), so the analyzer is not reading " +
+                "the player it was given: check SpectrumAnalyzer.SetSource and its IAudioPlayer.GetSpectrumData call.");
         }
         #endregion
     }
