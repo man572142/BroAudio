@@ -209,6 +209,57 @@ namespace Ami.BroAudio.Tests
                 "the custom-eased fade-out to complete", FadeSeconds + 1f);
         }
 
+        // The counterpart of the test above, on the fades a plain Play()/Stop() actually runs: the clip's own
+        // authored FadeIn and FadeOut. PlaybackPreference.TryGetOrConsumeOverride starts from the ease it is
+        // handed - RuntimeSetting's DefaultFadeInEase / DefaultFadeOutEase - and only swaps in the FadeData's
+        // ease (the one SetFadeInEase / SetFadeOutEase write) when an override or a base fade is pending. With
+        // neither, the setters are silently ignored. Same sample points and curves as above, mirrored: a third of
+        // the way in, the factory InCubic fade-in reads 0.04 where the requested OutCubic would read 0.70, and the
+        // factory OutSine fade-out reads 0.5 where the requested InCubic would keep 0.96. Across the frame-clock
+        // slop (roughly 0.22 to 0.44 of the fade) the factory fade-in stays under 0.09 and the factory fade-out
+        // under 0.67, while the requested curves stay above 0.53 and 0.91, so each ceiling separates them.
+        // <para>
+        // Characterizes TEST_FINDINGS #70: both ceilings pin the ignored setter. A fix that makes the setters
+        // shape the clip's own fades turns both asserts red.
+        // </para>
+        [UnityTest]
+        [Category("Finding_70")]
+        public IEnumerator SetFadeInEase_AndSetFadeOutEase_DoNotShapeTheClipsOwnAuthoredFades()
+        {
+            // Sampled on the frame clock inside a 10s voice, which a decoupled DSP clock could end first.
+            yield return RequireRealtimeAudioClock();
+
+            const float AuthoredFadeSeconds = 3f;
+            const float SampleSeconds = 1f;
+            const float FadeInCeiling = 0.3f;
+            const float FadeOutCeiling = 0.8f;
+            AudioEntity entity = NewEntity("AuthoredEaseSfx", BroAudioType.SFX, NewClip(AuthoredFadeClipSeconds));
+            entity.Clips[0].FadeIn = AuthoredFadeSeconds;
+            entity.Clips[0].FadeOut = AuthoredFadeSeconds;
+
+            IAudioPlayer player = BroAudio.Play(IdOf(entity));
+            // Same frame as Play(), before SoundManager.LateUpdate starts PlayControl - as in the test above.
+            player.SetFadeInEase(Ease.OutCubic);
+
+            yield return WaitForPlaybackStart(player);
+            yield return new WaitForSeconds(SampleSeconds);
+            Assert.Less(player.GetVolume(), FadeInCeiling,
+                "characterizes: a third of the way into the clip's own FadeIn the volume is still near 0 - the factory " +
+                "InCubic ran, not the OutCubic SetFadeInEase asked for.");
+            yield return WaitUntilOrTimeout(() => player.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the clip's own fade-in to reach its target", AuthoredFadeSeconds + 1f);
+
+            player.SetFadeOutEase(Ease.InCubic);
+            player.Stop();
+            yield return new WaitForSeconds(SampleSeconds);
+            Assert.IsTrue(player.IsActive, "The clip's 3s FadeOut should still be in flight a second in.");
+            Assert.Less(player.GetVolume(), FadeOutCeiling,
+                "characterizes: a third of the way into the clip's own FadeOut the volume has already dropped to about " +
+                "half - the factory OutSine ran, not the InCubic SetFadeOutEase asked for.");
+            yield return WaitForRecycle(player,
+                "the clip's own fade-out to complete", AuthoredFadeSeconds + 1f);
+        }
+
         /// <summary>A clip long enough that no authored-fade test below reaches its natural end by accident.</summary>
         private const float AuthoredFadeClipSeconds = 10f;
 

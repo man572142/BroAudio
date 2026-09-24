@@ -13,8 +13,9 @@ pinned" too. `FindingCoverageTests` (EditMode) holds this file to that, in both 
 - every section is pinned by a runnable test (a `[Test]`-family method that is neither `[Ignore]`d nor
   `[Explicit]`) or carries the "Not pinned" note on its `Status:` line — a note anywhere else in the
   section does not count;
-- a pin behind an `#if` that is false in the current compilation (`PACKAGE_ADDRESSABLES` for #14,
-  `!UNITY_WEBGL` for #45 and #48) is accepted as gated out; the gate is read from the test source itself;
+- a pin behind an `#if` that is false in the current compilation (`PACKAGE_ADDRESSABLES` for #14
+  and #66, `!UNITY_WEBGL` for #45, #48 and #71) is accepted as gated out; the gate is read from the test
+  source itself;
 - every `Finding_N` category names a section of this file, and no section noted "Not pinned" also has a pin;
 - the summary table lists exactly the sections, once each, and a row's Status cell says "not pinned"
   exactly when its section's `Status:` line does;
@@ -65,6 +66,14 @@ pinned" too. `FindingCoverageTests` (EditMode) holds this file to that, in both 
 | 60 | Playback / Validation | `Play(id, (Transform)null)` throws a raw `NullReferenceException` before any validation runs | Open, characterized |
 | 61 | Editor / Clip editing | A failed `Trim` leaves a zeroed sample buffer behind that later edits apply to | Open, characterized |
 | 62 | Editor / Rect math | `Scoping(Rect, Rect)` clamps a scope-local rect against the scope's global edge | Open, characterized |
+| 65 | Playback / Pause | `UnPause` during a Pause fade-out leaves `IsStopping` set, so every later faded `Stop` is discarded | Open, characterized |
+| 66 | Addressables | A key that fails to load throws out of `PlayControl` and strands the player active and silent | Open, characterized |
+| 67 | Music / StopMode | `StopMode.Mute` has no path that unmutes, and a muted player is never recycled when its clip ends | Open, characterized |
+| 68 | Clip selection | `ShuffleClipStrategy` is not a bag shuffle: a clip can repeat within a cycle while another is skipped | Open, characterized |
+| 69 | Editor / Core data | `TryParseCoreData` throws on malformed JSON instead of returning false | Open, characterized |
+| 70 | Easing | `SetFadeInEase`/`SetFadeOutEase` have no effect on the clip's own authored FadeIn/FadeOut | Open, characterized |
+| 71 | Effects | A timed non-dominator `SetEffect` resets the mixer parameter but leaves the type routed through the effect send | Open, characterized |
+| 72 | Pitch / Handover | A `SetPitch` after the next loop player is pre-spawned does not reach it, so the loop reverts at the seam | Open, characterized |
 
 ---
 
@@ -158,6 +167,8 @@ In practice `_lastUsed` is only refreshed at pool exhaustion and during the fall
 ordinary in-cycle hit — so two consecutive `SelectClip` calls can return the same clip.
 
 `ClipSelectionTests` proves the gap exists rather than asserting the documented (and false) invariant.
+
+A separate gap in the same strategy, with its own root cause, is #68: a cycle is not a permutation either.
 
 ## 10. `out index` disagrees with the returned clip in two strategies
 
@@ -1339,3 +1350,210 @@ Status: Open, characterized. Pinned by
 `RectScopingTests.Scoping_OffOriginScope_ClampsLocalRectAgainstGlobalEdge` and
 `RectScopingTests.Scoping_OffOriginScope_LocalRectPastTheGlobalEdge_IsClampedToTheGlobalEdge`. Contrast:
 `RectScopingTests.DeScope_OffOriginScope_ClampsGlobalRectAgainstGlobalEdge`.
+
+## 65. `UnPause` during a Pause fade-out leaves `IsStopping` set, so every later faded `Stop` is discarded
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `AudioPlayer.Stop`, `StopControl`,
+`IAudioStoppable.UnPause(float)` and `PlayInternal`
+
+A faded `Pause` runs through `Stop(fade, StopMode.Pause, …)`, which starts `StopControl` in the
+`_playbackControlCoroutine` slot. `StopControl` sets `_stopMode = StopMode.Pause` and `IsStopping = true` as
+it starts, and clears `IsStopping` only after its fade, as its last step. `UnPause` checks only
+`_stopMode == StopMode.Pause`, so mid-fade it passes and calls `PlayInternal`, whose
+`RestartCoroutine(PlayControl(…), ref _playbackControlCoroutine)` stops `StopControl` before that last step
+runs. The resume itself works, but `IsStopping` stays true on a playing player until `EndPlaying` resets it.
+
+`Stop`'s first guard is `if (IsStopping && fade != FadeData.Immediate) return;`, so from then on every `Stop`
+with a fade is silently discarded, including the clip-setting default that `BroAudio.Stop(id)` and a bare
+`Stop()` pass. The sound plays on until its natural end, or until a zero-fade `Stop` gets past the guard. A
+faded `Stop` interrupted by `UnPause` is not affected: `_stopMode` is `Stop` there, so `UnPause` warns and
+returns (`ErrorPathTests.UnPause_WhileAFadedStopIsInProgress_WarnsAndTheStopStillCompletes`).
+
+A fix would clear `IsStopping` (and whatever else `StopControl` leaves half-done) when `PlayInternal`
+replaces a running `StopControl`.
+
+Status: Open, characterized. Pinned by
+`ErrorPathTests.UnPause_DuringAPauseFadeOut_ResumesButLeavesIsStoppingSet_SoALaterFadedStopIsIgnored`, which
+asserts that `IsStopping` is still set on the resumed, playing player, and that a later `Stop(0.5f)` leaves it
+playing at full volume after the fade time has passed.
+
+## 66. An Addressables key that fails to load throws out of `PlayControl` and strands the player
+
+**Where:** `Assets/BroAudio/Runtime/DataStruct/BroAudioClip.Addressables.cs`, `BroAudioClip.GetAudioClip`, and
+`Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `PlayControl` and `WaitForAddressablesToLoad`
+
+When a clip's `AssetReference` has a GUID that no catalog resolves, `PlayControl` waits in
+`WaitForAddressablesToLoad` for the load to finish (failed), then calls `_clip.GetAudioClip()`. That call
+never returns null for a failed load; it throws:
+
+- in the Editor, `assetIdentity = AudioClipAssetReference.editorAsset.name` dereferences a null
+  `editorAsset` (there is no asset for the GUID), a `NullReferenceException`;
+- in a player, the synchronous retry (`LoadAssetAsync().WaitForCompletion()`) fails again and the method
+  throws `BroAudioException`.
+
+The throw happens inside a coroutine step, outside `PlayInternal`'s `try`/`catch` (which covers only the
+synchronous start of the coroutine), so Unity logs the exception and drops the coroutine. `EndPlaying` never
+runs: the player the caller holds is active, silent and checked out of the pool until something stops it
+explicitly. `WaitForAddressablesToLoad`'s own `Failed to load addressable audio clip` error, which tests
+`GetAudioClip()` for null, can never be reached on this path. With the factory setting
+(`AutomaticallyLoadAddressableAudioClips` off) the only BroAudio-tagged log is the "not preloaded" error
+logged before the load.
+
+This conflicts with the project rule that an expected "not found" path logs and returns rather than throws.
+A fix would make `GetAudioClip` report a failed load (null, or a `TryGet*`) and have `PlayControl` end the
+player.
+
+Status: Open, characterized. Pinned by
+`AddressablesTests.Play_WithAKeyThatCannotLoad_ThrowsOutOfPlayControlAndStrandsThePlayerActiveAndSilent`,
+behind `PACKAGE_ADDRESSABLES` (gated out, and accepted as such, where the package is absent). It asserts
+the non-preloaded error, an `Exception` log, and that the player stays active and never plays.
+
+## 67. `StopMode.Mute` has no path that unmutes, and a muted player is never recycled
+
+**Where:** `Assets/BroAudio/Runtime/Enums/StopMode.cs`, `StopMode.Mute`;
+`Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `Stop`, `StopControl`, `StartPlaying` and
+`IAudioStoppable.UnPause(float)`; `Assets/BroAudio/Runtime/Player/MusicPlayer.cs`, `StopCurrentPlayer`
+
+`StopMode.Mute` is documented as "it will keep playing in the background until it's played (Unmuted) again",
+and `StartPlaying` has a `StopMode.Mute when AudioSource.isPlaying` case for that re-play. It is reachable only
+as a BGM transition stop mode (`SetTransition(transition, StopMode.Mute)`, applied by
+`MusicPlayer.StopCurrentPlayer`). Two things go wrong:
+
+- **Nothing re-plays the muted instance.** `BroAudio.Play(id)` always extracts a fresh player from the pool,
+  and `UnPause` accepts only `_stopMode == StopMode.Pause`, so it warns and returns. "Playing it again"
+  starts a second, full-volume player next to the muted one, which runs on silently. Only a `SetVolume` on
+  the old handle, which the caller rarely still holds, would make it audible again.
+- **A muted player leaks until stopped.** `Stop` starts `StopControl` in the `_playbackControlCoroutine`
+  slot, which stops the `PlayControl` that would have ended the player at its clip's end. Pause depends on
+  that (its resume starts a new `PlayControl`), but a muted player is never resumed. When its clip runs out
+  the source stops, `EndPlaying` never runs, and the player keeps its pool slot (`IsActive`, not playing)
+  until an explicit `Stop`. A BGM routine that mutes the outgoing track at every change accumulates such
+  players.
+
+Either the doc or the mechanism has to change. Making `Play(id)` resume a muted instance, or letting a muted
+player run out and recycle, are both behavior changes to decide, so the finding stays characterized.
+
+Status: Open, characterized. Pinned by
+`BGMEdgeCaseTests.StopModeMute_PlayingTheSameSoundAgainStartsANewPlayerAndLeavesTheMutedOneRunningSilently`
+(the new player, the muted one still running muted, and `UnPause` warning) and
+`BGMEdgeCaseTests.StopModeMute_TheMutedPlayerIsNeverRecycledWhenItsClipEnds_OnlyAnExplicitStopFreesIt` (still
+`IsActive` after its clip ran out; only `Stop` frees it).
+
+## 68. `ShuffleClipStrategy` is not a bag shuffle
+
+**Where:** `Assets/BroAudio/Runtime/Utility/ClipSelection/ShuffleClipStrategy.cs`, `ShuffleClipStrategy.SelectClip`
+and `Use`
+
+The strategy keeps a `_used` set and resets it once every clip is in it, which is the bookkeeping of a
+shuffle that plays each clip once per cycle. But `Use` never checks `_used`: it rejects a pick only if it is
+`_lastUsed` or an unset clip, then adds the pick to `_used` and accepts it. The `_used` set is read only to
+decide when to reset (after a direct hit) and to stop the fallback scan. So a direct `Random.Range` hit on a
+clip already returned in this cycle is accepted again, and the first N picks over N clips are not a
+permutation (independent uniform draws would give one for 4 clips only 4!/4^4 ≈ 9% of the time). One clip can come up twice in a cycle while another is skipped until the reset.
+
+This has a different root cause from #9, which is about `_lastUsed` not being refreshed after an ordinary
+hit (so the *immediately previous* clip can repeat). Fixing #9 alone would not make a cycle a permutation,
+and vice versa. The documented contract (`MulticlipsPlayMode.Shuffle`: "Same as random but not repeating with
+the previous one") promises only the #9 property. This finding is the stronger once-per-cycle behavior that
+the `_used` bookkeeping and the name "Shuffle" suggest. Whether that is the intended contract is for the
+maintainer to decide.
+
+Status: Open, characterized. Pinned by
+`ClipSelectionTests.SelectClip_WithinOneCycle_CanReturnAClipAgainBeforeEveryClipHasBeenReturned`, which, under
+the fixture's fixed `Random` seed, finds a fresh strategy whose first four picks over four clips repeat one.
+
+## 69. `TryParseCoreData` throws on malformed JSON instead of returning false
+
+**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.Json.cs`,
+`BroEditorUtility.TryParseCoreData`; caller `BroUserDataGenerator.GetInitialData`
+
+The only guard is "text asset null or empty". Any other text goes straight to
+`JsonUtility.FromJson<SerializedCoreData>`, which throws `ArgumentException` on malformed JSON, and the
+`Try*` method lets it escape instead of returning false. Its caller, `GetInitialData`, runs while the
+user-data assets are generated and migrates a legacy core-data file when one is found. A corrupted legacy
+file therefore aborts that generation with an exception rather than falling back to the default output
+path, which is what the `else` branch does when parsing fails.
+
+Status: Open, characterized. Pinned by
+`CoreDataAndUpdaterTests.TryParseCoreData_WithMalformedText_ThrowsInsteadOfReturningFalse`.
+
+## 70. `SetFadeInEase`/`SetFadeOutEase` have no effect on the clip's own authored fades
+
+**Where:** `Assets/BroAudio/Runtime/Player/PlaybackPreference.cs`, `PlaybackPreference.TryGetFadeIn`,
+`TryGetFadeOut` and `TryGetOrConsumeOverride`; `Assets/BroAudio/Runtime/Player/FadeData.cs`,
+`FadeData.SetEase` and `TryGetOrConsumeOverride`
+
+`IAudioPlayer.SetFadeInEase` / `SetFadeOutEase` ("Sets the fade in/out easing function for this player")
+write the ease into the player's `FadeData` (both its base and its one-shot ease). `TryGetOrConsumeOverride`
+starts from the ease it is handed, RuntimeSetting's `DefaultFadeInEase` / `DefaultFadeOutEase`, and swaps
+in the `FadeData`'s ease only when `FadeData.TryGetOrConsumeOverride` returns true, which requires a pending
+one-shot override (`Play(id, fadeIn)`, `Stop(fadeOut)`) or a base fade (only a `SeamlessLoop` sets one,
+through `ApplySeamlessFade`). A plain `Play()` / `Stop()` that runs the clip's own authored `FadeIn` /
+`FadeOut` has neither, so it keeps the RuntimeSetting default and the setter is silently ignored. The same
+holds for the fade-out `PlayControl` runs before a clip's natural end.
+
+A caller who authors fades in the Library Manager and shapes them per player with these setters hears the
+global default curve. A fix would use the `FadeData`'s ease whenever the setter was called, whatever the
+fade's source.
+
+Status: Open, characterized. Pinned by
+`FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_DoNotShapeTheClipsOwnAuthoredFades`, which samples a clip's
+authored 3 s FadeIn and FadeOut a third of the way in and finds the factory curves (InCubic in, OutSine out),
+not the requested OutCubic / InCubic. Contrast: `FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_ShapeExplicitFades`.
+
+## 71. A timed non-dominator `SetEffect` leaves the type routed through the effect send after it resets
+
+**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `SoundManager.SetEffect(BroAudioType, Effect)`
+and `SetPlayerEffect`; `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs`,
+`TweakTrackParameter`
+
+For a non-default, non-dominator effect, `SetEffect` picks `SetEffectMode.Add` and calls `SetPlayerEffect`
+inline. That sets the effect's bit on the per-type `AudioTypePlaybackPreference.EffectType` and re-routes every
+live player of the type through its `<Track>_Effect` send. It then hands the automation helper a **null**
+`onReset`; only the `Remove` path (a default-valued `Effect`) wires `onReset` to
+`SetPlayerEffect(…, SetEffectMode.Remove)`. When a `ForSeconds` / `Until` / `While` waitable finishes,
+`TweakTrackParameter` tweaks the mixer parameter back to its default and invokes that null callback.
+
+So the timed effect's audible half is undone and its routing half is not. The players that were live through
+it stay on the effect send, the type's bit stays set, and every player of that type started afterwards is
+routed through the effect send too, with the filter at its default, until someone calls `SetEffect` with a
+default-valued effect. The practical cost is an extra effect path for every such voice, and a later
+`SetEffect` of the same type then filters voices the caller did not expect it to reach. The base test
+fixture has to clear this explicitly (`ResetTrackEffects`), and `VerifyGlobalStateRestored` checks that it did.
+
+A fix would pass the `Remove` callback for a timed `Add` as well, so the reset also clears the routing.
+
+Status: Open, characterized. Pinned by
+`AudioEffectTests.SetEffect_LowPass_ForSeconds_ResetsTheParameterButLeavesTheTypeRoutedThroughTheEffectSend`
+(behind `!UNITY_WEBGL`, like the rest of that file). After `Effect_LowPass` is back at its default, it
+asserts the SFX pref's LowPass bit is still set, the live player is still on the send, and a player started
+afterwards carries LowPass with its level on `<Track>_Effect` and its dry track muted. It then shows that an
+explicit `Effect.ResetLowPass()` clears all three.
+
+## 72. A `SetPitch` after the next loop player is pre-spawned does not reach it
+
+**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `ScheduleNextPlayback`;
+`Assets/BroAudio/Runtime/Player/AudioPlayer.Scheduling.cs`, `RecalculateScheduledEndTime` and
+`ShiftScheduledTimes`; `Assets/BroAudio/Runtime/Player/AudioPlayer.Pitch.cs`, `IAudioPlayer.SetPitch`
+
+A looping player requests its successor `ScheduledPlaybackWarmUpTime` before the seam, and bakes
+`PlaybackHandoverData.Pitch` (its `TargetPitch`) into the request. The caller's handle keeps pointing at the
+playing instance until the seam. A `SetPitch` on the handle in that window changes the playing instance and
+runs `RecalculateScheduledEndTime`, which moves the seam and passes the delta on to the pre-spawned player
+through `ShiftScheduledTimes`. Nothing re-pitches that player, though. At the seam the handle is re-pointed
+at it, and the loop continues at the pitch from before the `SetPitch`. That player then carries the old
+pitch into every later seam, so the change is lost for good, not for one iteration.
+
+The window is short: `ScheduledPlaybackWarmUpTime` is `AudioConstant.MixerWarmUpTime` (0.1 s), or the output
+device's latency when that is longer. A per-type `SoundManager.SetPitch` is not affected, because it walks
+every active player, the pre-spawned one included. Only the per-handle call misses it.
+
+A fix would forward the pitch change to `_nextPlayer` (and to its `TargetPitch`), just as the schedule shift
+already is.
+
+Status: Open, characterized. Pinned by
+`LoopHandoverTests.Play_WithPlainLoop_SetPitchAfterTheNextPlayerIsPreSpawned_DoesNotReachThatPlayer`. So that
+one slow frame cannot step over the window, the test widens `ScheduledPlaybackWarmUpTime` to 1.5 s through
+reflection (as a high-latency output device would) and restores it afterwards. It waits for `_nextPlayer`,
+calls `SetPitch(1.6f)` on the handle, and asserts the pre-spawned player still reads 1.0, both before the
+seam and on the handle after it.

@@ -709,6 +709,68 @@ namespace Ami.BroAudio.Tests
             }, "ForSeconds to auto-reset Effect_LowPass to its default once the duration elapses", DefaultPlaybackWaitSeconds);
         }
 
+        // The auto-reset above restores only half of what SetEffect changed. For a non-default, non-dominator
+        // effect SoundManager.SetEffect picks SetEffectMode.Add, calls SetPlayerEffect inline - which sets the
+        // per-type EffectType bit and re-routes live players through the effect send - and hands the automation
+        // helper a null onReset. TweakTrackParameter then tweaks the mixer parameter back to its default when the
+        // waitable finishes and invokes that null callback, so nothing takes the bit off the type or the live
+        // players off the send. Only the Remove path (a default-valued Effect) wires onReset to SetPlayerEffect.
+        // So once the timed effect is over, the player that was live through it stays on the send, and every
+        // player of that type started afterwards is routed through it too, with the filter at its default.
+        // <para>
+        // Characterizes TEST_FINDINGS #71. The explicit reset at the end is both the contrast (a default-valued
+        // SetEffect is what clears the routing) and this test's own cleanup, so the base fixture's
+        // VerifyGlobalStateRestored judges only real leaks - though its ResetTrackEffects would clear the bit
+        // the same way if an assertion here failed first.
+        // </para>
+        [UnityTest]
+        [Category("Finding_71")]
+        public IEnumerator SetEffect_LowPass_ForSeconds_ResetsTheParameterButLeavesTheTypeRoutedThroughTheEffectSend()
+        {
+            const float HoldSeconds = 0.2f;
+            SoundID liveId = NewSound("TimedEffectLiveSfx", BroAudioType.SFX, NewClip(6f));
+            SoundID laterId = NewSound("TimedEffectLaterSfx", BroAudioType.SFX, NewClip(6f));
+            IAudioPlayer livePlayer = BroAudio.Play(liveId);
+            yield return WaitForPlaybackStart(livePlayer, "the player that is live through the timed effect to start");
+            AudioPlayer live = InstanceOf(livePlayer);
+
+            WaitForSeconds hold = BroAudio.SetEffect(Effect.LowPass(700f)).ForSeconds(HoldSeconds);
+            yield return WaitUntilOrTimeout(() => live.IsUsingTrackEffect,
+                "the live player to be routed through the effect send while the effect holds", DefaultPlaybackWaitSeconds);
+
+            yield return hold;
+            yield return WaitUntilOrTimeout(() =>
+            {
+                SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float v);
+                return Mathf.Abs(v - AudioConstant.MaxFrequency) <= FrequencyTolerance;
+            }, "ForSeconds to auto-reset Effect_LowPass to its default", DefaultPlaybackWaitSeconds);
+
+            Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref sfxPref));
+            Assert.AreNotEqual(EffectType.None, sfxPref.EffectType & EffectType.LowPass,
+                "characterizes: the auto-reset leaves LowPass set on the SFX type's stored effect preference.");
+            Assert.IsTrue(live.IsUsingTrackEffect,
+                "characterizes: the player that was live through the timed effect is still on the effect send after the reset.");
+
+            IAudioPlayer laterPlayer = BroAudio.Play(laterId);
+            yield return WaitForPlaybackStart(laterPlayer, "a player started after the reset to start");
+            AudioPlayer later = InstanceOf(laterPlayer);
+            Assert.AreNotEqual(EffectType.None, later.CurrentActiveTrackEffects & EffectType.LowPass,
+                "characterizes: a player started after the effect reset still takes LowPass from the type preference.");
+            // What is heard: the level rides the effect send with the dry track muted, as for a live effect.
+            ReadTrackAndSend(later, out string trackName, out float trackDb, out float sendDb);
+            Assert.AreEqual(AudioConstant.FullDecibelVolume, sendDb, DecibelTolerance,
+                $"characterizes: the later player's level is carried on {trackName}{BroName.EffectParaNameSuffix}.");
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, trackDb, DecibelTolerance,
+                $"characterizes: the later player's dry track {trackName} is muted.");
+
+            // Contrast and cleanup: the Remove path does take both players off the send and clears the bit.
+            yield return ResetLowPassEffect();
+            yield return WaitUntilOrTimeout(() => !live.IsUsingTrackEffect && !later.IsUsingTrackEffect,
+                "an explicit default-valued SetEffect to take both players off the effect send", DefaultPlaybackWaitSeconds);
+            Assert.AreEqual(EffectType.None, sfxPref.EffectType & EffectType.LowPass,
+                "An explicit default-valued SetEffect clears the type's LowPass bit.");
+        }
+
         [UnityTest]
         public IEnumerator SetEffect_LowPass_WithFourPoleSlope_AlsoWritesSecondaryParameter()
         {

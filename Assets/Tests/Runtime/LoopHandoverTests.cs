@@ -232,6 +232,80 @@ namespace Ami.BroAudio.Tests
                 "The seam player must keep following the target the sound was played with.");
         }
 
+        // The window the test above cannot reach: a SetPitch after ScheduleNextPlayback has already pre-spawned
+        // the next iteration's player. PlaybackHandoverData.Pitch is baked when that player is requested, and
+        // afterwards a pitch change on the handle reaches only the playing instance: its
+        // RecalculateScheduledEndTime moves the seam and shifts the pre-spawned player's scheduled times
+        // (ShiftScheduledTimes), but nothing updates that player's pitch. At the seam the handle is re-pointed at
+        // it, and the loop carries on at the old pitch.
+        // <para>
+        // The window is ScheduledPlaybackWarmUpTime wide - at least AudioConstant.MixerWarmUpTime (0.1s), or the
+        // device's output latency when that is longer - which one slow frame could step over. So the test widens
+        // it to WidenedWarmUpSeconds by writing that cached value (as a high-latency output device would set it),
+        // and restores the original in a finally, since it lives on the run-long SoundManager and the base
+        // fixture knows nothing about it. The first iteration's start is delayed by the same amount, which is
+        // harmless here.
+        // </para>
+        // <para>
+        // Characterizes TEST_FINDINGS #72: the stale pitch is pinned as-is. A fix that also re-pitches the
+        // pre-spawned player turns the two "characterizes" asserts red.
+        // </para>
+        [UnityTest]
+        [Category("Finding_72")]
+        public IEnumerator Play_WithPlainLoop_SetPitchAfterTheNextPlayerIsPreSpawned_DoesNotReachThatPlayer()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            const float ClipSeconds = 3f;
+            const double WidenedWarmUpSeconds = 1.5;
+            const float NewPitch = 1.6f;
+            SoundManager manager = SoundManager.Instance;
+            string warmUpName = TestAudioLibrary.Reflected.SoundManager.ScheduledPlaybackWarmUpTime;
+            double originalWarmUp = TestAudioLibrary.GetPrivateField<double>(manager, warmUpName);
+            TestAudioLibrary.SetPrivateField(manager, warmUpName, WidenedWarmUpSeconds);
+            try
+            {
+                AudioEntity entity = NewEntity("LatePitchLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+                TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
+                SoundID id = IdOf(entity);
+
+                IAudioPlayer player = BroAudio.Play(id);
+                yield return WaitForPlaybackStart(player);
+                AudioPlayer first = InstanceOf(player);
+
+                // ScheduleNextPlayback requests the next player WidenedWarmUpSeconds before the seam.
+                AudioPlayer next = null;
+                yield return WaitUntilOrTimeout(() =>
+                    {
+                        next = TestAudioLibrary.GetPrivateField<AudioPlayer>(first, TestAudioLibrary.Reflected.AudioPlayer.NextPlayer);
+                        return next;
+                    },
+                    "the loop to pre-spawn the next iteration's player", HandoverWaitSeconds);
+                Assert.AreSame(first, InstanceOf(player),
+                    "Precondition: the seam is still ahead, so the handle still drives the first player.");
+                Assert.AreEqual(AudioConstant.DefaultPitch, ((IAudioPlayer)next).AudioSource.pitch, 0.001f,
+                    "Precondition: the pre-spawned player was handed the pitch of the moment it was requested.");
+
+                player.SetPitch(NewPitch);
+                Assert.AreEqual(NewPitch, player.AudioSource.pitch, 0.001f, "The pitch change lands on the playing player.");
+                Assert.AreEqual(AudioConstant.DefaultPitch, ((IAudioPlayer)next).AudioSource.pitch, 0.001f,
+                    "characterizes: the pre-spawned player keeps the pitch it was handed.");
+
+                yield return WaitUntilOrTimeout(() => InstanceOf(player) != first,
+                    "the loop to hand over at its seam", HandoverWaitSeconds);
+                Assert.AreSame(next, InstanceOf(player), "The handle is handed to the player that was pre-spawned.");
+                Assert.AreEqual(AudioConstant.DefaultPitch, player.AudioSource.pitch, 0.001f,
+                    "characterizes: after the seam the loop plays on at the pitch from before the SetPitch.");
+            }
+            finally
+            {
+                if (SoundManager.HasInstance)
+                {
+                    TestAudioLibrary.SetPrivateField(SoundManager.Instance, warmUpName, originalWarmUp);
+                }
+            }
+        }
+
         // An in-flight SetVolume fade, a per-type SetEffect and a fixed Play position, each carried across the
         // seams of a plain loop. ScheduleNextPlayback bakes the fading track volume's current value, target,
         // remaining time and ease into the handover, and ReceiveHandover resumes the fade from there; the handed-

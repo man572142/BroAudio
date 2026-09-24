@@ -332,8 +332,11 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
+        [Category("Finding_68")]
         public void SelectClip_WithinOneCycle_CanReturnAClipAgainBeforeEveryClipHasBeenReturned()
         {
+            // Characterizes TEST_FINDINGS #68 - a separate root cause from #9 (which is about _lastUsed going
+            // stale), so fixing either leaves the other's test red.
             // characterizes: Shuffle is not a bag shuffle. Its _used set only detects when every clip has been
             // seen (to reset the cycle); Use() never consults it, so a direct Random.Range hit on a clip already
             // returned this cycle is accepted again. The first N picks of a fresh strategy over N clips are

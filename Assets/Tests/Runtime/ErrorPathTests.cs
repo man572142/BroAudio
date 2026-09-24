@@ -176,7 +176,10 @@ namespace Ami.BroAudio.Tests
         // stuck true, Stop()'s own guard (`IsStopping && fade != Immediate` -> return) discards every later
         // Stop with a fade - including the clip-setting default of BroAudio.Stop(id) - so the sound plays on.
         // Only a zero-fade Stop still gets through, which is what the fixture's teardown uses.
+        // Characterizes TEST_FINDINGS #65: the stuck flag is pinned as-is, not endorsed. A fix that resets
+        // IsStopping when PlayInternal replaces a running StopControl turns the two "characterizes" asserts red.
         [UnityTest]
+        [Category("Finding_65")]
         public IEnumerator UnPause_DuringAPauseFadeOut_ResumesButLeavesIsStoppingSet_SoALaterFadedStopIsIgnored()
         {
             yield return RequireRealtimeAudioClock();
