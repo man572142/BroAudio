@@ -6,7 +6,18 @@ on:
     branches: [main, test, DEV_Unity6]
   pull_request:
     branches: [main, test, DEV_Unity6]
+  # Nightly on the default branch: the whole matrix in a random test order, so a test that only passes
+  # because of what ran before it surfaces on its own rather than on the day an unrelated test is added.
+  # The Unity Test Framework (1.3.6 and later; this project resolves 1.6.0) takes -randomOrderSeed and
+  # reproduces an order from its seed, which the run prints as a notice.
+  schedule:
+    - cron: '23 3 * * *'
   workflow_dispatch:
+    inputs:
+      randomOrderSeed:
+        description: 'Run the tests in the random order this seed gives (a positive integer), e.g. to reproduce a nightly failure. Empty keeps the usual order.'
+        required: false
+        default: ''
 
 # A PR run is superseded the moment its branch is pushed again, so cancel the stale one
 # rather than paying for two Unity runs. Push runs on main/test are not grouped together
@@ -18,8 +29,43 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  # Checks that need no Unity Editor, so they answer in seconds and run beside the test legs.
+  static-checks:
+    name: static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the FIXED_ISSUES check walks the commits a push or pull request brings
+
+      # GOAL.md: expected logs are matched by LogType and BroAudio's tag, never by their text.
+      - name: Every expected log is matched by its tag, not its text
+        run: python3 .github/scripts/check_log_expectations.py
+
+      # The same derivation check_test_suites.py uses after each leg; printed here so a pull request shows
+      # which fixtures its legs will be held to before any Editor starts.
+      - name: Derive the fixtures each leg must run
+        run: python3 .github/scripts/derive_test_suites.py
+
+      # GOAL.md: a production change lands in its own commit with a FIXED_ISSUES.md entry, never folded into
+      # a test diff. Pushes to main are skipped: main only receives merges of branches this already checked,
+      # and a merge would re-check history that predates the rule.
+      - name: No production change is folded into a test change unrecorded
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after }}
+        run: python3 .github/scripts/check_fixed_issues_record.py "$BASE" "$HEAD"
+
+  test:
+    name: test (${{ matrix.leg }})
+    runs-on: ubuntu-latest
+    # A hung Editor otherwise holds the runner for GitHub's 360-minute default, per leg. A cold Library import
+    # plus the PlayMode suite fits well inside this; a run that needs longer is a run that is stuck.
+    timeout-minutes: 120
     permissions:
       contents: read
       checks: write
@@ -28,32 +74,95 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        testMode: [EditMode, PlayMode]
+        # leg:       the name this leg's job, artifacts and results carry.
+        # cacheKey:  its Library cache prefix. No prefix may be a prefix of another's: the rotation step deletes
+        #            every key under its own prefix, so "Library-EditMode" beside "Library-EditMode-Foo" would
+        #            have the EditMode leg deleting the other's cache.
+        # audio:     runs in the image with a realtime audio device, which also promises one to
+        #            AudioClockProbeTests and check_test_suites.py.
+        # withoutOptionalPackages: removes Addressables and Localization before Unity starts (CLAUDE.md's
+        #            Definition of Done #3). EditMode only: it compiles every assembly, runtime and PlayMode test
+        #            assembly included, so it proves the build without them, and runs the EditMode suite on it.
+        include:
+          - leg: EditMode
+            testMode: EditMode
+            cacheKey: Library-EditMode
+            audio: false
+            withoutOptionalPackages: false
+          - leg: PlayMode
+            testMode: PlayMode
+            cacheKey: Library-PlayMode
+            audio: true
+            withoutOptionalPackages: false
+          - leg: EditMode-NoOptionalPackages
+            testMode: EditMode
+            cacheKey: Library-NoOptionalPackages-EditMode
+            audio: false
+            withoutOptionalPackages: true
     steps:
       - uses: actions/checkout@v5
         with:
           lfs: true
 
+      # Only in this job's workspace - never committed. After this, Packages/ describes the project a consumer
+      # without either package has, which is what the Library cache key below hashes and what
+      # check_test_suites.py derives this leg's required fixtures from. The probes in OptionalPackageTests and
+      # OptionalPackageEditorTests are told (by the Editor argument below) to assert the packages are gone.
+      - name: Remove the optional packages
+        if: matrix.withoutOptionalPackages
+        run: python3 .github/scripts/strip_optional_packages.py Packages com.unity.addressables com.unity.localization
+
+      # Everything the Editor needs to know about this leg goes on its command line, through customParameters:
+      # unity-test-runner starts the Editor in a container that receives a fixed set of environment variables,
+      # so a step's env: never reaches the tests.
+      - name: Assemble the Editor arguments
+        id: args
+        env:
+          EVENT: ${{ github.event_name }}
+          SEED_INPUT: ${{ github.event.inputs.randomOrderSeed }}
+          RUN_ID: ${{ github.run_id }}
+          WITHOUT_OPTIONAL_PACKAGES: ${{ matrix.withoutOptionalPackages }}
+        run: |
+          set -euo pipefail
+          seed="${SEED_INPUT:-}"
+          if [ -z "$seed" ] && [ "$EVENT" = "schedule" ]; then
+            seed=$(( RUN_ID % 2147483646 + 1 ))
+          fi
+          args=""
+          if [ -n "$seed" ]; then
+            if ! [[ "$seed" =~ ^[1-9][0-9]{0,9}$ ]] || [ "$seed" -gt 2147483647 ]; then
+              echo "::error::randomOrderSeed must be a positive 32-bit integer, got '$seed'."
+              exit 1
+            fi
+            args="-randomOrderSeed $seed"
+            echo "::notice title=Random test order (${{ matrix.leg }})::-randomOrderSeed $seed. Re-run this workflow with that randomOrderSeed to reproduce the order."
+          fi
+          if [ "$WITHOUT_OPTIONAL_PACKAGES" = "true" ]; then
+            args="$args -broaudioCiExpectsNoOptionalPackages"
+          fi
+          echo "unity=${args# }" >> "$GITHUB_OUTPUT"
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+
       - uses: actions/cache/restore@v4
         id: library-cache
         with:
           path: Library
-          key: Library-${{ matrix.testMode }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
-          restore-keys: Library-${{ matrix.testMode }}-
+          key: ${{ matrix.cacheKey }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: ${{ matrix.cacheKey }}-
 
       # The stock unityci/editor image ships no audio libraries, so FMOD finds no output device
       # and falls back to a non-realtime null sink pumped by the frame loop - far faster than real time,
       # which makes every PlayMode timing test a coin flip. This image adds a
       # timer-paced PulseAudio null sink; see .github/docker/Dockerfile. The image also sets
       # BROAUDIO_CI_EXPECTS_AUDIO, which AudioClockProbeTests reads to fail this leg outright if the
-      # sink is not working - the tests that gate on a realtime clock are Assert.Ignore'd when it
-      # is not, and an ignored test is not a failure.
+      # sink is not working. The tests that gate on a realtime clock are Assert.Ignore'd when it
+      # is not; check_test_suites.py fails those ignores too on a leg with audio: true.
       #
       # It has to come from a registry rather than a local tag: unity-test-runner runs an
       # unconditional `docker pull` on customImage before it runs the container.
       - name: Resolve the editor images
         id: images
-        if: matrix.testMode == 'PlayMode'
+        if: matrix.audio
         run: |
           version=$(sed -n 's/^m_EditorVersion: //p' ProjectSettings/ProjectVersion.txt | tr -d '[:cntrl:]')
           # -linux-il2cpp-3 mirrors the tag unity-test-runner resolves for this project; the
@@ -66,7 +175,7 @@ jobs:
           echo "audio=ghcr.io/${{ github.repository_owner }}/unity-editor-audio:${version}-2" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
-        if: matrix.testMode == 'PlayMode'
+        if: matrix.audio
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -75,7 +184,7 @@ jobs:
       # Built once per Unity version and Dockerfile revision, then reused - the push is only paid on an
       # editor upgrade or a bump of the -N suffix above.
       - name: Build the editor image with an audio device
-        if: matrix.testMode == 'PlayMode'
+        if: matrix.audio
         run: |
           image='${{ steps.images.outputs.audio }}'
           if docker manifest inspect "$image" > /dev/null 2>&1; then
@@ -91,20 +200,26 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
-          customImage: ${{ steps.images.outputs.audio }} # empty on EditMode, which needs no audio device
+          customImage: ${{ steps.images.outputs.audio }} # empty without audio, which needs no audio device
+          customParameters: ${{ steps.args.outputs.unity }}
           testMode: ${{ matrix.testMode }}
-          artifactsPath: ${{ matrix.testMode }}-results
+          artifactsPath: ${{ matrix.leg }}-results
           githubToken: ${{ secrets.GITHUB_TOKEN }}
 
-      # A suite that compiled to nothing does not fail - it is absent from the results, and the leg reports every
-      # test it did run as green.
-      - name: Check every required test suite ran
+      # Two ways a leg reports green while covering less than it claims: a suite that compiled to nothing is
+      # absent from the results rather than failing, and an ignored or inconclusive test counts as not failed.
+      # The script derives the fixtures this leg must run from the test sources (after the package removal
+      # above, if any) and fails on either, outside .github/test-results-policy.json's allowlist.
+      - name: Check every derived test suite ran to a verdict
         if: ${{ !cancelled() }}
+        env:
+          EXPECTS_AUDIO: ${{ matrix.audio && '--expects-audio' || '' }}
+          RANDOM_ORDER: ${{ steps.args.outputs.seed != '' && '--random-order' || '' }}
         run: >-
           python3 .github/scripts/check_test_suites.py
           '${{ matrix.testMode }}'
-          '${{ matrix.testMode }}-results'
-          .github/required-test-suites.json
+          '${{ matrix.leg }}-results'
+          $EXPECTS_AUDIO $RANDOM_ORDER
 
       # Saved separately from the restore so a failing test run still warms the
       # Library for the next one - actions/cache skips its own save on failure.
@@ -115,7 +230,7 @@ jobs:
       # PR merges. PRs restore from their base branch instead, which is what actually warms them
       # today. workflow_dispatch on a feature branch is the same bargain: what it saved would only be
       # readable by another dispatch on that same branch, so it restores from the default branch and
-      # writes nothing.
+      # writes nothing. The nightly schedule restores what main's pushes saved and writes nothing either.
       - uses: actions/cache/save@v4
         if: always() && github.event_name == 'push' && steps.library-cache.outputs.cache-hit != 'true'
         with:
@@ -125,25 +240,25 @@ jobs:
       # Cache keys are immutable, so the save above can never replace an entry - only add one. Its key
       # hashes Assets/**, which is the whole product, so all but the rarest push lands on a key nobody
       # has used and writes another ~870 MB, leaving the previous run's copy parked in the allowance
-      # with nothing left to read it: the restore-keys prefix will only ever match the newest. Two
-      # test modes make that ~1.75 GB per push, which fills 10 GB in a handful of pushes and then
+      # with nothing left to read it: the restore-keys prefix will only ever match the newest. Three
+      # legs make that ~2.6 GB per push, which fills 10 GB in a handful of pushes and then
       # starts evicting, by least-recent use, the very entry the next run wanted. Deleting the
-      # superseded entries leaves the branch holding exactly one Library per test mode.
+      # superseded entries leaves the branch holding exactly one Library per leg.
       #
       # It runs after the save rather than before, so a failed upload leaves the older cache in place
-      # instead of nothing at all, and it only ever considers this branch's own keys for this one test
-      # mode - never main's, never the other leg's, which is what lets the two legs run in parallel.
+      # instead of nothing at all, and it only ever considers this branch's own keys under this leg's
+      # prefix - never main's, never another leg's, which is what lets the legs run in parallel.
       - name: Drop the superseded Library caches on this branch
         if: always() && github.event_name == 'push'
         continue-on-error: true # housekeeping that cannot run is no reason to fail a green test run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CACHE_PREFIX: Library-${{ matrix.testMode }}-
+          CACHE_PREFIX: ${{ matrix.cacheKey }}-
           KEEP_KEY: ${{ steps.library-cache.outputs.cache-primary-key }}
         run: python3 .github/scripts/prune_library_caches.py
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.testMode }}-results
-          path: ${{ matrix.testMode }}-results
+          name: ${{ matrix.leg }}-results
+          path: ${{ matrix.leg }}-results
