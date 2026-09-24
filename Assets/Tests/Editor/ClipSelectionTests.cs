@@ -331,6 +331,62 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(foundRepeat, "Expected at least one trial where Shuffle repeated the immediately-previous clip.");
         }
 
+        [Test]
+        public void SelectClip_WithinOneCycle_CanReturnAClipAgainBeforeEveryClipHasBeenReturned()
+        {
+            // characterizes: Shuffle is not a bag shuffle. Its _used set only detects when every clip has been
+            // seen (to reset the cycle); Use() never consults it, so a direct Random.Range hit on a clip already
+            // returned this cycle is accepted again. The first N picks of a fresh strategy over N clips are
+            // therefore not guaranteed to be a permutation - uniform random draws would give one only
+            // 4!/4^4 ≈ 9% of the time, so the seeded search below finds a counterexample at once. The documented
+            // contract only promises no immediate repeat (and TEST_FINDINGS #9 shows even that does not hold);
+            // this pins the stronger once-per-cycle property that the _used bookkeeping suggests but never enforces.
+            const int ClipCount = 4;
+            BroAudioClip[] clips = NewSetClips(ClipCount);
+            bool foundCycleWithARepeat = false;
+
+            for (int trial = 0; trial < 200 && !foundCycleWithARepeat; trial++)
+            {
+                var strategy = new ShuffleClipStrategy();
+                var seen = new System.Collections.Generic.HashSet<IBroAudioClip>();
+                for (int pick = 0; pick < ClipCount; pick++)
+                {
+                    seen.Add(strategy.SelectClip(clips, new ClipSelectionContext(0), out _));
+                }
+                foundCycleWithARepeat = seen.Count < ClipCount;
+            }
+
+            Assert.IsTrue(foundCycleWithARepeat,
+                "Expected a first cycle of N picks that returned some clip twice and so skipped another.");
+        }
+
+        [Test]
+        public void SelectClip_OverManyDraws_ReturnsEveryClipAboutEquallyOften()
+        {
+            // Everything in ShuffleClipStrategy is symmetric under rotating the clip array (a uniform draw, then a
+            // +1/-1 neighbour step chosen by a fair coin), so its long-run shares are uniform whatever the order
+            // of individual picks. Draws are not independent - a pick right after a cycle reset is steered off the
+            // previous clip - but that steering favours no slot over another. At N=4000 the i.i.d. std-dev for
+            // p=0.25 is ≈0.0068, so ±0.03 is over 4 of them, while a strategy stuck on one clip, or one that never
+            // reached a slot, misses the band by far. The returned clip is located with IndexOf rather than read
+            // from the out index, which TEST_FINDINGS #10 shows can disagree with it.
+            const int ClipCount = 4;
+            BroAudioClip[] clips = NewSetClips(ClipCount);
+            var strategy = new ShuffleClipStrategy();
+
+            int[] counts = new int[ClipCount];
+            for (int i = 0; i < WeightedDrawCount; i++)
+            {
+                IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext(0), out _);
+                counts[System.Array.IndexOf(clips, (BroAudioClip)result)]++;
+            }
+
+            for (int i = 0; i < ClipCount; i++)
+            {
+                Assert.AreEqual(1f / ClipCount, counts[i] / (float)WeightedDrawCount, 0.03f, $"Clip {i} should win about a quarter of the draws.");
+            }
+        }
+
         #endregion
 
         #region RandomClipStrategy (0.1)
@@ -346,6 +402,29 @@ namespace Ami.BroAudio.Tests
                 strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
                 Assert.GreaterOrEqual(index, 0);
                 Assert.Less(index, clips.Length);
+            }
+        }
+
+        [Test]
+        public void SelectClip_WithAllWeightsZero_DrawsEveryClipAboutEquallyOften()
+        {
+            // The all-zero branch is `index = Random.Range(0, clips.Length)`: a uniform pick, so over N=4000 seeded
+            // draws each of three clips should take about a third. Std-dev for p=1/3 is sqrt((1/3)(2/3)/4000) ≈ 0.0075,
+            // so ±0.03 is 4 of them - a pick collapsed onto one clip (or an off-by-one that never reaches the last
+            // slot, the classic Random.Range(int, int) exclusive-max slip) lands far outside.
+            BroAudioClip[] clips = NewSetClips(3);
+            var strategy = new RandomClipStrategy();
+
+            int[] counts = new int[clips.Length];
+            for (int i = 0; i < WeightedDrawCount; i++)
+            {
+                strategy.SelectClip(clips, new ClipSelectionContext(0), out int index);
+                counts[index]++;
+            }
+
+            for (int i = 0; i < clips.Length; i++)
+            {
+                Assert.AreEqual(1f / 3f, counts[i] / (float)WeightedDrawCount, 0.03f, $"Clip {i} should win about a third of the draws.");
             }
         }
 
