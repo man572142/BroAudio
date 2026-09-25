@@ -3,15 +3,14 @@
 Audio middleware for Unity. The project under `Assets/BroAudio/` **is** the package — that subtree is exactly what consumers install, and it's effectively the whole codebase (the rest of `Assets/` holds only its `.meta`). It ships from one source down two channels: a UPM package (`com.ami.broaudio`) and a Unity Asset Store `.unitypackage`, exported via `PackageExporter` (gated behind `#if BroAudio_DevOnly`). Current version lives in `Assets/BroAudio/package.json`.
 
 ## Commands
-No CLI build/test pipeline — everything runs from the Unity Editor (Unity 6000.3).
+No CLI build pipeline — building, exporting, and authoring run from the Unity Editor.
 - Library Manager (primary authoring window): `Tools > BroAudio > Library Manager`
 - Preferences (feature toggles): `Tools > BroAudio > Preferences`
-- Tests: `Window > General > Test Runner` (Unity Test Framework). Tests, when present, live under `Assets/Tests/` — check that folder first; a branch may have none. CLI form: `Unity -batchmode -projectPath . -runTests -testPlatform PlayMode -testResults results.xml -quit`
 - Regenerate audio proxies: BroAudio Dev Tools window.
 - Player build / package export: `BroProjectBuilder.Build()` and `PackageExporter` in `Editor/DevTools/`.
 
 ## Tech Stack
-C#, Unity. Developed on Unity 6 (6000.3.9f1), but the distributed package declares a minimum of `2020.3` (`Assets/BroAudio/package.json`) — keep runtime code within that API floor rather than reaching for newer-Editor-only APIs.
+C#, Unity. Developed on Unity 6 (exact version in `ProjectSettings/ProjectVersion.txt`), but the distributed package declares a much older minimum (`unity` in `Assets/BroAudio/package.json`) — keep runtime code within that API floor rather than reaching for newer-Editor-only APIs.
 
 ## Assemblies
 Two assemblies; put new files (and their `using` directives) in the matching one:
@@ -77,5 +76,5 @@ Only `Docs/TEST_FINDINGS.md`, `Docs/FIXED_ISSUES.md`, and `Docs/TEST_INVENTORY.m
 
 ## Definition of Done
 1. No compiler errors in changed files (full verification requires the Unity Editor).
-2. New scripts get their `.meta` from Unity on the next asset refresh — commit them together.
+2. Commit each new script together with its `.meta`.
 3. Addressables/Localization code compiles with those packages absent (stays behind the `#if`).
