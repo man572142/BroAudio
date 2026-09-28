@@ -132,9 +132,7 @@ namespace Ami.BroAudio.Runtime
                 tweaker.WaitableList ??= new List<ITweakingWaitable>();
                 if (tweaker.WaitableList.Count == 0)
                 {
-                    // Nothing left to decorate: a zero fadeTime makes Tweak yield nothing, so StartCoroutine
-                    // already drained this list before SetEffect returned. Re-queue, decorated up front so the
-                    // restart can't drain it too - doing nothing would drop the auto-reset this waitable is for.
+                    // When Tweak completes without yielding, StartCoroutine drains the list; re-queue and restart so the auto-reset still runs.
                     decoration.AttachTo(new TweakingWaitableBase(tweaker.Effect));
                     tweaker.WaitableList.Add(decoration);
                     RestartCoroutine(TweakTrackParameter(tweaker, tweaker.Effect.Type, tweaker.Effect.IsDominator, tweaker.OnReset), ref tweaker.Coroutine);
@@ -280,8 +278,7 @@ namespace Ami.BroAudio.Runtime
 
         private void ResetAllEffect(Effect effect, Action<EffectType> onResetFinished)
         {
-            // Starts at 1 for the loop itself, released below. Tweak can finish inside StartCoroutine
-            // (nothing to fade, or no fade time), which would otherwise end the reset on the first effect.
+            // +1 held by the loop so a Tweak finishing synchronously can't fire the callback early.
             int tweakingCount = 1;
             Action onTweakFinished = OnTweakingFinished;
             foreach (var pair in _tweakerDict)

@@ -8,8 +8,7 @@ namespace Ami.BroAudio.Data
 {
 	public partial class BroAudioClip : IBroAudioClip
 	{
-        // Unity's serializer always materializes this field, but `new BroAudioClip()` in code does not.
-        // Initialize it inline so a code-constructed clip behaves like a deserialized one instead of NRE-ing.
+        // Inline init: `new BroAudioClip()` bypasses the serializer, which never leaves this null.
         [SerializeField] private AssetReferenceT<AudioClip> AudioClipAssetReference = new AssetReferenceT<AudioClip>(string.Empty);
 
         public IKeyEvaluator AddressableKey => AudioClipAssetReference;
@@ -91,7 +90,7 @@ namespace Ami.BroAudio.Data
             return AudioClip;
         }
 
-        public bool IsAddressablesAvailable() => AudioClipAssetReference != null && !string.IsNullOrEmpty(AudioClipAssetReference.AssetGUID);
+        public bool IsAddressablesAvailable() => !string.IsNullOrEmpty(AudioClipAssetReference.AssetGUID);
     }
 }
 #endif

@@ -69,8 +69,6 @@ namespace Ami.BroAudio.Runtime
 
         private IEnumerator PlayControl(IAudioPlaybackPref audioTypePref)
         {
-            // Apply the stored per-type volume unconditionally so the pref always mirrors what a live
-            // player has. SoundManager.SetVolume pushes to live players without a default-value guard too.
             if (!_audioTypeVolume.IsFading)
             {
                 _audioTypeVolume.Complete(audioTypePref.Volume, false);
