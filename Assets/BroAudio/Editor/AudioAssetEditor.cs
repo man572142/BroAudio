@@ -18,6 +18,8 @@ namespace Ami.BroAudio.Editor
     public class AudioAssetEditor : UnityEditor.Editor
     {
         private ReorderableList _entityList;
+        // Search results: shares entityList's AudioEntityEditor instances so expand/edit state carries over.
+        private ReorderableList _filteredList;
         private ReorderableList entityList
         {
             get
@@ -55,9 +57,18 @@ namespace Ami.BroAudio.Editor
             RemoveEntitiesListener();
         }
 
+        // AudioEntityEditor's events are static, so every subscribed asset editor hears them; only the entity's owner may act.
+        private bool IsOwnEntity(AudioEntityEditor editor)
+        {
+            return editor && editor.target is AudioEntity entity && entity.AudioAsset == (AudioAsset)Asset;
+        }
+
         private void OnRemoveSelectedEntity(AudioEntityEditor editor)
         {
-            OnRemoveSelectedEntity(false, editor);
+            if (IsOwnEntity(editor))
+            {
+                OnRemoveSelectedEntity(false, editor);
+            }
         }
 
         private void OnRemoveSelectedEntity(bool showDialog, AudioEntityEditor editor)
@@ -74,6 +85,7 @@ namespace Ami.BroAudio.Editor
             {
                 _entityList.list.Remove(editor);
             }
+            _filteredList?.list.Remove(editor);
 
             AssetDatabase.DeleteAsset(AssetDatabase.GetAssetPath(editor.target));
             DestroyImmediate(editor.target, true);
@@ -81,7 +93,7 @@ namespace Ami.BroAudio.Editor
 
         private void OnDuplicateSelectedEntity(AudioEntityEditor editor)
         {
-            if (editor != null && editor.target is AudioEntity entity)
+            if (IsOwnEntity(editor) && editor.target is AudioEntity entity)
             {
                 var newEntity = Instantiate(entity);
                 var path = AssetDatabase.GenerateUniqueAssetPath(AssetDatabase.GetAssetPath(entity));
@@ -130,11 +142,11 @@ namespace Ami.BroAudio.Editor
             return AssetOutputPath;
         }
 
-        private AudioEntityEditor GetAudioEntityEditor(int index)
+        private static AudioEntityEditor GetAudioEntityEditor(ReorderableList list, int index)
         {
-            if (entityList != null && index >= 0 && index < _entityList.count)
+            if (list != null && index >= 0 && index < list.count)
             {
-                return entityList.list[index] as AudioEntityEditor;
+                return list.list[index] as AudioEntityEditor;
             }
 
             return null;
@@ -184,14 +196,8 @@ namespace Ami.BroAudio.Editor
                 editors.Add(entityEditor);
             }
 
-            _entityList = new ReorderableList(editors, typeof(AudioEntityEditor),
-                draggable: false, displayHeader: false, displayAddButton: true, displayRemoveButton: true)
-            {
-                onAddCallback = OnAdd,
-                onRemoveCallback = OnRemove,
-                drawElementCallback = OnDrawElement,
-                elementHeightCallback = OnGetPropertyHeight
-            };
+            _entityList = CreateEntityList(editors, displayAddButton: true);
+            _entityList.onAddCallback = OnAdd;
 
             void OnAdd(ReorderableList list)
             {
@@ -199,7 +205,7 @@ namespace Ami.BroAudio.Editor
 
                 if (list.count > 0)
                 {
-                    var lastEditor = GetAudioEntityEditor(list.count - 1);
+                    var lastEditor = GetAudioEntityEditor(list, list.count - 1);
                     if (lastEditor.target is AudioEntity entity)
                     {
                         audioType = entity.AudioType;
@@ -208,55 +214,116 @@ namespace Ami.BroAudio.Editor
 
                 CreateNewEntity("New Sound", audioType);
             }
+        }
 
-            void OnRemove(ReorderableList list)
+        private ReorderableList CreateEntityList(List<AudioEntityEditor> editors, bool displayAddButton)
+        {
+            ReorderableList list = null;
+            list = new ReorderableList(editors, typeof(AudioEntityEditor),
+                draggable: false, displayHeader: false, displayAddButton: displayAddButton, displayRemoveButton: true)
             {
-                var editor = GetAudioEntityEditor(list.index);
-                if (editor != null)
+                onRemoveCallback = OnRemove,
+                drawElementCallback = (rect, index, isActive, isFocused) => OnDrawElement(list, rect, index),
+                elementHeightCallback = index => OnGetPropertyHeight(list, index)
+            };
+            return list;
+        }
+
+        private void OnRemove(ReorderableList list)
+        {
+            var editor = GetAudioEntityEditor(list, list.index);
+            if (editor != null)
+            {
+                OnRemoveSelectedEntity(true, editor);
+            }
+        }
+
+        private void OnDrawElement(ReorderableList list, Rect rect, int index)
+        {
+            var editor = GetAudioEntityEditor(list, index);
+            if (editor != null)
+            {
+                if (!editor.IsExpanded && EventExtension.IsRightClick(rect))
                 {
-                    OnRemoveSelectedEntity(true, editor);
+                    list.index = index;
+                    list.GrabKeyboardFocus();
+                    // the element background doesn't repaint right away, so we delay the dropdown to the next drawing process
+                    EditorApplication.delayCall += () => editor.OnOpenOptionMenu();
+                    EditorWindow.focusedWindow.Repaint();
                 }
+
+                HandleKeyboardShortcuts(list);
+
+                editor.DrawGUI(rect);
+            }
+        }
+
+        private static float OnGetPropertyHeight(ReorderableList list, int index)
+        {
+            var editor = GetAudioEntityEditor(list, index);
+
+            if (editor != null)
+            {
+                return editor.GetHeight();
             }
 
-            void OnDrawElement(Rect rect, int index, bool isActive, bool isFocused)
-            {
-                var editor = GetAudioEntityEditor(index);
-                if (editor != null)
-                {
-                    if (!editor.IsExpanded && EventExtension.IsRightClick(rect))
-                    {
-                        entityList.index = index;
-                        entityList.GrabKeyboardFocus();
-                        // the element background doesn't repaint right away, so we delay the dropdown to the next drawing process 
-                        EditorApplication.delayCall += () => editor.OnOpenOptionMenu();
-                        EditorWindow.focusedWindow.Repaint();
-                    }
-
-                    HandleKeyboardShortcuts();
-
-                    editor.DrawGUI(rect);
-                }
-            }
-
-            float OnGetPropertyHeight(int index)
-            {
-                var editor = GetAudioEntityEditor(index);
-
-                if (editor != null)
-                {
-                    return editor.GetHeight();
-                }
-
-                return EditorGUIUtility.singleLineHeight;
-            }
+            return EditorGUIUtility.singleLineHeight;
         }
 
         public void ClearList()
         {
             _entityList = null;
+            _filteredList = null;
         }
 
-        private void HandleKeyboardShortcuts()
+        public void SetFilter(IReadOnlyList<AudioEntity> entities)
+        {
+            var editors = new List<AudioEntityEditor>(entities.Count);
+            foreach (var entity in entities)
+            {
+                var editor = FindEntityEditor(entity);
+                if (editor == null)
+                {
+                    RebuildList(); // entity created since the list was built
+                    editor = FindEntityEditor(entity);
+                }
+
+                if (editor != null)
+                {
+                    editors.Add(editor);
+                }
+            }
+            _filteredList = CreateEntityList(editors, displayAddButton: false);
+
+            AudioEntityEditor FindEntityEditor(AudioEntity entity)
+            {
+                foreach (var rawEditor in entityList.list)
+                {
+                    if (rawEditor is AudioEntityEditor editor && editor.target == entity)
+                    {
+                        return editor;
+                    }
+                }
+                return null;
+            }
+        }
+
+        public void ClearFilter()
+        {
+            _filteredList = null;
+        }
+
+        public void DrawFilteredEntitiesList(out float height)
+        {
+            height = 0f;
+            if (_filteredList != null)
+            {
+                _filteredList.DoLayoutList();
+                height = _filteredList.GetHeight();
+            }
+        }
+
+        private void HandleKeyboardShortcuts(ReorderableList list)
         {
             var current = Event.current;
             if(current.type != EventType.KeyDown)
@@ -264,8 +331,14 @@ namespace Ami.BroAudio.Editor
                 return;
             }
 
+            // Search results draw one filtered list per asset; only the focused one may act.
+            if (list == _filteredList && !list.HasKeyboardControl())
+            {
+                return;
+            }
+
             bool isCtrl = current.control || current.modifiers == EventModifiers.Control;
-            if (_entityList != null && GetAudioEntityEditor(_entityList.index) is AudioEntityEditor selected)
+            if (GetAudioEntityEditor(list, list.index) is AudioEntityEditor selected)
             {
                 if (isCtrl && current.keyCode == KeyCode.D)
                 {

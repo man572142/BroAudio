@@ -56,6 +56,9 @@
         LibraryManager_AddressableConversionTooltip,
         LibraryManager_NoLoopForChainedPlayMode,
         LibraryManager_ApplyDefaultLoopForChainedPlayMode,
+        LibraryManager_SearchNoResult,
+        LibraryManager_SearchTooltip,
+        LibraryManager_SearchByTypeTooltip,
 
         // Sound Volume
         SoundVolume_ApplyOnEnable = 400,

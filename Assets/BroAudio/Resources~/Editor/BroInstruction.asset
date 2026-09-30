@@ -184,6 +184,12 @@ MonoBehaviour:
   - Key: 312
     Value: Apply the default Chained Play Mode loop and transition settings to clear
       this message
+  - Key: 313
+    Value: No matching entities
+  - Key: 314
+    Value: Search entities by name
+  - Key: 315
+    Value: Search entities by audio clip name
   - Key: 1000
     Value: The demo not only shows all of the features, but also how to use the API
       and how they're implemented
