@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/BroAudio/Demo/Demo.unity
+    path: Assets/BroAudio/Samples/Demo/Demo.unity
     guid: 05a9e41d79251594aad6850fbdf49b6f
-  m_configObjects: {}
+  m_configObjects:
+    com.unity.addressableassets: {fileID: 11400000, guid: 1a19190409105354eb029791489f66eb, type: 2}
+    com.unity.localization.settings: {fileID: 11400000, guid: 5c969e8610afb064ebc8311d2b7bf578, type: 2}
+  m_UseUCBPForAssetBundles: 0

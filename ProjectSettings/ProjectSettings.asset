@@ -619,7 +619,7 @@ PlayerSettings:
   webWasm2023: 0
   webEnableSubmoduleStrippingCompatibility: 0
   scriptingDefineSymbols:
-    Standalone: 
+    Standalone: BroAudio_DevOnly
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
