@@ -65,6 +65,7 @@ public static class BroUpdater
             UpgradeSoundIDs();
         }
 
+        BroUserDataGenerator.RefreshInstructionAsset();
         BroVersion.UpdateVersion();
 
         if (coreData != null)
@@ -159,7 +160,7 @@ public static class BroUpdater
         string oldPath = corePath + $"/{ResourcesFolder}/{EditorFolder}";
         string newPath = corePath + $"/{EditorFolder}/{ResourcesFolder}";
 
-        if (Directory.Exists(newPath))
+        if (Directory.Exists(newPath) || !Directory.Exists(oldPath))
         {
             return;
         }

@@ -8,7 +8,8 @@ namespace Ami.BroAudio.Data
 {
 	public partial class BroAudioClip : IBroAudioClip
 	{
-        [SerializeField] private AssetReferenceT<AudioClip> AudioClipAssetReference;
+        // Inline init: `new BroAudioClip()` bypasses the serializer, which never leaves this null.
+        [SerializeField] private AssetReferenceT<AudioClip> AudioClipAssetReference = new AssetReferenceT<AudioClip>(string.Empty);
 
         public IKeyEvaluator AddressableKey => AudioClipAssetReference;
         public bool IsLoaded => AudioClip != null || AudioClipAssetReference.Asset != null;
@@ -70,7 +71,7 @@ namespace Ami.BroAudio.Data
 
                 if (AudioClipAssetReference.OperationHandle.IsValid() && !AudioClipAssetReference.OperationHandle.IsDone)
                 {
-                    Debug.LogWarning($"AudioClip [<b>{assetIdentity}</b>] is still loading!");
+                    Debug.LogWarning(Utility.LogTitle + $"AudioClip [<b>{assetIdentity}</b>] is still loading!");
                     return null;
                 }
 

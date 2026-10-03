@@ -69,7 +69,7 @@ namespace Ami.BroAudio.Runtime
 
         private IEnumerator PlayControl(IAudioPlaybackPref audioTypePref)
         {
-            if (!Mathf.Approximately(audioTypePref.Volume, DefaultTrackVolume) && !_audioTypeVolume.IsFading)
+            if (!_audioTypeVolume.IsFading)
             {
                 _audioTypeVolume.Complete(audioTypePref.Volume, false);
             }

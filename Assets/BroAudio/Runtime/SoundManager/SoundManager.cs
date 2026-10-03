@@ -428,7 +428,7 @@ namespace Ami.BroAudio.Runtime
             _audioPlayerPool.Recycle(player);
         }
 
-        private IReadOnlyList<AudioPlayer> GetCurrentAudioPlayers()
+        internal IReadOnlyList<AudioPlayer> GetCurrentAudioPlayers()
         {
             return _audioPlayerPool.GetCurrentAudioPlayers();
         }

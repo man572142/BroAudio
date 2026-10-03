@@ -43,5 +43,12 @@ namespace Ami.BroAudio.Editor.Setting
                 _actualDict.Add(content.Key, content.Value);
             }
         }
+
+        public static class NameOf
+        {
+            public const string Dictionary = nameof(_dictionary);
+            public const string Key = nameof(InstructionDictionary.Key);
+            public const string Value = nameof(InstructionDictionary.Value);
+        }
     }
 }

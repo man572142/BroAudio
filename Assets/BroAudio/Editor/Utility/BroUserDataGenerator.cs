@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 using UnityEditor;
 using Ami.BroAudio.Data;
 using Ami.BroAudio.Runtime;
+using Ami.BroAudio.Editor.Setting;
 using static Ami.BroAudio.Editor.BroEditorUtility;
 using static Ami.BroAudio.Tools.BroName;
 
@@ -65,6 +67,7 @@ namespace Ami.BroAudio.Editor
                             else
                             {
                                 StartGeneratingUserData(soundManager);
+                                BroUpdater.Process(soundManager.AudioMixer, null);
                             }
 #pragma warning restore CS0618 // Type or member is obsolete
                         }
@@ -83,13 +86,13 @@ namespace Ami.BroAudio.Editor
             }
         }
 
-        private static void EnsureAllResources([System.Runtime.CompilerServices.CallerFilePath] string callerFilePath = "")
+        private static string ThisFilePath([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
+        private static IEnumerable<string> GetPackageResourcesDirectories()
         {
-            
             // Loop upwards and find all Resources~ directories
-            string currentPath = Path.GetDirectoryName(callerFilePath);
+            string currentPath = Path.GetDirectoryName(ThisFilePath());
             var cwd = Directory.GetCurrentDirectory();
-            int changed = 0;
 
             // Loop until we reach the project root
             while (!string.IsNullOrEmpty(currentPath) && (currentPath.Contains(cwd) || !Path.IsPathRooted(currentPath)))
@@ -98,10 +101,41 @@ namespace Ami.BroAudio.Editor
 
                 if (Directory.Exists(resourcesPath))
                 {
-                    changed += CopyResourcesToLocalIfNotFound(resourcesPath);
+                    yield return resourcesPath;
                 }
 
                 currentPath = Path.GetDirectoryName(currentPath);
+            }
+        }
+
+        // BroInstruction holds package-owned text only, so the user's copy is replaced on upgrade to pick up new keys.
+        public static void RefreshInstructionAsset()
+        {
+            var instruction = Resources.Load<BroInstruction>(InstructionFileName);
+            if (!instruction)
+            {
+                return;
+            }
+
+            string targetPath = AssetDatabase.GetAssetPath(instruction);
+            foreach (string resourcesPath in GetPackageResourcesDirectories())
+            {
+                string sourcePath = Path.Combine(resourcesPath, EditorFolder, InstructionFileName + ".asset");
+                if (File.Exists(sourcePath))
+                {
+                    File.Copy(sourcePath, targetPath, true);
+                    AssetDatabase.ImportAsset(targetPath, ImportAssetOptions.ForceUpdate);
+                    return;
+                }
+            }
+        }
+
+        private static void EnsureAllResources()
+        {
+            int changed = 0;
+            foreach (string resourcesPath in GetPackageResourcesDirectories())
+            {
+                changed += CopyResourcesToLocalIfNotFound(resourcesPath);
             }
 
             if (changed > 0)

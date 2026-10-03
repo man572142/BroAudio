@@ -253,6 +253,8 @@ namespace Ami.BroAudio.Editor
             RefreshAssetEditors(assetList);
 
             Undo.undoRedoPerformed += Repaint;
+            Undo.undoRedoPerformed += RerunSearchIfActive;
+            EditorApplication.projectChanged += RerunSearchIfActive;
             AudioEntityEditor.OnExpandAll += ResetEntitiesScrollPos;
 
             if (EditorSetting.OpenLastEditAudioAsset && !string.IsNullOrEmpty(EditorSetting.LastEditAudioAsset))
@@ -269,12 +271,14 @@ namespace Ami.BroAudio.Editor
             }
 
             InitBackgroundLogo();
+            RerunSearchIfActive(); // after selection, which resets entity listeners to the selected asset only
         }
 
         private void OnDisable()
         {
             OnCloseLibraryManagerWindow?.Invoke();
 
+            ClearSearchResults();
             if (_assetList != null)
             {
                 foreach (AudioAssetEditor editor in _assetList.list)
@@ -283,6 +287,8 @@ namespace Ami.BroAudio.Editor
                 }
             }
             Undo.undoRedoPerformed -= Repaint;
+            Undo.undoRedoPerformed -= RerunSearchIfActive;
+            EditorApplication.projectChanged -= RerunSearchIfActive;
             AudioEntityEditor.OnExpandAll -= ResetEntitiesScrollPos;
 
             OnCloseLibraryManagerWindow = null;
@@ -599,12 +605,22 @@ namespace Ami.BroAudio.Editor
                 }
                 else
                 {
-                    SplitRectHorizontal(position, EntitiesFactoryRatio, _verticalGapDrawer.SingleLineSpace, out Rect entitiesFactoryRect, out Rect assetListRect);
+                    // Always the first control, so its control ID (and keyboard focus) survives the layout swap on the first keystroke.
+                    DrawSearchBar(IsSearching ? GetFullWidthSearchBarRect() : _assetListSearchRect);
 
-                    DrawEntityFactory(entitiesFactoryRect);
-                    GUILayout.Space(_verticalGapDrawer.GetSpace());
+                    if (IsSearching)
+                    {
+                        DrawSearchResultsPanel();
+                    }
+                    else
+                    {
+                        SplitRectHorizontal(position, EntitiesFactoryRatio, _verticalGapDrawer.SingleLineSpace, out Rect entitiesFactoryRect, out Rect assetListRect);
 
-                    DrawAssetList(assetListRect);
+                        DrawEntityFactory(entitiesFactoryRect);
+                        GUILayout.Space(_verticalGapDrawer.GetSpace());
+
+                        DrawAssetList(assetListRect);
+                    }
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -616,6 +632,14 @@ namespace Ami.BroAudio.Editor
             assetListRect.height -= DefaultLayoutPadding * 2;
             EditorGUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(assetListRect.width), GUILayout.Height(assetListRect.height));
             {
+                // Reserves the row OnGUI drew the search bar into; the rect is only known after layout, so it's applied next repaint.
+                Rect searchRect = GUILayoutUtility.GetRect(0f, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(true));
+                if (Event.current.type != EventType.Layout && searchRect != _assetListSearchRect)
+                {
+                    _assetListSearchRect = searchRect;
+                    Repaint();
+                }
+
                 _assetListScrollPos = EditorGUILayout.BeginScrollView(_assetListScrollPos);
                 {
                     assetList.DoLayoutList();
@@ -685,14 +709,21 @@ namespace Ami.BroAudio.Editor
                 {
                     DrawEntitiesHeader(editor, editor.serializedObject, editor.SetAssetName);
 
-                    if (_isInEntitiesEditMode) // don't draw if we backed out
+                    if (_isInEntitiesEditMode && IsSearching)
+                    {
+                        DrawSearchResults();
+                    }
+                    else if (_isInEntitiesEditMode) // don't draw if we backed out
                     {
                         editor.DrawEntitiesList(out float listHeight);
                         float compensateHeight = GetScrollPosCompensateHeight(listHeight);
                         GUILayout.Space(Mathf.Max(0f, compensateHeight));
                     }
 
-                    HandleDragAndDropEntitiesToEntityList(editor);
+                    if (!IsSearching)
+                    {
+                        HandleDragAndDropEntitiesToEntityList(editor);
+                    }
                 }
                 EditorGUILayout.EndScrollView();
                 //EditorAudioPreviewer.Instance.PlaybackIndicator?.Draw(rect.Scoping(position, new Vector2(offsetX, offsetY)), -_entitiesScrollPos);
@@ -723,6 +754,7 @@ namespace Ami.BroAudio.Editor
             {
                 if (GUILayout.Button(EditorGUIUtility.IconContent(IconConstant.BackButton), GUILayout.Width(BackButtonSize), GUILayout.Height(BackButtonSize)))
                 {
+                    SetSearchQuery(string.Empty);
                     editor.ClearList();
                     _isInEntitiesEditMode = false;
                     assetList.index = -1;
@@ -742,18 +774,28 @@ namespace Ami.BroAudio.Editor
 
                 GUILayout.FlexibleSpace();
 
-                _showSettings = EditorGUILayout.BeginFoldoutHeaderGroup(_showSettings, "Settings");
-                if (_showSettings)
+                EditorGUILayout.BeginVertical();
                 {
-                    var groupProp = serializedAsset.FindProperty(AudioAsset.NameOf.Group);
-                    EditorGUI.BeginChangeCheck();
-                    groupProp.objectReferenceValue = (PlaybackGroup)EditorGUILayout.ObjectField(groupProp.objectReferenceValue, typeof(PlaybackGroup), false);
-                    if(EditorGUI.EndChangeCheck())
+                    EditorGUILayout.BeginHorizontal();
                     {
-                        serializedAsset.ApplyModifiedProperties();
+                        _showSettings = EditorGUILayout.BeginFoldoutHeaderGroup(_showSettings, "Settings");
+                        if (_showSettings)
+                        {
+                            var groupProp = serializedAsset.FindProperty(AudioAsset.NameOf.Group);
+                            EditorGUI.BeginChangeCheck();
+                            groupProp.objectReferenceValue = (PlaybackGroup)EditorGUILayout.ObjectField(groupProp.objectReferenceValue, typeof(PlaybackGroup), false);
+                            if (EditorGUI.EndChangeCheck())
+                            {
+                                serializedAsset.ApplyModifiedProperties();
+                            }
+                        }
+                        EditorGUILayout.EndFoldoutHeaderGroup();
                     }
+                    EditorGUILayout.EndHorizontal();
+
+                    DrawSearchBar(GUILayoutUtility.GetRect(SearchBarWidth, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(true)));
                 }
-                EditorGUILayout.EndFoldoutHeaderGroup();
+                EditorGUILayout.EndVertical();
             }
             EditorGUILayout.EndHorizontal();
         }

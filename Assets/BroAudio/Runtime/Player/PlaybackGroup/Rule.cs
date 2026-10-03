@@ -25,7 +25,7 @@ namespace Ami.BroAudio
             {
                 if(_ruleMethod == null)
                 {
-                    Debug.LogError($"{GetType()} is not initialized yet! As a result, a method that always passes will be returned.");
+                    Debug.LogError(Utility.LogTitle + $"{GetType()} is not initialized yet! As a result, a method that always passes will be returned.");
                     return RuleExtension.EmptyRuleMethod;;
                 }
                 return _ruleMethod;
@@ -70,7 +70,7 @@ namespace Ami.BroAudio
     {
         public EmptyRule(Type ruleType)
         {
-            Debug.LogError($"Can't find a valid rule instance of {ruleType}, It might not be initialized, or there's no default rule available when the override option is off. As a result, a method that always passes is returned");
+            Debug.LogError(Utility.LogTitle + $"Can't find a valid rule instance of {ruleType}, It might not be initialized, or there's no default rule available when the override option is off. As a result, a method that always passes is returned");
         }
 
         public IsPlayableDelegate RuleMethod => RuleExtension.EmptyRuleMethod;
