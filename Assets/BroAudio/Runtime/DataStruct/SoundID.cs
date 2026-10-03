@@ -52,7 +52,7 @@ namespace Ami.BroAudio
 
             if (!SoundIDExtension.TryConvertIdToEntity(ID, out _entity))
             {
-                Debug.LogError($"Could not find entity with ID {ID} to convert SoundID to entity with");
+                Debug.LogError(Utility.LogTitle + $"Could not find entity with ID {ID} to convert SoundID to entity with");
                 _entity = null;
                 return;
             }
@@ -248,7 +248,7 @@ namespace Ami.BroAudio
             }
 #endif
             
-            Debug.LogError($"Could not find entity with ID {id} to convert SoundID to entity with");
+            Debug.LogError(Utility.LogTitle + $"Could not find entity with ID {id} to convert SoundID to entity with");
             entity = null;
             return false;
         }

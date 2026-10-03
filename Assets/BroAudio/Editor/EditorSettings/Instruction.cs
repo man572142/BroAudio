@@ -1,5 +1,6 @@
 ﻿namespace Ami.BroAudio.Editor
 {
+    // Serialized as raw ints in BroInstruction.asset: never renumber; a removed member leaves a gap.
     public enum Instruction
     {
         None = 0,
@@ -19,8 +20,7 @@
         AddTracksConfirmationDialog,
         AudioVoicesToolTip,
         BroVirtualToolTip,
-        PitchShiftingToolTip,
-        AudioFilterSlope,
+        AudioFilterSlope = 16,
         AlwaysPlayMusicAsBGM,
         GlobalPlaybackGroup,
         UpdateMode,
@@ -56,6 +56,9 @@
         LibraryManager_AddressableConversionTooltip,
         LibraryManager_NoLoopForChainedPlayMode,
         LibraryManager_ApplyDefaultLoopForChainedPlayMode,
+        LibraryManager_SearchNoResult,
+        LibraryManager_SearchTooltip,
+        LibraryManager_SearchByTypeTooltip,
 
         // Sound Volume
         SoundVolume_ApplyOnEnable = 400,
@@ -66,6 +69,12 @@
 
         // Sound Source
         SoundSource_PositionMode = 450,
+        SoundSource_PlayOnEnable,
+        SoundSource_OnlyPlayOnce,
+        SoundSource_StopOnDisable,
+        SoundSource_OverrideFadeOut,
+        SoundSource_OverridePlaybackGroup,
+        SoundSource_Delay,
 
         // Playback Group
         PlaybackGroup_Override = 500,

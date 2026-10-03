@@ -153,7 +153,7 @@ namespace Ami.Extension
         {
             if (!Mathf.Approximately(ratios.Sum(), 1))
             {
-                Debug.LogError("[Editor] Split ratio's sum should be 1");
+                Debug.LogError(BroAudio.Utility.LogTitle + "[Editor] Split ratio's sum should be 1");
                 return;
             }
 
@@ -164,7 +164,7 @@ namespace Ami.Extension
         {
             if(resultRects == null)
             {
-                Debug.LogError("Rects array is null!");
+                Debug.LogError(BroAudio.Utility.LogTitle + "Rects array is null!");
                 return;
             }
 
@@ -188,7 +188,7 @@ namespace Ami.Extension
         {
             if (!Mathf.Approximately(ratios.Sum(), 1))
             {
-                Debug.LogError("[Editor] Split ratio's sum should be 1");
+                Debug.LogError(BroAudio.Utility.LogTitle + "[Editor] Split ratio's sum should be 1");
                 return;
             }
 
