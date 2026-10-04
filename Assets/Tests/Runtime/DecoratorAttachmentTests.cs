@@ -34,6 +34,7 @@ namespace Ami.BroAudio.Tests
             yield return null;
         }
 
+#if !UNITY_WEBGL
         [UnityTest]
         public IEnumerator AsBGM_AndAsDominator_CoexistOnTheSamePlayer()
         {
@@ -41,7 +42,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
 
             player.AsBGM();
-            player.AsDominator(); // #if !UNITY_WEBGL in source — available here, running in the Editor.
+            player.AsDominator();
 
             List<AudioPlayerDecorator> decorators = GetDecorators(player);
             Assert.AreEqual(2, decorators.Count, "Both decorators should live side by side in the same list.");
@@ -50,6 +51,7 @@ namespace Ami.BroAudio.Tests
 
             yield return null;
         }
+#endif
 
         private static List<AudioPlayerDecorator> GetDecorators(IAudioPlayer player)
             => TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(InstanceOf(player), TestAudioLibrary.Reflected.AudioPlayer.Decorators);

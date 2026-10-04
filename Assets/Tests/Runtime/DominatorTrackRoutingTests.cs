@@ -10,6 +10,7 @@ using UnityEngine.TestTools;
 
 namespace Ami.BroAudio.Tests
 {
+#if !UNITY_WEBGL
     /// <summary>
     /// Which mixer track a dominator lands on. AudioPlayer.SetupAudioTrack reads IsDominator (decorator already
     /// attached?) once, when SoundManager.LateUpdate drains the queue, and that read fixes routing for the
@@ -195,4 +196,5 @@ namespace Ami.BroAudio.Tests
         private static List<AudioPlayerDecorator> GetDecorators(IAudioPlayer player)
             => TestAudioLibrary.GetPrivateField<List<AudioPlayerDecorator>>(InstanceOf(player), TestAudioLibrary.Reflected.AudioPlayer.Decorators);
     }
+#endif
 }

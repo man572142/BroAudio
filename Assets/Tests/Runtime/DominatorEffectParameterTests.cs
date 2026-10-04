@@ -9,6 +9,7 @@ using UnityEngine.TestTools;
 
 namespace Ami.BroAudio.Tests
 {
+#if !UNITY_WEBGL
     /// <summary>
     /// Dominator effects write their own <c>Main_*</c> mixer parameters, never the <c>Effect_*</c> ones
     /// <see cref="BroAudio.SetEffect"/> uses, and their invalid-input guards differ in log level.
@@ -194,4 +195,5 @@ namespace Ami.BroAudio.Tests
         private static bool IsAtFullVolume(AudioMixer mixer, string parameterName)
             => mixer.GetFloat(parameterName, out float db) && Mathf.Abs(db - AudioConstant.FullDecibelVolume) < DecibelTolerance;
     }
+#endif
 }

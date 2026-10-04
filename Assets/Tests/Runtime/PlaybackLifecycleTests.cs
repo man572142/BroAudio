@@ -223,21 +223,27 @@ namespace Ami.BroAudio.Tests
 
             IMusicPlayer musicPlayer = null;
             IAudioPlayer transitioned = null;
+#if !UNITY_WEBGL
             IPlayerEffect dominator = null;
             IPlayerEffect quieted = null;
+#endif
 
             Assert.DoesNotThrow(() =>
             {
                 musicPlayer = player.SetVolume(0.5f).SetPitch(1.2f).AsBGM();
                 transitioned = musicPlayer.SetTransition(Transition.Immediate);
+#if !UNITY_WEBGL
                 dominator = transitioned.AsDominator();
                 quieted = dominator.QuietOthers(0.5f);
+#endif
             }, "Chaining fluent calls off an inert, rejected Play handle must never throw.");
 
             Assert.IsNotNull(musicPlayer, "AsBGM at the end of an inert chain must never yield null.");
             Assert.IsNotNull(transitioned, "SetTransition on an inert chain must never yield null.");
+#if !UNITY_WEBGL
             Assert.IsNotNull(dominator, "AsDominator on an inert chain must never yield null.");
             Assert.IsNotNull(quieted, "QuietOthers on an inert chain must never yield null.");
+#endif
 
             yield break;
         }
