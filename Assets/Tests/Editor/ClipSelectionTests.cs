@@ -496,10 +496,8 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding_10")]
-        public void SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero()
+        public void SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipAndItsIndex()
         {
-            // Pins TEST_FINDINGS #10 (velocity half).
             BroAudioClip[] clips = NewSetClips(3);
             clips[0].Weight = 0;
             clips[1].Weight = 40;
@@ -509,7 +507,7 @@ namespace Ami.BroAudio.Tests
             IBroAudioClip result = strategy.SelectClip(clips, new ClipSelectionContext(200), out int index);
 
             Assert.AreSame(clips[2], result);
-            Assert.AreEqual(0, index, "index is left stale at its initial value; it does not reflect the actually-returned clip.");
+            Assert.AreEqual(2, index, "index must point at the returned clip.");
         }
 
         [Test]

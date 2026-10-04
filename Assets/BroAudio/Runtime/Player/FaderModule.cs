@@ -123,7 +123,9 @@ namespace Ami.BroAudio.Runtime
 
         private void StopCoroutine()
         {
-            _coroutineExecutor.SafeStopCoroutine(_coroutine);
+            // Reachable during teardown, so it must not touch the throwing SoundManager.Instance.
+            MonoBehaviour executor = SoundManager.HasInstance ? _coroutineExecutor : null;
+            executor.SafeStopCoroutine(_coroutine);
             _coroutine = null;
         }
 

@@ -237,12 +237,11 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect on an inactive player must not attach or leave anything behind either.");
         }
 
-        // Pins TEST_FINDINGS #45. Unity's refusals are untagged LogType.Log, which can't fail a test, so no
-        // log handling is relaxed. A seam's refusals are one message repeated: counting only the largest
-        // identical group keeps unrelated untagged logs from shifting the count.
+        // A handover transfers added effects once per decorator plus once. Unity's refusal of a duplicate filter
+        // is an untagged LogType.Log, which can't fail a test: refusals repeat one message, so counting only the
+        // largest identical group keeps unrelated untagged logs from shifting the count.
         [UnityTest]
-        [Category("Finding_45")]
-        public IEnumerator Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter()
+        public IEnumerator Loop_WithAnAddedEffectAndTwoDecorators_CarriesOneFilterAndOneEntryAcrossSeams()
         {
             yield return RequireRealtimeAudioClock();
 
@@ -266,10 +265,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(2, decoratorCount, $"Precondition: AsBGM() and AsDominator() should attach one decorator each; observed {decoratorCount}.");
             Assert.AreEqual(1, AddedEffectCount(firstInstance), "Precondition: AddLowPassEffect should record exactly one added effect.");
             Assert.AreEqual(1, firstInstance.GetComponents<AudioLowPassFilter>().Length, "Precondition: AddLowPassEffect should attach exactly one AudioLowPassFilter.");
-
-            int copiesPerSeam = decoratorCount + 1;
-            int entriesAfterFirstSeam = copiesPerSeam;
-            int entriesAfterSecondSeam = entriesAfterFirstSeam * copiesPerSeam;
 
             List<string> untaggedLogs = new List<string>();
             List<string> untaggedPlainLogs = new List<string>();
@@ -322,7 +317,6 @@ namespace Ami.BroAudio.Tests
                 thirdEntries = AddedEffectCount(thirdInstance);
                 thirdFilters = thirdInstance.GetComponents<AudioLowPassFilter>().Length;
 
-                // Stopped before the next seam, which would log 26 more refusals.
                 player.Stop(0f);
                 yield return null;
             }
@@ -340,18 +334,17 @@ namespace Ami.BroAudio.Tests
                 $"Unity keeps one AudioLowPassFilter per GameObject, so the voice carries a single filter. {observed}");
             Assert.AreEqual(CutoffFrequency, secondCutoff, 1f,
                 $"The one filter that did attach must carry the added effect's settings over the seam. {observed}");
-            Assert.AreEqual(entriesAfterFirstSeam, secondEntries,
-                $"characterizes: the transfer runs once per decorator plus once ({copiesPerSeam} times), and every attempt " +
-                $"appends an entry whether or not its component attached. {observed}");
-            Assert.AreEqual(copiesPerSeam - 1, refusalsAtFirstSeam,
-                $"characterizes: each attempt after the first is refused by Unity, with its own untagged log. {observed}");
+            Assert.AreEqual(1, secondEntries,
+                $"Repeated transfers must not append entries for a filter the player already has. {observed}");
+            Assert.LessOrEqual(refusalsAtFirstSeam, 1,
+                $"No transfer may be refused by Unity; a lone untagged log can be unrelated. {observed}");
 
             Assert.AreEqual(1, thirdFilters,
                 $"Still one filter on the voice after the second seam. {observed}");
-            Assert.AreEqual(entriesAfterSecondSeam, thirdEntries,
-                $"characterizes: every entry is copied {copiesPerSeam} times again, so the list multiplies at each seam. {observed}");
-            Assert.AreEqual(entriesAfterSecondSeam - 1, refusalsAtSecondSeam,
-                $"characterizes: and so do Unity's refusals - all but one of the second seam's attempts are rejected. {observed}");
+            Assert.AreEqual(1, thirdEntries,
+                $"Still one entry after the second seam: the list must not grow per seam. {observed}");
+            Assert.LessOrEqual(refusalsAtSecondSeam, 1,
+                $"No transfer may be refused by Unity at the second seam either. {observed}");
         }
 
         /// <summary>Non-generic IList: the element type is a private struct.</summary>

@@ -70,28 +70,30 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Null follow target
-        // Pins TEST_FINDINGS #60.
         [UnityTest]
-        [Category("Finding_60")]
-        public IEnumerator Play_WithANullFollowTarget_ThrowsNullReferenceExceptionBeforeAnyValidation()
+        public IEnumerator Play_WithANullOrDestroyedFollowTarget_LogsAndReturnsAnInactivePlayer()
         {
             SoundID id = NewSound("NullFollowTargetSfx", BroAudioType.SFX, NewClip(1f));
+            var destroyed = new GameObject("DestroyedFollowTarget").transform;
+            UnityEngine.Object.DestroyImmediate(destroyed.gameObject);
 
-            Assert.Throws<NullReferenceException>(() => BroAudio.Play(id, (Transform)null),
-                "characterizes: Play(id, (Transform)null) dereferences the target before validating anything.");
-            Assert.Throws<NullReferenceException>(() => BroAudio.Play(id, (Transform)null, 0.5f),
-                "characterizes: the fade-in overload shares the same unguarded dereference.");
+            Func<IAudioPlayer>[] plays =
+            {
+                () => BroAudio.Play(id, (Transform)null),
+                () => BroAudio.Play(id, (Transform)null, 0.5f),
+                () => BroAudio.Play(SoundID.Invalid, (Transform)null),
+                () => BroAudio.Play(id, destroyed),
+            };
 
-            // Don't add LogAssert.Expect: the absence of the validation log is what proves the dereference runs first.
-            Assert.Throws<NullReferenceException>(() => BroAudio.Play(SoundID.Invalid, (Transform)null),
-                "characterizes: even an unassigned SoundID reaches the null dereference before its own validation.");
+            foreach (Func<IAudioPlayer> play in plays)
+            {
+                LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
+                IAudioPlayer rejected = play();
+                Assert.IsFalse(rejected.IsActive, "A missing follow target must log and return the inert Empty player, not throw.");
+            }
 
             yield return WaitFrames(2);
-            Assert.IsFalse(BroAudio.HasAnyPlayingInstances(id), "None of the throwing calls may have started a voice.");
-
-            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
-            IAudioPlayer rejected = BroAudio.Play(SoundID.Invalid);
-            Assert.IsFalse(rejected.IsActive, "Every other overload logs and returns the inert Empty player instead of throwing.");
+            Assert.IsFalse(BroAudio.HasAnyPlayingInstances(id), "None of the rejected calls may have started a voice.");
         }
         #endregion
 
@@ -234,7 +236,7 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        // SetPitch has no master branch (TEST_FINDINGS #56), so the conversion isn't observable here; this
+        // SetPitch has no master branch, so the conversion isn't observable here; this
         // pins the outcome only.
         [UnityTest]
         public IEnumerator SetPitch_WithUnitysEverythingFlag_ReachesLivePlayersAndEveryConcreteTypePref()

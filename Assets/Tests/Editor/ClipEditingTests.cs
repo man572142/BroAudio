@@ -11,7 +11,7 @@ namespace Ami.BroAudio.Editor.Tests
     /// is checked against exact values from a ramp clip. Pinned quirks (TEST_FINDINGS) are characterized, not fixed.
     /// <para>
     /// At <see cref="SampleRate"/> one sample is one millisecond, so every <see cref="Seconds"/> value survives the
-    /// float round-trip (including AddSlient's (int) cast) and index math can be asserted exactly.
+    /// float round-trip (including PrependSilence's (int) cast) and index math can be asserted exactly.
     /// </para>
     /// </summary>
     public class ClipEditingTests : BroEditorTestFixture
@@ -50,7 +50,6 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region GetResultClip
         [Test]
-        [Category("Finding_29")]
         public void GetResultClip_NoEdit_ReturnsOriginalInstance()
         {
             AudioClip clip = Track(TestAudioLibrary.CreateClip(0.1f, "Untouched"));
@@ -58,7 +57,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             AudioClip result = helper.GetResultClip();
 
-            // Characterizes TEST_FINDINGS #29: an unedited helper hands back the SAME instance, not a copy.
+            // An unedited helper hands back the SAME instance, not a copy.
             Assert.AreSame(clip, result);
         }
 
@@ -161,16 +160,14 @@ namespace Ami.BroAudio.Editor.Tests
         }
         #endregion
 
-        #region AddSlient
+        #region PrependSilence
         [Test]
-        [Category("Finding_27")]
-        public void AddSlient_PrependsSilenceAndShiftsOriginalDataToTail()
+        public void PrependSilence_PrependsSilenceAndShiftsOriginalDataToTail()
         {
-            // Pins TEST_FINDINGS #27.
             AudioClip clip = CreateRampClip("Ramp4", 4, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
-            helper.AddSlient(Seconds(3)); // mono => 3 silent samples
+            helper.PrependSilence(Seconds(3)); // mono => 3 silent samples
 
             Assert.IsTrue(helper.HasEdited);
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
@@ -178,18 +175,17 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
         }
         [Test]
-        [Category("Finding_27")]
-        public void AddSlient_PadLengthTruncatesInsteadOfRounding()
+        public void PrependSilence_PadLengthTruncatesInsteadOfRounding()
         {
-            // Pins TEST_FINDINGS #27: this time is 3.9999 samples.
+            // This time is 3.9999 samples.
             AudioClip clip = CreateRampClip("Ramp4Trunc", 4, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
-            helper.AddSlient(0.0039999f);
+            helper.PrependSilence(0.0039999f);
 
             float[] actual = ReadAllSamples(Track(helper.GetResultClip()));
             Assert.AreEqual(4 + 3, actual.Length,
-                "characterizes: AddSlient's pad length truncates via a plain (int) cast, unlike FadeIn/FadeOut/" +
+                "characterizes: PrependSilence's pad length truncates via a plain (int) cast, unlike FadeIn/FadeOut/" +
                 "GetDataSample which round - a 3.9999-sample pad yields 3, not 4.");
         }
         #endregion
@@ -293,10 +289,8 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region ConvertToMono
         [Test]
-        [Category("Finding_25")]
         public void ConvertToMono_Downmixing_AveragesEachFrameButDropsTheFinalFrame()
         {
-            // Pins TEST_FINDINGS #25.
             AudioClip clip = CreateRampClip("Ramp3Stereo", 3, 2); // interleaved: 0, 1/3, 2/3, 1, 4/3, 5/3
             using var helper = new AudioClipEditingHelper(clip);
 

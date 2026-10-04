@@ -33,6 +33,12 @@ namespace Ami.BroAudio.Runtime
 
         public IAudioPlayer Play(SoundID id, Transform followTarget, float fadeIn, IPlayableValidator customValidator = null)
         {
+            if (!followTarget)
+            {
+                Debug.LogError(LogTitle + $"Cannot play {id}: the follow target is null or destroyed.");
+                return Empty.AudioPlayer;
+            }
+
             if (IsPlayable(id, customValidator, followTarget.position, out var entity, out var player))
             {
                 var pref = new PlaybackPreference(entity, followTarget).SetNextFadeIn(fadeIn);

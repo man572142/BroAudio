@@ -131,7 +131,7 @@ namespace Ami.BroAudio.Data
             else if (MulticlipsPlayMode == MulticlipsPlayMode.Chained)
             {
                 loopType = chainedDefaultLoop;
-                transitionTime = chainedDefaultTransitionTime;
+                transitionTime = loopType != LoopType.None ? chainedDefaultTransitionTime : 0f;
             }
             return loopType != LoopType.None;
         }

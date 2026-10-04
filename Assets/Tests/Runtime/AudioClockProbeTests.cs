@@ -40,7 +40,7 @@ namespace Ami.BroAudio.Tests
                 $"but {CiExpectsAudioVariable} is set, meaning the editor image is supposed to provide one. " +
                 "Every test that opens with RequireRealtimeAudioClock was silently ignored rather than run: " +
                 "the seamless and chained handovers, most of the spectrum analyzer suite, the scheduling pins, " +
-                "the dominator routing tests, and the TEST_FINDINGS #38-#40 characterizations. Everything else in this run reported green, so " +
+                "the dominator routing tests, and the TEST_FINDINGS #39-#40 characterizations. Everything else in this run reported green, so " +
                 "treat that green as meaningless until this passes. Check the PulseAudio null sink in " +
                 ".github/docker/Dockerfile: that the image was rebuilt after the Dockerfile last changed (the " +
                 "workflow reuses an already-published tag), and that /usr/bin/unity-editor.d/00-audio.sh still " +

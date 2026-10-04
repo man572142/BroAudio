@@ -91,6 +91,7 @@ namespace Ami.BroAudio
             }
         }
 
+        // Default means neutral (no audible effect), not "as constructed": Effect(EffectType) seeds an audible BroAdvice value.
         public bool IsDefault() => Type switch
         {
             EffectType.Volume => Value == AudioConstant.FullDecibelVolume,

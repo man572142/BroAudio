@@ -25,10 +25,8 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_32")]
         public void HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero()
         {
-            // Pins TEST_FINDINGS #32.
             var transport = new Transport(10f);
             transport.SetValue(1f, TransportType.Delay);
 

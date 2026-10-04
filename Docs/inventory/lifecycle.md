@@ -90,8 +90,8 @@
 - **Play with a fade-in at a position or on a follow target.** `Play(id, position, fadeIn)` and
   `Play(id, followTarget, fadeIn)` place a 3D voice at (or tracking) the target and ramp it from silence
   over the given fade.
-- **Play with a null follow target.** `Play(id, (Transform)null)` throws a raw `NullReferenceException`
-  before any validation, even for `SoundID.Invalid`.
+- **Play with a null follow target.** `Play(id, (Transform)null)`, or with a destroyed `Transform`, logs an
+  error and returns an inactive player, even for `SoundID.Invalid`.
 - **Play of an entity whose clip slot holds no `AudioClip`.** The play is accepted, then logs one error and
   recycles without sounding; a Random-mode entity whose slots are all empty selects one of them and does
   the same.

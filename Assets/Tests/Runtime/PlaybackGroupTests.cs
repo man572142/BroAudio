@@ -163,9 +163,7 @@ namespace Ami.BroAudio.Tests
                 "Two positioned plays closer than _ignoreIfDistanceIsGreaterThan get no exemption inside the time window.");
         }
 
-        // Pins TEST_FINDINGS #12.
         [UnityTest]
-        [Category("Finding_12")]
         public IEnumerator Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance()
         {
             DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f, ignoreDistanceGreaterThan: 5f);
@@ -181,7 +179,7 @@ namespace Ami.BroAudio.Tests
                 "A global/positioned mix is exempted purely because _ignoreIfDistanceIsGreaterThan > 0, with no actual distance comparison possible.");
         }
 
-        // Negative control for the #12 pin above.
+        // Negative control for the global/positioned exemption above.
         [UnityTest]
         public IEnumerator Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond()
         {

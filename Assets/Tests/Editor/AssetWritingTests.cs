@@ -76,10 +76,8 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_31")]
         public void CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime()
         {
-            // Pins TEST_FINDINGS #31.
             string path = EnsureTempFolder() + "/BroTestNotInResources.asset";
 
             var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);

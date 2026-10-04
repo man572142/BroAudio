@@ -177,6 +177,7 @@ namespace Ami.BroAudio.Runtime
             AudioSource.maxDistance = AudioConstant.AttenuationMaxDistance;
             AudioSource.reverbZoneMix = AudioConstant.DefaultReverZoneMix;
             AudioSource.spread = AudioConstant.DefaultSpread;
+            // The CustomRolloff curve is not cleared, so anything that selects Custom must also set the curve.
             AudioSource.rolloffMode = AudioConstant.DefaultRolloffMode;
         }
 
@@ -384,7 +385,13 @@ namespace Ami.BroAudio.Runtime
             for (int i = 0; i < previousPlayerEffects.Count; i++)
             {
                 var copiedEffect = previousPlayerEffects[i];
-                var newComponent = go.AddComponent(Utility.GetFilterTypeFromProxy(copiedEffect.Modifier));
+                var filterType = Utility.GetFilterTypeFromProxy(copiedEffect.Modifier);
+                // A handover transfers once per decorator plus once; Unity allows one filter of each type per GameObject.
+                if (go.GetComponent(filterType))
+                {
+                    continue;
+                }
+                var newComponent = go.AddComponent(filterType);
                 copiedEffect.Modifier.TransferValueTo(newComponent as Behaviour);
                 copiedEffect.Component = newComponent;
                 _addedEffects ??= new List<AddedEffect>();

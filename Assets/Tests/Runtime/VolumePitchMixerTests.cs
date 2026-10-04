@@ -180,11 +180,10 @@ namespace Ami.BroAudio.Tests
                 "A per-SoundID pitch is not stored: the next play of that ID starts from its base pitch.");
         }
 
-        // Pins TEST_FINDINGS #53 at a real call site. The ramp and WaitForSeconds share the scaled frame clock,
-        // so fade time plus two frames is past the ramp's last pass by construction, not by margin.
+        // The ramp and WaitForSeconds share the scaled frame clock, so fade time plus two frames is past the
+        // ramp's last pass, which evaluates the ease past t = 1, by construction, not by margin.
         [UnityTest]
-        [Category("Finding_53")]
-        public IEnumerator SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer()
+        public IEnumerator SetVolume_MasterFadeWithInCircEase_LandsOnTheTarget()
         {
             const float StartVolume = 0.5f;
             const float FadeSeconds = 0.5f;
@@ -201,16 +200,8 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(2);
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float endDb));
-            Assert.IsTrue(float.IsNaN(endDb),
-                $"characterizes: the InCirc master fade ends on NaN (read {endDb}dB, the target is {AudioConstant.FullDecibelVolume}dB) - " +
-                "its last pass evaluates the ease past t = 1, where InCirc has no real value.");
-
-            // Must run: NaN never satisfies SetMasterVolume's == early return, so this rewrites the parameter.
-            BroAudio.SetVolume(AudioConstant.FullVolume, 0f);
-            yield return WaitFrames(1);
-            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float recoveredDb));
-            Assert.AreEqual(AudioConstant.FullDecibelVolume, recoveredDb, DecibelTolerance,
-                "A zero-fade SetVolume must clear the NaN, or every later test in the run inherits a broken master stage.");
+            Assert.AreEqual(AudioConstant.FullDecibelVolume, endDb, DecibelTolerance,
+                "The InCirc master fade must end on its target, not on InCirc's NaN past t = 1.");
         }
     }
 }

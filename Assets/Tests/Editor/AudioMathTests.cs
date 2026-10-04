@@ -323,10 +323,8 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding_8")]
         public void IsDefault_LowPass_ParameterlessConstructor_IsNotDefault()
         {
-            // Pins TEST_FINDINGS #8.
             Assert.IsFalse(new Effect(EffectType.LowPass).IsDefault());
         }
 
@@ -338,10 +336,8 @@ namespace Ami.BroAudio.Tests
         }
 
         [Test]
-        [Category("Finding_8")]
         public void IsDefault_HighPass_ParameterlessConstructor_IsNotDefault()
         {
-            // Pins TEST_FINDINGS #8.
             Assert.IsFalse(new Effect(EffectType.HighPass).IsDefault());
         }
 

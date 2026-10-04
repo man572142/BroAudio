@@ -50,10 +50,9 @@ namespace Ami.BroAudio.Editor.Tests
         // EditorWindow's position, so the cases below move the scope off it.
 
         [Test]
-        [Category("Finding_62")]
         public void Scoping_OffOriginScope_ClampsLocalRectAgainstGlobalEdge()
         {
-            // Pins TEST_FINDINGS #62. Local xMax/yMax (90, 100) stay under the global edge (150), so nothing is
+            // Local xMax/yMax (90, 100) stay under the global edge (150), so nothing is
             // clamped although the rect overhangs the local bounds.
             var scope = new Rect(100f, 100f, 50f, 50f);
             var oversizedGlobalRect = new Rect(110f, 110f, 80f, 90f);
@@ -63,16 +62,15 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(10f, result.x, 0.0001f, "Scoping should subtract the scope's x.");
             Assert.AreEqual(10f, result.y, 0.0001f, "Scoping should subtract the scope's y.");
             Assert.AreEqual(80f, result.width, 0.0001f,
-                "width was clamped - if to 40 (scope.width - local x), #62 is fixed: update this pin and the finding.");
+                "width was clamped - if to 40 (scope.width - local x), the clamp now uses local bounds: update this pin.");
             Assert.AreEqual(90f, result.height, 0.0001f,
-                "height was clamped - if to 40 (scope.height - local y), #62 is fixed: update this pin and the finding.");
+                "height was clamped - if to 40 (scope.height - local y), the clamp now uses local bounds: update this pin.");
         }
 
         [Test]
-        [Category("Finding_62")]
         public void Scoping_OffOriginScope_LocalRectPastTheGlobalEdge_IsClampedToTheGlobalEdge()
         {
-            // The other half of #62: local xMax 210 > 150 is cut to 150 -> width 140 (a correct clamp gives 40).
+            // Local xMax 210 > 150 is cut to 150 -> width 140 (a correct clamp gives 40).
             var scope = new Rect(100f, 100f, 50f, 50f);
             var oversizedGlobalRect = new Rect(110f, 110f, 200f, 200f);
 
@@ -85,7 +83,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void DeScope_OffOriginScope_ClampsGlobalRectAgainstGlobalEdge()
         {
-            // Contrast: DeScope's result is global, so its clamp is consistent; #62 is confined to Scoping.
+            // Contrast: DeScope's result is global, so its clamp is consistent; the mismatch is confined to Scoping.
             // Local (10, 10, 80, 90) -> global (110, 110), xMax 190 -> 150, yMax 200 -> 150.
             var scope = new Rect(100f, 100f, 50f, 50f);
             var oversizedLocalRect = new Rect(10f, 10f, 80f, 90f);

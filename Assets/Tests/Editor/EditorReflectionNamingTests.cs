@@ -27,11 +27,9 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_23")]
-        public void GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst()
+        public void GetFieldName_LowercasesOnlyTheLeadingChar()
         {
-            // Pins TEST_FINDINGS #23.
-            Assert.AreEqual("_foof", EditorScriptingExtension.GetFieldName("FooF"));
+            Assert.AreEqual("_fooF", EditorScriptingExtension.GetFieldName("FooF"));
         }
 
         [Test]

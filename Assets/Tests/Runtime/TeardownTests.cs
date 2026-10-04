@@ -10,7 +10,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// Pins behavior once SoundManager is destroyed: facade release verbs no-op, <c>BroAudio.Play</c> throws
-    /// <see cref="BroAudioException"/>, and a pre-teardown <see cref="IAudioPlayer"/> handle throws (TEST_FINDINGS #49).
+    /// <see cref="BroAudioException"/>, and a pre-teardown <see cref="IAudioPlayer"/> handle's release verbs no-op.
     /// <para>
     /// SoundManager's only teardown hook is <c>OnDestroy</c>, so tests destroy the manager directly;
     /// <see cref="RestoreSoundManagerAfterTest"/> must re-bootstrap it because every later PlayMode test needs it.
@@ -158,13 +158,10 @@ namespace Ami.BroAudio.Tests
         }
 #endif
 
-        // Pins TEST_FINDINGS #49. The shape matters: the handle's AudioPlayer dies with the manager (it is
-        // parented under it); a merely-recycled handle with the manager alive is inert instead
-        // (PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal). Fixing LogInstanceIsNull fails
-        // Assert.Throws here - update the characterization with the fix.
+        // The shape matters: the handle's AudioPlayer dies with the manager (it is parented under it); a
+        // merely-recycled handle with the manager alive is covered by PlaybackLifecycleTests.StaleHandle_AfterRecycle_IsInertNotFatal.
         [UnityTest]
-        [Category("Finding_49")]
-        public IEnumerator StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsThrowInsteadOfSilentlyNoOp()
+        public IEnumerator StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsNoOp()
         {
             SoundID id = NewSound("TeardownStaleHandleSfx", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer player = BroAudio.Play(id);
@@ -183,9 +180,8 @@ namespace Ami.BroAudio.Tests
 
             foreach (Action verb in releaseVerbsOnHandle)
             {
-                Assert.Throws<BroAudioException>(() => verb(),
-                    "characterizes: a release verb on a handle whose backing AudioPlayer died together with SoundManager throws " +
-                    "via AudioPlayerInstanceWrapper.LogInstanceIsNull -> SoundManager.Instance, not a silent no-op.");
+                Assert.DoesNotThrow(() => verb(),
+                    "A release verb on a handle whose backing AudioPlayer died together with SoundManager must be a silent no-op.");
             }
 
             // Contrast: same destroyed state, non-logging path.
@@ -194,39 +190,19 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(player.IsActive, "A handle whose backing player died with the manager must read back as inactive.");
         }
 
-        // Pins TEST_FINDINGS #50. The Fader is built directly because no production path reaches the guard:
-        // every real Fader's AudioPlayer dies with the manager. The live-manager call first shows the throw
-        // comes from the missing manager, not the Fader's own state.
+        // The Fader is built directly because no production path reaches the guard:
+        // every real Fader's AudioPlayer dies with the manager.
         [UnityTest]
-        [Category("Finding_50")]
-        public IEnumerator Fader_CompleteWithManagerDestroyed_ThrowsBroAudioExceptionInsteadOfTheDefensiveNoOp()
+        public IEnumerator Fader_CompleteWithManagerDestroyed_IsADefensiveNoOp()
         {
             RecordingAudioBus bus = new RecordingAudioBus();
             Fader fader = new Fader(1f, bus);
 
-            Assert.DoesNotThrow(() => fader.Complete(0.5f),
-                "Contrast: Fader.Complete (-> StopCoroutine with no coroutine running) must not throw while SoundManager is alive.");
-            int busUpdatesWhileAlive = bus.UpdateCount;
-
             DestroyManagerImmediate();
 
-            Exception observed = null;
-            try
-            {
-                fader.Complete(0.25f);
-            }
-            catch (Exception ex)
-            {
-                observed = ex;
-            }
-
-            string observedDescription = observed == null
-                ? $"no exception: the defensive no-op held (bus updates {busUpdatesWhileAlive} -> {bus.UpdateCount}, Current {fader.Current})"
-                : $"{observed.GetType().FullName}: {observed.Message}";
-            Assert.IsInstanceOf<BroAudioException>(observed,
-                "characterizes: with SoundManager destroyed, Fader.StopCoroutine reads the throwing SoundManager.Instance " +
-                "before SafeStopCoroutine's null guard can no-op, so Complete throws BroAudioException. No exception would " +
-                $"refute TEST_FINDINGS #50. Observed: {observedDescription}.");
+            Assert.DoesNotThrow(() => fader.Complete(0.25f),
+                "With SoundManager destroyed, Fader.StopCoroutine must not reach the throwing SoundManager.Instance.");
+            Assert.AreEqual(0.25f, fader.Current, "Complete still applies its value; only the coroutine stop is skipped.");
 
             yield break;
         }

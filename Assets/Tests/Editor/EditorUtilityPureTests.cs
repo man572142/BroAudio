@@ -69,10 +69,8 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_24")]
         public void Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
-            // Pins TEST_FINDINGS #24.
             Assert.AreEqual("a//b/c", BroEditorUtility.Combine("a/", "b", "c"));
         }
 
@@ -83,10 +81,8 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_24")]
         public void Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
-            // Pins TEST_FINDINGS #24.
             Assert.AreEqual("a//b", BroEditorUtility.Combine("a/", "b"));
         }
 

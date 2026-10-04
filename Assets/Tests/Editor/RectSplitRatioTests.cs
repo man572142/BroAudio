@@ -40,7 +40,6 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region params float[] ratios overload
         [Test]
-        [Category("Finding_21")]
         public void SplitRectHorizontal_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
             var origin = new Rect(0f, 0f, 120f, 40f);
@@ -53,15 +52,14 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(new Rect(30f, 0f, 27f, 40f), rects[1]);
             Assert.AreEqual(new Rect(63f, 0f, 54f, 40f), rects[2]);
 
-            // Pins TEST_FINDINGS #21: half a gap short of origin.xMax.
+            // Half a gap short of origin.xMax.
             Assert.AreEqual(117f, rects[2].xMax, 0.0001f);
         }
 
         [Test]
-        [Category("Finding_21")]
         public void SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload()
         {
-            // Pins TEST_FINDINGS #21: same inputs as SplitRectHorizontal_RatioForm_..., other overload.
+            // Same inputs as SplitRectHorizontal_RatioForm_..., other overload.
             var origin = new Rect(0f, 0f, 120f, 40f);
             var rects = new Rect[2];
 
@@ -105,10 +103,9 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_21")]
         public void SplitRectVertical_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
-            // Pins TEST_FINDINGS #21, vertical twin of the three-way split above.
+            // Vertical twin of the three-way split above.
             var origin = new Rect(0f, 0f, 40f, 120f);
             var rects = new Rect[3];
 
@@ -132,16 +129,12 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         [Test]
-        [Category("Finding_22")]
-        public void SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal()
+        public void SplitRectVertical_RatiosArrayForm_NullArray_LogsItsOwnErrorAndReturns()
         {
-            // Pins TEST_FINDINGS #22.
-            Rect[] rects = null;
-
-            // Don't assert the caller's local stays null: without `ref` that tests C#, not this method.
+            // Ratios sum to 1, so the one error is the null guard's; NoUnexpectedReceived fails if both guards fire.
+            LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Assert.DoesNotThrow(() =>
-                EditorScriptingExtension.SplitRectVertical(new Rect(0f, 0f, 100f, 50f), 4f, rects, 0.5f, 0.5f));
-            // Explicit: the runner's own unexpected-log check ignores warnings and plain logs.
+                EditorScriptingExtension.SplitRectVertical(new Rect(0f, 0f, 100f, 50f), 4f, null, 0.5f, 0.5f));
             LogAssert.NoUnexpectedReceived();
         }
         #endregion

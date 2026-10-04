@@ -124,34 +124,29 @@ namespace Ami.BroAudio.Tests
 
         #endregion
 
-        #region Characterization - inputs SetEase does not normalize
+        #region Out-of-range input
 
-        [TestCase(Ease.Linear, 1.5f, 1.5f)]
-        [TestCase(Ease.InQuad, 1.5f, 2.25f)]
-        [TestCase(Ease.Linear, -1f, -1f)]
-        [TestCase(Ease.InQuad, -1f, 1f)]
-        [TestCase(Ease.OutSine, 1.2f, 0.9510565f)]
-        [Category("Finding_53")]
-        public void SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01(Ease ease, float t, float expected)
+        // Ramps evaluate one step past t = 1 on their last frame, so out-of-range input must clamp to the curve's ends.
+        [TestCase(Ease.Linear, 1.5f, 1f)]
+        [TestCase(Ease.InQuad, 1.5f, 1f)]
+        [TestCase(Ease.Linear, -1f, 0f)]
+        [TestCase(Ease.InQuad, -1f, 0f)]
+        [TestCase(Ease.OutSine, 1.2f, 1f)]
+        public void SetEase_OutOfRangeInput_IsClampedToTheCurveEnds(Ease ease, float t, float expected)
         {
-            // Pins TEST_FINDINGS #53; wiring up the clamp changes these rows. OutSine at 1.2 = sin(0.6 * pi).
             Assert.That(t.SetEase(ease), Is.EqualTo(expected).Within(Tolerance));
         }
 
         [Test]
-        [Category("Finding_53")]
-        public void SetEase_InCircPastOne_IsNaN()
+        public void SetEase_InCircPastOne_IsOne()
         {
-            // Pins TEST_FINDINGS #53: InCirc is sqrt(1 - t^2), negative under the root past 1.
-            Assert.IsTrue(float.IsNaN(1.1f.SetEase(Ease.InCirc)),
-                "Ease.InCirc at t = 1.1 read " + 1.1f.SetEase(Ease.InCirc) + ", not NaN.");
+            // Unclamped, InCirc's sqrt(1 - t^2) is NaN past 1.
+            Assert.That(1.1f.SetEase(Ease.InCirc), Is.EqualTo(1f).Within(Tolerance));
         }
 
         [Test]
-        [Category("Finding_54")]
         public void SetEase_UndefinedEaseValue_FallsBackToZero()
         {
-            // Pins TEST_FINDINGS #54.
             Assert.That(Half.SetEase((Ease)9999), Is.EqualTo(0f).Within(Tolerance));
         }
 
@@ -159,7 +154,7 @@ namespace Ami.BroAudio.Tests
 
         #region Enum ordinals
 
-        // Pins TEST_FINDINGS #54's exposure half: serialized ordinals are how a saved asset reaches `_ => 0`.
+        // Serialized ordinals: a moved member makes saved assets deserialize to a different or undefined Ease, which evaluates as `_ => 0`.
         [TestCase(Ease.Linear, 0)]
         [TestCase(Ease.InQuad, 1)]
         [TestCase(Ease.InCubic, 2)]
@@ -179,7 +174,6 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InOutQuint, 16)]
         [TestCase(Ease.InOutSine, 17)]
         [TestCase(Ease.InOutCirc, 18)]
-        [Category("Finding_54")]
         public void EaseMember_KeepsItsSerializedOrdinal(Ease ease, int expectedOrdinal)
         {
             Assert.That((int)ease, Is.EqualTo(expectedOrdinal),

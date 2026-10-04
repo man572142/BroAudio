@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Ami.BroAudio.Data;
+using Ami.BroAudio.Tests;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Ami.BroAudio.Editor.Tests
 {
@@ -58,15 +60,14 @@ namespace Ami.BroAudio.Editor.Tests
             CollectionAssert.AreEqual(written.GUIDs, read.GUIDs);
         }
 
-        // Pins TEST_FINDINGS #69.
         [Test]
-        [Category("Finding_69")]
-        public void TryParseCoreData_WithMalformedText_ThrowsInsteadOfReturningFalse()
+        public void TryParseCoreData_WithMalformedText_WarnsAndReturnsFalse()
         {
             TextAsset corrupted = NewTextAsset("this is not json");
 
-            Assert.Catch<ArgumentException>(() => BroEditorUtility.TryParseCoreData(corrupted, out _),
-                "characterizes: malformed text reaches JsonUtility.FromJson, whose parse error escapes the Try* method.");
+            LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
+            Assert.IsFalse(BroEditorUtility.TryParseCoreData(corrupted, out _),
+                "A parse error must stay inside the Try* method.");
         }
         #endregion
 

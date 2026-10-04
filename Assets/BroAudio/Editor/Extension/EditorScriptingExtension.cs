@@ -192,7 +192,12 @@ namespace Ami.Extension
                 return;
             }
 
-            resultRects ??= new Rect[ratios.Length];
+            if (resultRects == null)
+            {
+                Debug.LogError(BroAudio.Utility.LogTitle + "Rects array is null!");
+                return;
+            }
+
             for (int i = 0; i < resultRects.Length; i++)
             {
                 float offsetHeight = i == 0 || i == resultRects.Length - 1 ? gap : gap * 0.5f;
@@ -336,7 +341,7 @@ namespace Ami.Extension
             {
                 if (char.IsUpper(propertyName[0]))
                 {
-                    propertyName = propertyName.Replace(propertyName[0], propertyName[0].ToLower());
+                    propertyName = char.ToLowerInvariant(propertyName[0]) + propertyName.Substring(1);
                 }
                 return $"_{propertyName}";
 

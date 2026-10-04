@@ -13,7 +13,6 @@ namespace Ami.BroAudio.Tests
     public class ChainedLoopDefaultSettingTests : BroAudioTestFixture
     {
         [UnityTest]
-        [Category("Finding_13")]
         public IEnumerator HasLoop_TwoArgOverload_TracksDefaultChainedPlayModeLoopSetting()
         {
             AudioEntity entity = NewEntity("ChainedSettingSfx", BroAudioType.SFX, NewClip(2f), NewClip(2f), NewClip(2f));
@@ -31,9 +30,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(hasLoopWhenOff, "With the default turned off and no explicit flag, a Chained entity has no loop at all.");
             Assert.AreEqual(LoopType.None, loopTypeOff);
 
-            // Pins TEST_FINDINGS #13.
-            Assert.AreEqual(1.5f, transitionTimeOff,
-                "The out parameter is populated even though HasLoop returned false.");
+            Assert.AreEqual(0f, transitionTimeOff, "A HasLoop that returns false reports no transition time.");
 
             yield return null;
         }

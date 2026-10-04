@@ -23,8 +23,8 @@ namespace Ami.BroAudio.Tests
         public static readonly Regex BroAudioLogPrefix = new Regex(Regex.Escape(Utility.LogTitle));
 
         /// <summary>
-        /// Matches any message at all. Only for a log that carries no BroAudio tag (Unity's own, or one of the untagged
-        /// Editor logs in Docs/TEST_FINDINGS.md #34), where the LogType is all there is left to check.
+        /// Matches any message at all. Only for a log that carries no BroAudio tag (Unity's own, or an untagged
+        /// Editor log), where the LogType is all there is left to check.
         /// </summary>
         public static readonly Regex AnyLogMessage = new Regex(string.Empty);
 

@@ -9,7 +9,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Pins how an entity's authored pitch meets the per-type pitch (TEST_FINDINGS #55, #56), and that each
+    /// Pins how an entity's authored pitch meets the per-type pitch (TEST_FINDINGS #55), and that each
     /// Play draws its own half-range jitter from <see cref="AudioEntity.GetRandomValue(float, float)"/> for
     /// pitch and volume. Authored values sit off 1, where "replace" and "multiply" would read the same.
     /// </summary>
@@ -154,9 +154,8 @@ namespace Ami.BroAudio.Tests
                 "its own random value; a constant reading means the randomization never ran or its range collapsed.");
         }
 
-        // Pins TEST_FINDINGS #56: master SetPitch writes every concrete type's pref.
+        // Master SetPitch writes every concrete type's pref.
         [UnityTest]
-        [Category("Finding_56")]
         public IEnumerator SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers()
         {
             const float MasterPitch = 0.5f;

@@ -193,9 +193,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreSame(analyzer.Bands, recorder.LastBands, "OnUpdate hands out the analyzer's own band array, not a copy.");
         }
 
-        // Pins TEST_FINDINGS #38.
         [UnityTest]
-        [Category("Finding_38")]
         public IEnumerator Update_TakesThePlayerFromItsSoundSource_ButOnlyIfItWasAssignedBeforeStart()
         {
             yield return RequireRealtimeAudioClock();
@@ -215,7 +213,7 @@ namespace Ami.BroAudio.Tests
 
             Assert.GreaterOrEqual(wiredBeforeRecorder.Count, 4, "An analyzer wired to a SoundSource before Start must adopt that source's player.");
             Assert.AreEqual(0, wiredAfterRecorder.Count,
-                "Characterizes TEST_FINDINGS #38: Start caches whether a SoundSource was assigned, so one assigned afterwards is never polled.");
+                "Start caches whether a SoundSource was assigned, so one assigned afterwards is never polled.");
         }
         #endregion
 

@@ -391,7 +391,7 @@ namespace Ami.BroAudio.Editor
 
             if (_transport.Delay > 0f)
             {
-                helper.AddSlient(_transport.Delay);
+                helper.PrependSilence(_transport.Delay);
             }
 
             var volume = _clipProp.FindPropertyRelative(nameof(_clip.Volume)).floatValue;

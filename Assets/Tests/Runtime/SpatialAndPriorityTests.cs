@@ -85,9 +85,8 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Recycle: what actually resets, and what does not
-        // Pins TEST_FINDINGS #46: a 3D sound, recycled, then a plain 2D sound on the same pooled source.
+        // A 3D sound, recycled, then a plain 2D sound on the same pooled source.
         [UnityTest]
-        [Category("Finding_46")]
         public IEnumerator Recycle_AfterA3DSound_ResetsScalarSpatialStateButLeavesTheCustomRolloffCurveBehind()
         {
             SpatialSetting setting3D = Track(ScriptableObject.CreateInstance<SpatialSetting>());
