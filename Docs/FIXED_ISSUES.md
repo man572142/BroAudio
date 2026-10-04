@@ -204,8 +204,8 @@ test this finding previously lacked.
 
 ## 16. Resetting all effects could report completion once per effect
 
-**What was wrong:** `SetEffect` with `EffectType.None` resets every active effect at once, and counts
-the fades it started so it can report back when the last one lands. The count was raised *after* each
+**What was wrong:** `ResetAllEffect` walks every tracked effect and counts the fades it started so it
+can report back when the last one lands. The count was raised *after* each
 fade was launched, but a fade with nothing to do (already at its target, or a zero fade time) finishes
 immediately rather than on a later frame — so it decremented a count that had not been raised yet. The
 "everything is done" callback then fired once per tracked effect instead of once for the whole reset.
