@@ -4,25 +4,15 @@ Behavior/doc conflicts and rough edges found while building the regression suite
 
 Fixed findings move to [FIXED_ISSUES.md](FIXED_ISSUES.md), and leave it once the fix ships on `main`. A
 number in neither file is retired, not free: a new finding takes a number above every one ever used.
+Tests and code comments cite findings by number, so sections are never renumbered or merged.
 
 Number 68 is withdrawn: it described Shuffle not playing each clip once per cycle, which the maintainer
 confirmed is not part of its contract.
 
-The tests that pin a finding carry `[Category("Finding_N")]`, so `-testCategory Finding_14` selects
-everything that pins #14, in either suite. A finding left deliberately unpinned says **Not pinned** on
-the `Status:` line of its own section, with the reason, and its row in the summary table says "not
-pinned" too. `FindingCoverageTests` (EditMode) holds this file to that, in both directions:
+The tests that pin finding N carry `[Category("Finding_N")]`, so `-testCategory Finding_14` selects
+everything that pins #14, in either suite. `FindingCoverageTests` holds this file to the coverage rules in
+[ADDING_A_TEST.md §6](ADDING_A_TEST.md#6-findings).
 
-- every section is pinned by a runnable test (a `[Test]`-family method that is neither `[Ignore]`d nor
-  `[Explicit]`) or carries the "Not pinned" note on its `Status:` line — a note anywhere else in the
-  section does not count;
-- a pin behind an `#if` that is false in the current compilation (`PACKAGE_ADDRESSABLES` for #14
-  and #66, `!UNITY_WEBGL` for #45, #48 and #71) is accepted as gated out; the gate is read from the test
-  source itself;
-- every `Finding_N` category names a section of this file, and no section noted "Not pinned" also has a pin;
-- the summary table lists exactly the sections, once each, and a row's Status cell says "not pinned"
-  exactly when its section's `Status:` line does;
-- no number is both open here and recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md), and none has two sections.
 | # | Area | Finding | Status |
 |---|---|---|---|
 | 8 | Effects | A freshly constructed LowPass/HighPass `Effect` reports as *not* default | Open, characterized |
@@ -81,1452 +71,715 @@ pinned" too. `FindingCoverageTests` (EditMode) holds this file to that, in both 
 
 ## 8. A freshly constructed LowPass/HighPass `Effect` reports as not default
 
-**Where:** `Assets/BroAudio/Runtime/DataStruct/Effect.cs`
+**Where:** `Effect(EffectType)` constructor and `Effect.IsDefault`
 
-`Effect` has two different ideas of what a filter's "default" frequency is, and they disagree.
+The constructor seeds a filter's `Value` from `BroAdvice` (LowPass 300 Hz, HighPass 2000 Hz), but
+`IsDefault()` compares against `Effect.Defaults`, the no-filtering ends of the range
+(`AudioConstant.MaxFrequency` / `MinFrequency`). So `new Effect(EffectType.LowPass)` and `HighPass` report
+not default. `Volume` lines up only because the `Value` setter converts linear `1f` to `0` dB.
 
-**Side one — the constructor** seeds `Value` from `BroAdvice`, whose frequencies are *recommended
-starting points for an audible filter*:
+`SoundManager.SetEffect` reads `IsDefault()` as "remove this effect". The factories take an explicit
+frequency and `ResetLowPass`/`ResetHighPass` pass the neutral ones, so they resolve correctly; the trap is the
+public constructor, where a default-constructed effect is not default.
 
-```csharp
-public Effect(EffectType type) : this()
-{
-    Type = type;
-
-    Value = type switch
-    {
-        EffectType.Volume => AudioConstant.FullVolume,
-        EffectType.LowPass => BroAdvice.LowPassFrequency,   // 300f
-        EffectType.HighPass => BroAdvice.HighPassFrequency, // 2000f
-        _ => default,
-    };
-}
-```
-
-**Side two — `IsDefault()`** compares against `Effect.Defaults`, which is wired to `AudioConstant`'s
-*neutral, no-filtering* ends of the frequency range:
-
-```csharp
-public static class Defaults
-{
-    public const float Volume = AudioConstant.FullVolume;
-    public const float LowPass = AudioConstant.MaxFrequency;  // 22000f — a low-pass that filters nothing
-    public const float HighPass = AudioConstant.MinFrequency; //    10f — a high-pass that filters nothing
-}
-
-public bool IsDefault() => Type switch
-{
-    EffectType.Volume => Value == AudioConstant.FullDecibelVolume,
-    EffectType.LowPass => Value == Defaults.LowPass,
-    EffectType.HighPass => Value == Defaults.HighPass,
-    _ => false,
-};
-```
-
-So a just-constructed filter effect is not "default" by its own test:
-
-| expression | `Value` after construction | `IsDefault()` compares to | result |
-|---|---|---|---|
-| `new Effect(EffectType.LowPass)` | `300f` | `22000f` | `false` |
-| `new Effect(EffectType.HighPass)` | `2000f` | `10f` | `false` |
-| `new Effect(EffectType.Volume)` | `0f` (dB) | `0f` (`FullDecibelVolume`) | `true` |
-
-`EffectType.Volume` is the one that lines up, and only because the `Value` setter converts it:
-`AudioConstant.FullVolume` (linear `1f`) goes through `value.ToDecibel()` and lands on `0f`, which is
-exactly `AudioConstant.FullDecibelVolume`. Note that `Defaults.Volume` is the *linear* `1f` and is
-never consulted by `IsDefault()` — only `Defaults.LowPass` / `Defaults.HighPass` are.
-
-**Why it matters:** `SoundManager.SetEffect` uses `IsDefault()` to decide that a call means "remove
-this effect" rather than "add it":
-
-```csharp
-SetEffectMode mode = SetEffectMode.Add;
-if (effect.Type == EffectType.None)
-{
-    mode = SetEffectMode.Override;
-}
-else if (effect.IsDefault())
-{
-    mode = SetEffectMode.Remove;
-}
-```
-
-The reachable path is fine: the public factories are explicit, and `Effect.ResetLowPass()` /
-`Effect.ResetHighPass()` pass `AudioConstant.MaxFrequency` / `MinFrequency`, so they do read as
-default and correctly resolve to `Remove`. The trap is the `Effect(EffectType)` constructor, which is
-`public`: `SetEffect(new Effect(EffectType.LowPass))` reads as "add a 300 Hz low-pass", which is
-defensible, but "a default-constructed effect is default" is not true here and anyone reasoning from
-the type name will get it wrong.
-
-Covered by `AudioMathTests`, which asserts the current behavior.
+Status: Open, characterized. Pinned by `AudioMathTests.IsDefault_LowPass_ParameterlessConstructor_IsNotDefault`
+and `IsDefault_HighPass_ParameterlessConstructor_IsNotDefault`.
 
 ## 9. `ShuffleClipStrategy` can repeat the previous clip
 
-**Where:** `Assets/BroAudio/Runtime/Utility/ClipSelection/ShuffleClipStrategy.cs`
+**Where:** `ShuffleClipStrategy`
 
-`MulticlipsPlayMode.Shuffle` is documented as "Same as random but not repeating with the previous one".
-In practice `_lastUsed` is only refreshed at pool exhaustion and during the fallback scan — never after an
-ordinary in-cycle hit — so two consecutive `SelectClip` calls can return the same clip.
+`MulticlipsPlayMode.Shuffle` is documented as "not repeating with the previous one", but `_lastUsed` is
+refreshed only at pool exhaustion and in the fallback scan, never after an ordinary in-cycle hit, so two
+consecutive `SelectClip` calls can return the same clip.
 
-`ClipSelectionTests` proves the gap exists rather than asserting the documented (and false) invariant.
+Status: Open, characterized. Pinned by
+`ClipSelectionTests.SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent`, which
+proves the gap exists rather than asserting the documented invariant.
 
 ## 10. `out index` disagrees with the returned clip in two strategies
 
-**Where:** `VelocityClipStrategy.cs` and `ShuffleClipStrategy.cs`
+**Where:** `VelocityClipStrategy.SelectClip`, `ShuffleClipStrategy.SelectClip`
 
-- **Velocity:** the "above every threshold" fallthrough does `return clips[clips.Length - 1]` without ever
-  reassigning `index`, which stays at its initial `0`.
-- **Shuffle:** the fallback scan keeps advancing `index` while probing for an unused clip, then returns
-  `result` — the clip found at the *earlier* index. `clips[index]` is then not the returned clip.
+- **Velocity:** the "above every threshold" fallthrough returns the last clip without assigning `index`,
+  which stays `0`.
+- **Shuffle:** the fallback scan keeps advancing `index` while probing, then returns the clip found at the
+  earlier index.
 
-Both are the same defect class: the returned clip and its reported index describe different array slots.
+Editor-only blast radius: the `PickNewClip(context, out index)` overload is consumed only by
+`EntityReplayRequest` and `AudioEntityEditor`, so the inspector can highlight one clip row while
+previewing another. Runtime playback uses the overloads that discard the index.
 
-**Blast radius is Editor-only.** The `PickNewClip(context, out index)` overload is consumed only by
-`Editor/AudioPreview/EntityReplayRequest.cs` and `Editor/EntityPropertyDrawer/AudioEntityEditor.cs`; runtime
-playback goes through the overloads that discard the index. The visible symptom is the inspector highlighting
-one clip row while previewing another.
-
-Both are characterized by tests that fail loudly if the mismatch is ever fixed.
+Status: Open, characterized. Pinned by
+`ClipSelectionTests.SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero` and
+`SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip`.
 
 ## 11. `OnBGMChanged` fires twice per BGM swap, once with `null`
 
-**Where:** `Assets/BroAudio/Runtime/Player/MusicPlayer.cs`
+**Where:** `MusicPlayer.Recycle`, `MusicPlayer.CurrentBGMPlayer`
 
-Replacing one BGM with another raises `BroAudio.OnBGMChanged` **twice, both within the same frame**:
+Replacing one BGM with another raises `BroAudio.OnBGMChanged` twice in the same frame: first `null`, when
+the outgoing player's `Recycle()` clears `CurrentBGMPlayer` through the raising setter, then the incoming
+player. The signature (`Action<IAudioPlayer>`) and its doc give no hint of a null, so a subscriber that
+reads `.ID` throws. Subscribers must null-check, and cannot count invocations to detect a swap.
+`UpdateInstance` writes the backing field directly so loop/chain handovers do not raise the event; keep that.
 
-1. `null` — the outgoing player's `Recycle()` runs `if (CurrentBGMPlayer == Instance) CurrentBGMPlayer = null;`,
-   and the property setter raises the event for that transition too.
-2. the incoming player — `DoTransition` then assigns `CurrentBGMPlayer = Instance`.
-
-The event's signature is `Action<IAudioPlayer>` with no nullability hint, and the XML doc describes it simply as
-firing when the BGM changes. A subscriber that does the obvious thing — read `.ID`, or store the argument and
-use it — throws on the null pass. Nothing in the API surface signals that a null is coming.
-
-Two consequences for anyone writing against this:
-
-- Always null-check the argument.
-- Do not count invocations to detect a swap. Both raises land in one frame, so a per-frame poll for
-  "exactly N events" can never observe the intermediate value. `BGMChangedEventTests` polls for the arrival
-  of a player with the expected `SoundID` instead, and that is the pattern to copy.
-
-`UpdateInstance` deliberately writes the backing field rather than the property when a loop or chain hands over
-to a new player, precisely so this event does *not* fire for handovers — the logical BGM has not changed there.
-That guard is worth preserving; the null raise above is the case it does not cover.
+Status: Open, characterized. Pinned by
+`BGMChangedEventTests.OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer`, which polls for the
+incoming player's `SoundID` (an exact count is unobservable within one frame) and asserts a null was raised.
 
 ## 12. Comb-filtering prevention is bypassed whenever one play is global and the other positioned
 
-**Where:** `Assets/BroAudio/Runtime/Player/PlaybackGroup/DefaultPlaybackGroup.cs`, `HasPassedCombFilteringRule`
+**Where:** `DefaultPlaybackGroup.HasPassedCombFilteringRule`
 
-The rule compares distance only when *both* plays are positioned:
-
-```csharp
-if (!currentIsGlobal && !previousIsGlobal)
-{
-    var sqrDistance = (currentPlayPos - previousPlayer.PlayingPosition).sqrMagnitude;
-    if (sqrDistance > Mathf.Pow(_ignoreIfDistanceIsGreaterThan, 2)) return true;
-}
-
-// Only one is played globally
-// TODO: use the AudioListener's position as the global position?
-if ((currentIsGlobal != previousIsGlobal) && _ignoreIfDistanceIsGreaterThan > 0f)
-{
-    return true;
-}
-```
-
-The second branch computes no distance at all. It exempts the pair whenever the distance threshold is merely
-*enabled*. A globally-played sound has position `Utility.GloballyPlayedPosition`, which is
-`Vector3.negativeInfinity` — there is no meaningful distance to compare, so the code opts out rather than
-choosing a position.
-
-`_ignoreIfDistanceIsGreaterThan` defaults to `0.1f`, i.e. enabled. So **by default, playing the same `SoundID`
-globally and positionally within the comb-filtering window never triggers prevention**, no matter how close
-together the two plays are — which is precisely the situation the rule exists to catch.
-
-The in-source `TODO` shows this is known and unresolved rather than intended; the AudioListener's position is
-the obvious candidate for the missing global position.
+Distance is compared only when both plays are positioned. When exactly one is global (position
+`Utility.GloballyPlayedPosition`, i.e. `Vector3.negativeInfinity`), the pair is exempted whenever
+`_ignoreIfDistanceIsGreaterThan > 0`, with no distance check. That threshold defaults to `0.1f`, so by
+default a global and a positioned play of the same `SoundID` inside the comb-filtering window are never
+rejected, however close. An in-source TODO suggests using the AudioListener's position.
 
 Status: Open, characterized. Pinned by
 `PlaybackGroupTests.Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance`,
-with a 10 s window so the acceptance cannot come from the window expiring. Two negative controls show the
-exemption is the distance setting's doing: `Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond`
-(the same pair with the threshold at 0 is rejected) and
-`Play_PositionedCloseTogether_WithinCombFilteringWindow_RejectsSecond` (two positioned plays inside the
-threshold are rejected).
+with a 10 s window so the window expiring cannot explain the acceptance. Controls:
+`Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond` and
+`Play_PositionedCloseTogether_WithinCombFilteringWindow_RejectsSecond`.
 
 ## 13. `HasLoop` writes its out parameter even when it returns false
 
-**Where:** `Assets/BroAudio/Runtime/DataStruct/Core/AudioEntity.cs`, `HasLoop`
+**Where:** `AudioEntity.HasLoop` (Chained branch)
 
-```csharp
-else if (MulticlipsPlayMode == MulticlipsPlayMode.Chained)
-{
-    loopType = chainedDefaultLoop;
-    transitionTime = chainedDefaultTransitionTime;
-}
-return loopType != LoopType.None;
-```
+For a Chained entity, `transitionTime` is set to the chained default before the return value is decided, so
+with `DefaultChainedPlayModeLoop` at `LoopType.None` it returns `false` yet hands back the configured
+transition time instead of `0`. Every current caller checks the return or discards the value; it is a trap
+for the next one.
 
-For a Chained entity, `transitionTime` is assigned *before* the return value is decided. If
-`DefaultChainedPlayModeLoop` is `LoopType.None`, the method returns `false` — correctly reporting no loop —
-but still hands back the configured transition time rather than `0`.
-
-The usual C# contract for a `bool TryX(out ...)` shape is that the out parameter is meaningless on `false`.
-Callers here happen to respect that (`SoundManager.Playback.cs` discards both with `out _, out _`), so nothing
-is broken today. It is a trap for the next caller that reads the out value without checking the return first.
-
-Characterized by `ChainedLoopDefaultSettingTests`.
+Status: Open, characterized. Pinned by
+`ChainedLoopDefaultSettingTests.HasLoop_TwoArgOverload_TracksDefaultChainedPlayModeLoopSetting`.
 
 ## 14. The addressable unload setting does not control the unload delay
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `AddressableCleanupRoutine`
+**Where:** `SoundManager.AddressableCleanupRoutine`, `SoundManager.UpdateLoadedEntityLastPlayedTime`
 
-```csharp
-_addressableCleanupInterval = new WaitForSecondsRealtime(
-    Mathf.Clamp(Setting.AutomaticallyUnloadUnusedAddressableAudioClipsAfter, 1f, 5f));
-...
-if (currentTime - lastPlayedTime > 60.0)
-{
-    UnloadAddressableEntity(id);
-}
-```
+`AutomaticallyUnloadUnusedAddressableAudioClipsAfter` is used only as the routine's polling interval,
+clamped to 1–5 s and cached on the first iteration (runtime changes are ignored). The staleness threshold
+is a hardcoded `60.0` seconds.
 
-The setting named *"Automatically Unload Unused Addressable Audio Clips After"* is used only as the routine's
-**polling interval**, clamped to 1-5 seconds. The actual staleness threshold — how long a clip must go unused
-before it is released — is the hardcoded literal `60.0`.
+Worse, nothing in production registers an entity with the routine: `UpdateLoadedEntityLastPlayedTime` only
+updates keys already in `_loadedEntityLastPlayedTime`, and its call sites, all meant to register on load,
+never add one. The dictionary stays empty and auto-unload never fires.
 
-So the setting does not do what its name says. Raising it from 60 to 300 does not keep clips loaded longer; it
-does nothing at all beyond 5, because of the clamp. Lowering it to 10 does not unload sooner; it just polls
-more often. The unload delay is always 60 seconds and is not configurable.
-
-Two smaller consequences:
-
-- `_addressableCleanupInterval` is built once on the first routine iteration and cached, so changing the setting
-  at runtime has no effect even on the polling interval.
-- The routine is testable only by back-dating `_loadedEntityLastPlayedTime`, which is what
-  `AddressablesTests` does — waiting out a hardcoded 60 seconds is not viable in a suite.
-
-It is in fact stronger than "testable only by back-dating": **nothing in production ever adds a key to that
-dictionary**. `UpdateLoadedEntityLastPlayedTime` is guarded by `if (_loadedEntityLastPlayedTime.ContainsKey(id))`,
-and all four of its call sites intend to *register* the entity on load. The only other writes are the refresh
-inside the routine, which iterates keys that already exist, and the `Remove` after unloading. So the dictionary
-stays empty for the life of the player and the auto-unload feature never fires at all; the tests work only
-because `BackDateLastPlayedTime`'s indexer write is what registers the entity in the first place. That is
-arguably the more severe half of this finding, and it is now pinned directly: the test below asserts that
-`_loadedEntityLastPlayedTime` contains neither entity after a public `BroAudio.LoadAssetAsync` with automatic
-loading enabled — every precondition `UpdateLoadedEntityLastPlayedTime` checks.
-
-Status: Open, characterized — both halves pinned by
-`AddressablesTests.CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds`.
-It asks for a 5-second unload delay, preloads two entities and asserts neither is registered with the routine,
-then back-dates one by 61 seconds and the other by 30, polls until the first is released, and asserts the second
-is still loaded. Because each tick snapshots every key into one list and walks it without yielding, the tick that
-released the 61-second entity necessarily visited the 30-second one and chose to keep it — so the "still loaded"
-half is a positive result, and the test fails rather than passing vacuously if the routine never runs at all.
+Status: Open, characterized. Both halves pinned by
+`AddressablesTests.CleanupRoutine_WithTheUnloadDelaySetToFiveSeconds_StillMeasuresStalenessAgainstSixtySeconds`:
+with a 5 s setting it asserts two preloaded entities are not registered, then back-dates one by 61 s (which
+registers it) and one by 30 s, and asserts the first is released and the second kept. Each tick walks every
+key without yielding, so the "kept" half cannot pass vacuously.
 
 ## 21. The `params float[] ratios` rect splits do not land on the far edge
 
-**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`,
-`SplitRectHorizontal`/`SplitRectVertical` (the `params float[] ratios` overloads, backed by the shared
-`SplitHorizontal` helper)
+**Where:** `EditorScriptingExtension.SplitRectHorizontal`/`SplitRectVertical` (`params float[] ratios`
+overloads, via the shared `SplitHorizontal` helper)
 
-```csharp
-float offsetWidth = i == 0 || i == resultRects.Length - 1 ? gap : gap * 0.5f;
-```
+Each segment loses a full `gap` at the first and last index and half a `gap` in between, which balances only
+at 4 segments: 2 fall a full gap short of `xMax`/`yMax`, 3 fall half a gap short, 5+ overshoot. The two-way
+`out Rect, out Rect` overload lands on the edge exactly, so the two forms disagree for the same inputs.
 
-Each segment loses a full `gap` at the array's first and last index and only half a `gap` in between,
-which only balances exactly at 4 segments — 2 segments fall a full gap short of `xMax`/`yMax`, 3 fall
-half a gap short, and 5 or more overshoot. The dedicated two-way `out Rect, out Rect` overload above it
-in the same file applies a clean `halfGap` to both sides and lands on the edge exactly, for any gap — so
-the two forms contradict each other for the same inputs.
-
-Characterized in `RectSplitRatioTests` (`SplitRectHorizontal_RatiosArrayForm_ThreeWay_...`,
-`SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload`,
-`SplitRectVertical_RatiosArrayForm_ThreeWay_...`).
+Status: Open, characterized. Pinned by `RectSplitRatioTests.SplitRectHorizontal_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule`,
+`SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload` and
+`SplitRectVertical_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule`.
 
 ## 22. `SplitRectVertical` silently no-ops on a null array
 
-**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `SplitRectVertical(Rect,
-float, Rect[], params float[])`
+**Where:** `EditorScriptingExtension.SplitRectVertical(Rect, float, Rect[], params float[])`
 
-```csharp
-resultRects ??= new Rect[ratios.Length];
-```
+`resultRects ??= new Rect[ratios.Length]` fills a local array the caller never sees: no exception, no log.
+The horizontal form logs "Rects array is null!" and returns.
 
-It reassigns `resultRects` into a throwaway local array the caller never sees — no exception, no log.
-`SplitRectHorizontal`'s equivalent overload guards the same case in its shared `SplitHorizontal` helper
-by logging `"Rects array is null!"` and returning. Characterized in
+Status: Open, characterized. Pinned by
 `RectSplitRatioTests.SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal`.
 
 ## 23. `GetFieldName` lowercases every occurrence of the leading letter
 
-**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `GetFieldName`
+**Where:** `EditorScriptingExtension.GetFieldName`
 
-```csharp
-if (char.IsUpper(propertyName[0]))
-{
-    propertyName = propertyName.Replace(propertyName[0], propertyName[0].ToLower());
-}
-return $"_{propertyName}";
-```
+It lowercases the first letter with `string.Replace(char, char)`, which replaces every occurrence, so
+`"FooF"` becomes `"_foof"`, not `"_fooF"`.
 
-It calls `propertyName.Replace(firstChar, lowerFirstChar)` — the global `string.Replace(char, char)`
-overload, not a single-position substitution — so `"FooF"` becomes `"_foof"` rather than `"_fooF"`.
-Characterized in `EditorReflectionNamingTests.GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst`.
+Status: Open, characterized. Pinned by
+`EditorReflectionNamingTests.GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst`.
 
 ## 24. `BroEditorUtility.Combine` is naked concatenation
 
-**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.Path.cs`
+**Where:** `BroEditorUtility.Combine` (three-argument and `params string[]` overloads)
 
-```csharp
-public static string Combine(string path1, string path2, string path3)
-{
-    return path1 + "/" + path2 + "/" + path3;
-}
-```
+Both join segments with `"/"` and never normalize, so a segment ending in a slash yields `//`.
 
-It joins with `+ "/" +` and never normalizes, so a segment that already ends in a slash produces a
-doubled `//`. The `params string[]` overload builds the same way and has the identical quirk.
-Characterized in `EditorUtilityPureTests.Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash`
-and `Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash`.
-
----
+Status: Open, characterized. Pinned by
+`EditorUtilityPureTests.Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash` and
+`Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash`.
 
 ## 25. `ConvertToMono` Downmixing drops the final group
 
-**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+**Where:** `AudioClipEditingHelper.ConvertToMono` (Downmixing)
 
-The running sum is flushed when the loop *enters* a new group, so the last group is accumulated and
-never added — output length is `totalSamples / channels - 1`, not `totalSamples / channels`. A user
-downmixing a stereo clip in the Clip Editor loses the final sample frame.
+The running sum is flushed on entering a new group, so the last group is never emitted: output is
+`totalSamples / channels - 1` frames. The `SelectOneChannel` mode keeps the full count.
 
-Status: Open, characterized. Covered by
-`ClipEditingTests.ConvertToMono_Downmixing_AveragesEachFrameButDropsTheFinalFrame`, which asserts that every
-frame that *is* emitted averages its own L/R pair — the grouping is not offset — and that the output is one
-frame short. The `SelectOneChannel` path does **not** have this bug — it keeps the full frame count.
+Status: Open, characterized. Pinned by
+`ClipEditingTests.ConvertToMono_Downmixing_AveragesEachFrameButDropsTheFinalFrame`, which also asserts each
+emitted frame averages its own L/R pair.
 
 ## 26. `Reverse` transposes stereo channels
 
-**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+**Where:** `AudioClipEditingHelper.Reverse`
 
-It calls `Array.Reverse` on the raw interleaved sample array, so L and R swap as well as the clip
-playing backwards.
+`Array.Reverse` on the interleaved sample array swaps L and R as well as reversing time.
 
-Status: Open, characterized.
+Status: Open, characterized. Pinned by `ClipEditingTests.Reverse_Stereo_ReversesRawArraySoChannelsAreTransposed`.
 
 ## 27. `AddSlient` prepends, and its sample count truncates
 
-**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+**Where:** `AudioClipEditingHelper.AddSlient`
 
-The name says nothing about which end — silence goes at the *start*. It also sizes the pad with a
-plain `(int)` cast of `time * frequency * channels` rather than the `Math.Round(..., AwayFromZero)`
-that `FadeIn`/`FadeOut` and `GetDataSample` use, so a time value that lands just under an integer
-silently loses one sample.
+Silence goes at the start, which the name does not say. The pad length is a plain `(int)` cast of
+`time * frequency * channels`, not the `Math.Round(..., AwayFromZero)` that `FadeIn`/`FadeOut` and
+`GetDataSample` use, so a time just under an integer sample count loses one sample.
 
-Status: Open, characterized.
+Status: Open, characterized. Pinned by `ClipEditingTests.AddSlient_PrependsSilenceAndShiftsOriginalDataToTail`
+and `AddSlient_PadLengthTruncatesInsteadOfRounding`.
 
 ## 29. `GetResultClip` returns the original instance when nothing was edited
 
-**Where:** `Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`
+**Where:** `AudioClipEditingHelper.GetResultClip`
 
-Not a copy — reference equality. A caller that mutates the "result" is mutating the user's source
-clip.
+It returns the source clip itself, not a copy, so a caller that mutates the result mutates the user's clip.
 
-Status: Open, characterized.
+Status: Open, characterized. Pinned by `ClipEditingTests.GetResultClip_NoEdit_ReturnsOriginalInstance`.
 
 ## 31. `CreateScriptableObjectIfNotExist` checks existence with `Resources.Load`, not the AssetDatabase
 
-**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.DataHandler.cs` (via
-`TryLoadResources`)
+**Where:** `BroEditorUtility.CreateScriptableObjectIfNotExist` (via `TryLoadResources`)
 
-Outside a Resources folder the guard never fires, so the call creates a fresh instance and overwrites
-whatever was at the path. Every production caller passes a Resources path, so it is latent.
+Outside a Resources folder the existence check never finds the asset, so the call creates a fresh instance
+and overwrites whatever is at the path. Latent: every production caller passes a Resources path.
 
-Status: Open, characterized. Covered by
+Status: Open, characterized. Pinned by
 `AssetWritingTests.CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime`.
-
 
 ## 32. A positive `Delay` alone makes `HasDifferentPosition` true
 
-**Where:** `Assets/BroAudio/Editor/Transport/Transport.cs`
+**Where:** `Transport.HasDifferentPosition`
 
-`HasDifferentPosition` ORs in a `Delay > StartPosition` term alongside the start/end comparisons, so an
-entity whose playback positions are untouched still reports a "different position" as soon as it carries
-any delay at all — `0 > 0` is false, but any positive `Delay` clears that bar.
-
-Whether that is intended is the open question: a delay shifts *when* playback begins, not *where* in the
-clip it starts, so counting it as a position difference is at least surprising. Nothing downstream appears
-to misbehave because of it today, which is why it is characterized rather than fixed.
+It ORs in `Delay > StartPosition`, so an entity with untouched Start/End positions reports a different
+position as soon as it has any delay. A delay shifts when playback begins, not where in the clip; nothing
+downstream is known to misbehave, so whether this is intended is open.
 
 Status: Open, characterized. Pinned by
 `TransportHasDifferentPositionTests.HasDifferentPosition_DelayGreaterThanStart_IsTrue_EvenWithStartAndEndAtZero`.
 
----
-
 ## 34. The Editor assembly was never swept for the `[BroAudio]` log prefix
 
-Earlier fixes each prefixed a handful of unprefixed logs, but neither was a sweep of the Editor
-assembly as a whole. Fifteen `Debug.Log*` calls in ten shipped files under `Assets/BroAudio/Editor/` still
-emit without `Utility.LogTitle`, so a package consumer who trips one sees a bare console message with
-nothing identifying BroAudio as the source:
+**Where:** `Debug.Log*` calls under `Assets/BroAudio/Editor/`
 
-| File | Count |
-|---|---|
-| `Utility/FieldUsageFinder.cs` | 5 |
-| `Utility/SoundIDUpgrader.cs` | 2 (a third already carries a plain-text `[BroAudio]`) |
-| `AudioPreview/AudioSourcePreviewStrategy.cs` | 1 |
-| `AudioPreview/EditorVolumeTransporter.cs` | 1 |
-| `EditorWindow/SpatialSettingsEditorWindow.cs` | 1 |
-| `EntityPropertyDrawer/AudioEntityEditor.cs` | 1 |
-| `EntityPropertyDrawer/ReorderableClips.cs` | 1 |
-| `Extension/AttributeDrawer/ReadOnlyTextAreaAttributeDrawer.cs` | 1 |
-| `Extension/EditorScriptingExtension.cs` | 1 (the multi-float-field guard, not covered by the earlier fix) |
-| `Extension/ReflectionExtension.cs` | 1 (`CreateNewObjectWithReflection`, in the `Ami.Extension` namespace) |
+Fifteen calls in ten shipped files emit without `Utility.LogTitle`, so a consumer sees a console message with
+nothing identifying BroAudio: `FieldUsageFinder` (5), `SoundIDUpgrader` (2; a third has a plain-text
+`[BroAudio]`), and one each in `AudioSourcePreviewStrategy`, `EditorVolumeTransporter`,
+`SpatialSettingsEditorWindow`, `AudioEntityEditor`, `ReorderableClips`, `ReadOnlyTextAreaAttributeDrawer`,
+`EditorScriptingExtension` (the multi-float-field guard) and `ReflectionExtension`
+(`CreateNewObjectWithReflection`). Excluded because they never ship: `Editor/DevTools/` and the two calls
+inside `#if BroAudio_DevOnly` in `BroUserDataGenerator`. Commented-out calls are not counted.
 
-Counted by grepping `Assets/BroAudio/Editor/` for `Debug.Log*` calls whose line does not reference
-`LogTitle`, then reading each hit; commented-out calls are not counted. `Editor/DevTools/` is excluded —
-it is gated behind `BroAudio_DevOnly` and never ships — and so are the two `Debug.Log` calls in
-`Utility/BroUserDataGenerator.cs`, which sit inside `#if BroAudio_DevOnly` blocks. An earlier count of
-this finding listed those two and missed `ReflectionExtension.cs`; the total came out the same. Counting
-the DevOnly-gated pair too gives seventeen calls in eleven files.
-
-This is recorded rather than fixed because it is a mechanical sweep across ten files with no test
-pinning any of them, which is a different-shaped change from the three rect-split logs fixed earlier
-(those had to move, because tests asserted their exact text).
-
-Status: Open, characterized. Not pinned by a test.
-
----
+Status: Open, characterized. Not pinned: a mechanical sweep with no behavior for a test to assert.
 
 ## 35. `SoundSource`'s Stop On Disable is skipped for a sound that is still queued
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundSource.cs`, `SoundSource.OnDisable`
+**Where:** `SoundSource.OnDisable`
 
-```csharp
-protected virtual void OnDisable()
-{
-    if(_stopOnDisable && CurrentPlayer != null && CurrentPlayer.IsPlaying)
-    {
-        CurrentPlayer.Stop(_overrideFadeOut);
-    }
-}
-```
-
-The guard is `IsPlaying`, which bottoms out at `AudioSource.isPlaying`. But `BroAudio.Play` does not start a
-voice - it enqueues into `SoundManager._playbackQueue`, and `SoundManager.LateUpdate` drains it. So in the
-window between `OnEnable`'s `Play()` and that frame's `LateUpdate`, a `SoundSource` holds a player that is
-`IsActive` but not yet `IsPlaying`, and the `OnDisable` guard rejects it.
-
-Disable the GameObject inside that window - `SetActive(true)` then `SetActive(false)` in the same frame, the
-normal shape of a pooled object that is spawned and immediately despawned - and Stop On Disable does nothing
-at all. The queued play still starts on the next `LateUpdate` and runs to completion, now with no
-`SoundSource` in a position to stop it: the component's `OnDisable` has already been and gone.
-
-The asymmetry gets sharper with `Delay` set. A non-zero Delay makes `OnEnable` call
-`CurrentPlayer.SetDelay(...)`, which routes into `SetScheduledStartTime` -> `PlayInternal()` -> the
-`PlayControl` coroutine, whose body runs synchronously as far as `AudioSource.PlayScheduled`. `isPlaying`
-reads `true` from the moment of a `PlayScheduled` call, so *the delayed configuration stops correctly in the
-same frame and the undelayed one does not* - the opposite of what a user would predict.
-
-`IsActive` (true from the moment `Play` enqueues) is the state that actually means "this SoundSource owns a
-player", and `AudioPlayer.Stop` already handles a not-yet-playing player: it falls into
-`if (!ID.IsValid() || !isPlaying) { onFinished?.Invoke(); EndPlaying(); return; }`. Not changed here, per
-the plan's characterize-don't-fix rule.
+The guard requires `CurrentPlayer.IsPlaying` (`AudioSource.isPlaying`), but `BroAudio.Play` only enqueues;
+`SoundManager.LateUpdate` starts the voice. Disabling the object in the same frame it was enabled (a pooled
+object spawned and despawned at once) skips the stop, and the queued sound then plays to completion with
+nothing left to stop it. With a non-zero `Delay`, `OnEnable` goes through `SetDelay` →
+`AudioSource.PlayScheduled`, which sets `isPlaying` immediately, so the delayed case stops correctly and the
+undelayed one does not. Checking `IsActive` would cover both; `AudioPlayer.Stop` already handles a
+not-yet-playing player.
 
 Status: Open, characterized. Pinned by
 `SoundSourceTests.OnDisable_InTheSameFrameAsOnEnable_LeavesTheQueuedVoicePlaying`.
 
----
-
 ## 36. `SoundVolume`'s Only Apply Once applies only the first settings entry
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs`, `SoundVolume.OnEnable`
+**Where:** `SoundVolume.OnEnable`
 
-```csharp
-private void OnEnable()
-{
-    foreach (var setting in _settings)
-    {
-        ...
-        if (_applyOnEnable && !(_onlyApplyOnce && _hasApplyOnce))
-        {
-            setting.ApplyVolumeToSystem(_fadeTime);
-            setting.SetVolumeToSlider(false);
-            _hasApplyOnce = true;
-        }
-    }
-}
-```
-
-`_hasApplyOnce` is raised **inside** the loop it gates, and it is a single flag on the component rather than
-one per `Setting`. So the first entry consumes the one permitted apply and every later entry of the same
-array is skipped - not on a later enable, but on the *first* one. A component with a Music entry and an SFX
-entry, Apply On Enable and Only Apply Once both ticked, silently applies Music only, and the SFX slider it
-also owns is never moved to match its configured volume either.
-
-The name and the inspector both read as "apply this component's settings once", which is what raising the
-flag *after* the loop would do. Not changed here, per the plan's characterize-don't-fix rule.
+`_hasApplyOnce` is a single component-wide flag raised inside the loop it gates, so the first `Setting`
+consumes the one permitted apply on the first enable and every later entry is skipped, including moving its
+slider. Raising the flag after the loop would match the name.
 
 Status: Open, characterized. Pinned by
 `SoundVolumeTests.OnEnable_WithOnlyApplyOnceAndSeveralSettings_AppliesOnlyTheFirstEntry`, with
 `OnEnable_WithSeveralSettings_AppliesEveryOneOfThem` as the control.
 
----
-
 ## 37. A `SoundVolume` setting typed `BroAudioType.All` writes a volume Reset On Disable cannot restore
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SoundVolume.cs` (`SoundVolume.Setting.ApplyVolumeToSystem`,
-`RecordOrigin`, `ResetToOrigin`), `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs` (`SoundManager.SetVolume`)
+**Where:** `SoundVolume.Setting.ApplyVolumeToSystem`, `RecordOrigin`, `ResetToOrigin`; `SoundManager.SetVolume`
 
-The audio type of a `Setting` is drawn as a flags field, so `All` (or Unity's Everything) is a legal choice.
-The two halves of the component then read that choice differently:
-
-- **Apply** goes through `BroAudio.SetVolume(audioType, ...)`, and `SoundManager.SetVolume` special-cases
-  `BroAudioType.All` into `SetMasterVolume` - a write to the mixer's `Master` parameter, not to any per-type
-  playback preference.
-- **Record / reset** goes through `OriginVolumeRecorder`, which iterates the *concrete* audio types and
-  snapshots `TryGetAudioTypePref(...).Volume` for each, then writes those same per-type values back.
-
-So an All-typed setting with Apply On Enable and Reset On Disable both ticked moves the master volume on
-enable and, on disable, restores five per-type volumes that were never touched - leaving the master exactly
-where it put it. The component looks symmetrical and is not.
-
-`SetMasterVolume` has no read-back path a recorder could use either: the current master level lives only in
-the mixer parameter (or `WebGLMasterVolume` on WebGL). Not changed here.
+The audio type is a flags field, so `All` is selectable. Apply goes through `SoundManager.SetVolume`, which
+routes `All` to `SetMasterVolume` (the mixer's Master parameter). Record/reset goes through
+`OriginVolumeRecorder`, which snapshots and restores the concrete types' pref volumes. So with Apply On
+Enable and Reset On Disable both on, the master moves on enable and stays moved after disable. There is no
+master read-back a recorder could use (the level lives only in the mixer parameter, or `WebGLMasterVolume`).
 
 Status: Open, characterized. Pinned by
 `SoundVolumeTests.OnEnable_WithAllAudioType_WritesTheMasterVolumeThatResetOnDisableCannotRestore`.
 
----
-
 ## 38. `SpectrumAnalyzer` decides whether it has a SoundSource once, in `Start`
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs`, `SpectrumAnalyzer.Start` and `Update`
+**Where:** `SpectrumAnalyzer.Start`, `SpectrumAnalyzer.Update`
 
-```csharp
-private void Start()
-{
-    ...
-    _isUsingSoundSource = _soundSource != null;
-}
-
-private void Update()
-{
-    if (_player == null && _isUsingSoundSource)
-    {
-        _player = _soundSource.CurrentPlayer;
-    }
-    ...
-}
-```
-
-`_isUsingSoundSource` is a one-shot snapshot. Assign `_soundSource` after `Start` has run - from a spawner,
-a pooled prefab being re-targeted, or any inspector edit made in Play Mode - and the analyzer never polls it,
-for the rest of that object's life. The field is still there and still shown as wired in the inspector, so
-the failure is silent: the meter simply stays flat.
-
-Reading `_soundSource` directly in the `Update` guard (it is already dereferenced on the next line) would
-make the field live. `SetSource` remains the working escape hatch. Not changed here.
+`_isUsingSoundSource` is snapshotted in `Start`, and `Update` polls `_soundSource` only when it is set. A
+`_soundSource` assigned after `Start` (spawner, re-targeted pooled prefab, Play Mode inspector edit) is never
+polled, and the meter stays flat with no error. `SetSource` still works.
 
 Status: Open, characterized. Pinned by
 `SpectrumAnalyzerTests.Update_TakesThePlayerFromItsSoundSource_ButOnlyIfItWasAssignedBeforeStart`.
 
----
-
 ## 39. A `SpectrumAnalyzer` band narrower than one FFT bin runs away off the decibel scale
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs`, `SpectrumAnalyzer.UpdateSpectrum` (its local
-`GetRMS`/`GetAverage`) and `GetFrequencyRangeIndex`
+**Where:** `SpectrumAnalyzer.GetFrequencyRangeIndex`, `SpectrumAnalyzer.UpdateSpectrum` (local `GetRMS`/`GetAverage`)
 
-`GetFrequencyRangeIndex` turns a band's frequency window into bin indices:
+Two band frequencies that round to the same bin give `range.length == 0` (easy with many bands at a low
+resolution scale), and RMS/Average divide by it. Which way the band breaks depends on the one bin it reads:
 
-```csharp
-range.start = Mathf.CeilToInt(minFreq / _harmonic);
-int end = Mathf.FloorToInt(maxFreq / _harmonic);
-range.length = end - range.start;
-```
+- **Zero bin:** `0/0` is NaN, which survives `ToDecibel` and fails every ballistics comparison towards
+  falling (decay chosen, `Mathf.Sign(NaN)` is `-1`, the snap-to-target branch never runs), so the band sinks
+  forever. `Amplitube` clamps at `MinVolume` and hides it; `DecibelVolume` sinks past -80 without bound.
+- **Any energy:** `x/0` is `+Infinity`, clamped to `MaxDecibelVolume`, so the band attacks to +20 dB and stays
+  pinned there, even on mixer residual noise. CI takes this branch.
 
-Two neighbouring band frequencies that round to the same bin give `length == 0` - easy to hit with a
-many-band meter at a low resolution scale, where one bin is tens of Hz wide. `Metering.RMS` and
-`Metering.Average` then divide by that length:
-
-```csharp
-return Mathf.Sqrt(sum / range.length);   // RMS
-return sum / range.length;               // Average
-```
-
-Which way that breaks is decided by the one bin the band still reads, and the two outcomes run in opposite
-directions.
-
-**An exactly-zero bin.** `0f / 0` is `NaN`, and the NaN survives `ToDecibel` (`Mathf.Clamp` returns NaN for a
-NaN input, and `Mathf.Log10(NaN)` is NaN). It then loses every comparison in the ballistics block, and each
-one fails towards *falling*:
-
-- `diff > 0` is false, so the slower `_decay` is chosen as the change time;
-- `Mathf.Sign(NaN)` is `-1` (it is `f >= 0f ? 1f : -1f`), so the step is negative;
-- `(diff * sign) <= change` is false, so the "close enough, snap to the target" branch never runs.
-
-The band therefore subtracts a step every frame forever. `Amplitube` clamps at `MinVolume` and hides it, so a
-meter bound to the amplitude just reads silent; anything reading `DecibelVolume` gets a number that sinks
-past -80 without bound.
-
-**A bin holding any energy at all.** `x / 0` is `+Infinity`, and there `Mathf.Clamp` does fire:
-`ClampNormalize` pins it to `MaxVolume`, so the target is `MaxDecibelVolume`. `diff > 0` now picks the much
-faster `_attack`, and the band climbs to +20dB and stays pinned there - reporting full scale for whatever is
-in one bin, including the mixer's residual noise on a silent clip. CI appears to take this branch - the first
-version of the test waited only for the fall and timed out there - which is why the test now asserts on the
-runaway rather than on its direction.
-
-`Metering.Peak` is unaffected either way - it never divides by the length.
-
-Two smaller bugs sit in the same three lines. `RangeInt.end` is `start + length`, and the metering loops run
-`i <= range.end`, so they read `length + 1` bins while `GetRMS`/`GetAverage` divide by `length` - every
-non-Peak mean is inflated by `(n + 1) / n`. And a band frequency above the Nyquist limit makes `end` exceed
-the buffer, indexing `_spectrum` out of range every frame. Neither is pinned by a test.
+`Metering.Peak` is unaffected. Two smaller bugs in the same code, neither with a pinning test: the metering
+loops run `i <= range.end` and so read `length + 1` bins while dividing by `length` (non-Peak means inflated
+by `(n + 1) / n`), and a band above Nyquist indexes `_spectrum` out of range.
 
 Status: Open, characterized. Pinned by
-`SpectrumAnalyzerTests.Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak`.
-
----
+`SpectrumAnalyzerTests.Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak`, which
+asserts the runaway, not its direction.
 
 ## 40. `SpectrumAnalyzer`'s per-band Weighted field is inspector-only
 
-**Where:** `Assets/BroAudio/Runtime/MonoComponent/SpectrumAnalyzer.cs` (`SpectrumAnalyzer.Band._weighted`),
-`Assets/BroAudio/Editor/MonoComponentEditor/SpectrumAnalyzerEditor.cs` (`OnAddElement`, `OnDrawBandElement`)
+**Where:** `SpectrumAnalyzer.Band._weighted`; `SpectrumAnalyzerEditor.OnAddElement`, `OnDrawBandElement`
 
-```csharp
-[SerializeField, Min(1f)]
-private float _weighted;
-```
+The editor draws a Weighted field per band and seeds it to `1`, presenting it as a per-band gain, but nothing
+reads `_weighted`: `UpdateSpectrum` uses only the metered amplitude and the ballistics.
 
-`SpectrumAnalyzerEditor` draws a Weighted field for every band and seeds it to `1` when a band is added, so
-it presents as a per-band gain the analyzer applies. Nothing reads it: `_weighted` has no accessor, and
-`UpdateSpectrum` composes each band purely from the metered amplitude and the attack/decay/smooth ballistics.
-Changing it in the inspector changes nothing about what the analyzer outputs.
-
-Status: Open, characterized. Pinned by
-`SpectrumAnalyzerTests.Update_BandWeighting_HasNoEffectOnTheBandOutput`, which drives both analyzers with a real
-440Hz tone rather than silence — on an all-zero spectrum a weight applied as a multiplier would still leave the
-two bands equal, and the pin would survive the fix it exists to catch.
-
----
+Status: Open, characterized. Pinned by `SpectrumAnalyzerTests.Update_BandWeighting_HasNoEffectOnTheBandOutput`,
+which drives a real 440 Hz tone, since on silence a multiplier would leave both bands equal anyway.
 
 ## 41. `Stop(onFinished)` on a recycled handle drops the callback, silently
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs` (the `IAudioStoppable.Stop` overloads),
-`Assets/BroAudio/Runtime/Extension/Tools/InstanceWrapper.cs` (`InstanceWrapper<T>.Instance` and `Recycle`),
-`Assets/BroAudio/Runtime/Player/EmptyInstance.cs` (`Empty.EmptyAudioPlayer`'s `IAudioStoppable.Stop` overloads)
+**Where:** `AudioPlayerInstanceWrapper`'s `IAudioStoppable.Stop` overloads; `InstanceWrapper<T>.Instance`,
+`Recycle`; `Empty.EmptyAudioPlayer`'s `IAudioStoppable.Stop` overloads
 
-```csharp
-void IAudioStoppable.Stop() => Instance?.Stop();
-void IAudioStoppable.Stop(Action onFinished) => Instance?.Stop(onFinished);
-void IAudioStoppable.Stop(float fadeOut) => Instance?.Stop(fadeOut);
-void IAudioStoppable.Stop(float fadeOut, Action onFinished) => Instance?.Stop(fadeOut, onFinished);
-```
+The overloads forward via `Instance?.Stop(...)`, and `Instance` is null once the player is recycled, so the
+whole call is swallowed. Right for the parameterless overloads, but the `Action onFinished` overloads drop
+their continuation: never stored, never invoked, and the `void` return cannot report it. The empty player a
+rejected `Play` returns does the same. So `bgm.Stop(2f, () => SceneManager.LoadScene(...))` on a BGM that
+already ended or was replaced never loads the scene; only the opt-in
+`RuntimeSetting.LogAccessRecycledPlayerWarning` gives any sign.
 
-`InstanceWrapper.Instance` is `IsAvailable() ? _instance : null` and `Recycle()` clears `_instance`, so on a
-handle whose player has already gone back to the pool the null-conditional swallows the whole call. That is the
-right answer for the two parameterless overloads — there is nothing left to stop — but the two `Action`
-overloads carry a continuation, and it goes down with the call. `onFinished` is never stored, never queued,
-never invoked, and nothing in the signature can report it: the methods return `void`. `Empty.AudioPlayer`'s
-`Stop(Action)` is an empty body, so the handle a rejected `Play` hands back drops it identically.
-
-The canonical use of the overload is exactly what breaks:
-
-```csharp
-bgm.Stop(2f, () => SceneManager.LoadScene("Level2"));
-```
-
-If that player was recycled first — the track reached its end, a `Stop(All)` swept it, a new BGM replaced it —
-the scene never loads. Nothing distinguishes this from a fade that simply has not finished yet: no exception, no
-return value, and the stale-handle warning only appears when `RuntimeSetting.LogAccessRecycledPlayerWarning` is
-on, which is a diagnostic toggle rather than something a caller can branch on. The failure mode is a game that
-quietly stops progressing.
-
-The ordering on the live path is worth recording alongside it, because a fix has to preserve it. `StopControl`
-invokes `onFinished` at its very tail, *after* `EndPlaying()` has already recycled the player; the no-fade
-early-out invokes it *before* `EndPlaying()`. Either way the callback runs against a player that is already
-inactive or about to be, so a handler must never touch the handle it was stopped from.
-
-A wrapper that treated "already recycled" as "the work is done" could invoke `onFinished` immediately rather
-than dropping it. That would make the callback fire exactly once whether or not the caller won the race, which
-is the contract the call site is written against.
+On the live path, `StopControl` invokes `onFinished` after `EndPlaying()`, and the no-fade early-out before
+it; a handler must not touch the handle either way. A fix could invoke `onFinished` immediately on an
+already-recycled handle.
 
 Status: Open, characterized. Pinned by
 `PlaybackLifecycleTests.Stop_WithOnFinishedCallback_FiresAfterTheFadeButIsDroppedByARecycledHandle`.
 
----
-
 ## 42. `AsDominator()` after playback has started cannot re-route the player
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs` (`AudioPlayer.SetupAudioTrack`),
-`Assets/BroAudio/Runtime/Player/AudioPlayer.cs` (`AudioPlayer.IsDominator`)
+**Where:** `AudioPlayer.SetupAudioTrack`, `AudioPlayer.IsDominator`
 
-```csharp
-private void SetupAudioTrack(IAudioPlaybackPref audioTypePref)
-{
-    if (IsDominator)
-    {
-        TrackType = AudioTrackType.Dominator;
-    }
-    AudioTrack = Mixer.GetTrack(TrackType);
-```
-
-`SetupAudioTrack` is the only place `TrackType` becomes `Dominator`, it reads `IsDominator` (i.e. whether a
-`DominatorPlayer` decorator is attached), and it runs once, at play time, when `SoundManager.LateUpdate` drains
-the queue. `AsDominator()` called after that attaches the decorator but changes nothing about routing: the
-player has already taken a generic track from the pool and stays under `Main`.
-
-That matters because a dominator's whole purpose is to duck or filter *everything else*. A dominator sitting on
-a generic track under `Main` is inside the group its own `QuietOthers`/`LowPassOthers` applies to, so it ducks
-and filters itself along with the rest. `AsDominator()` is chainable off `Play()` precisely so this does not
-happen, but nothing warns a caller who decorates a frame later.
-
-This also explains why the pre-existing `LowPassOthers_MovesDominatorLowPassParameter_*` and its HighPass twin
-never caught it: both decorate after `WaitForPlaybackStart`, and both only assert that the
-`Main_LowPass`/`Main_HighPass` parameter moved, which is true whichever track the dominator itself is on.
+`SetupAudioTrack` is the only place `TrackType` becomes `Dominator`, and it runs once, when
+`SoundManager.LateUpdate` drains the play queue. `AsDominator()` called later attaches the decorator but the
+player stays on a generic track under `Main`, inside the group its own `QuietOthers`/`LowPassOthers`
+affects, so it ducks and filters itself. Nothing warns. The `LowPassOthers_MovesDominatorLowPassParameter_*`
+tests and their HighPass twin decorate late too, but assert only that the parameter moved, which holds on
+either track.
 
 Status: Open, characterized. Pinned by
-`DominatorTrackRoutingTests.Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack`, with the
-correct same-frame routing asserted by
-`DominatorTrackRoutingTests.Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack`.
-
----
+`DominatorTrackRoutingTests.Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack`, with
+`Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack` as the correct-routing control.
 
 ## 43. `QuietOthers` with a zero fade time is overwritten before it takes effect
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs`, `SetEffectTrackParameter`,
-`SwitchMainTrackMode`, `TweakTrackParameter` and `Tweak`
+**Where:** `EffectAutomationHelper.SetEffectTrackParameter`, `SwitchMainTrackMode`, `TweakTrackParameter`, `Tweak`
 
-```csharp
-RestartCoroutine(TweakTrackParameter(tweaker, effect.Type, effect.IsDominator, onReset), ref tweaker.Coroutine);
-if (effect.IsDominator)
-{
-    SwitchMainTrackMode(true);
-}
-```
+`SetEffectTrackParameter` starts `TweakTrackParameter` (writes the ducked level to `Main_Dominated`) and then
+calls `SwitchMainTrackMode(true)`, which sets `Main` to `MinDecibelVolume` and `Main_Dominated` to 0 dB.
+With a non-zero fade the tween yields first, so it lands last and ducks correctly. With fade 0 the tween
+writes synchronously inside `StartCoroutine`, and `SwitchMainTrackMode` then overwrites it: two frames after
+`QuietOthers(0.2f, 0f)`, `Main` is -80 dB and `Main_Dominated` 0 dB instead of the requested -13.98 dB, so
+nothing is quieted. `DominatorPlayer`'s `.While(PlayerIsPlaying)` does not rewrite it.
 
-`TweakTrackParameter` writes the ducked level to `Main_Dominated`, and `SwitchMainTrackMode(true)` then calls
-`ChangeChannel(Main -> Main_Dominated, FullDecibelVolume)`, which sets `Main` to `MinDecibelVolume` and
-`Main_Dominated` to **0dB**. Which of the two lands last decides whether anything ducks.
-
-With a non-zero fade time the tween yields inside its `while (currentTime < fadeTime)` loop before writing its
-final value, so `SwitchMainTrackMode(true)` runs first and the tween then ramps `Main_Dominated` down to the
-requested level. Correct.
-
-With `fadeTime` 0 the loop body never executes and `Tweak` falls straight through to
-`_mixer.SafeSetFloat(paraName, to)`. The suite already documents that a zero-fade tween drains synchronously
-inside `StartCoroutine` — `AudioEffectTests.SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing`
-guards it. If that holds here, the
-ducked value is written *before* `SwitchMainTrackMode(true)` replaces it with `FullDecibelVolume`, and
-`QuietOthers(vol, 0f)` ends with `Main_Dominated` at 0dB: nothing is quieted, silently.
-
-`QuietOthers(othersVol, fadeTime)` with `fadeTime` 0 is a natural thing for a caller to write, and the reference
-docs offer no reason to avoid it.
-
-Observed: two frames after `QuietOthers(0.2f, 0f)`, `Main` reads -80dB and `Main_Dominated` reads 0dB,
-against a requested -13.98dB. Everything routed through `Main_Dominated` keeps playing at full volume. The
-`.While(PlayerIsPlaying)` that `DominatorPlayer` chains does not write the ducked level back.
-
-Status: **Open, characterized.** Pinned by
-`DominatorEffectParameterTests.QuietOthers_WithZeroFadeTime_MutesMainAndLeavesMainDominatedAtFullVolume`, which
-also checks that `Main` returns to full volume once the dominator stops.
-
----
+Status: Open, characterized. Pinned by
+`DominatorEffectParameterTests.QuietOthers_WithZeroFadeTime_MutesMainAndLeavesMainDominatedAtFullVolume`,
+which also checks `Main` returns to full volume once the dominator stops.
 
 ## 44. A looping dominator loses its Dominator track at the first handover seam
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs` (`AudioPlayer.PlayControl`'s call to
-`SetupAudioTrack`, `ScheduleNextPlayback`'s warm-up wait and `RequestNextPlayer` call, `BeginHandover`,
-`ReceiveHandover`); `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs`
-(`AudioPlayerInstanceWrapper.UpdateInstance`'s decorator transfer)
+**Where:** `AudioPlayer.PlayControl` (its `SetupAudioTrack` call), `ScheduleNextPlayback`, `BeginHandover`,
+`ReceiveHandover`; `AudioPlayerInstanceWrapper.UpdateInstance` (decorator transfer)
 
-```csharp
-if (!isEnd)
-{
-    double warmUpTime = SoundManager.Instance.ScheduledPlaybackWarmUpTime;
-    while (AudioSettings.dspTime < _playbackEndDspTime - seamlessFadeOut - warmUpTime)
-    {
-        yield return null;
-    }
-}
-...
-_nextPlayer = RequestNextPlayer?.Invoke(handover);
-```
+The incoming loop player is requested and started one `ScheduledPlaybackWarmUpTime` before the seam, and
+reaches `SetupAudioTrack` synchronously, but decorators move only at `BeginHandover`, at the seam. So it
+reads `IsDominator == false` and takes a generic track. The decorator then transfers and the duck persists
+(`DominatorPlayer.PlayerIsPlaying()` stays true), so from the first seam the dominator plays under `Main`
+at the level it imposed on everything else, the same self-ducking as #42 with no caller error. The generic
+track also picks up non-dominator `SetEffect` filters, which a real dominator skips.
 
-Looping is player handover, and the handover is deliberately staged: the incoming player is created and
-started one warm-up time (0.1s) *before* the seam, while the decorators move only at `BeginHandover`, at the
-seam itself. `RequestNextPlayer` runs `SoundManager.ScheduleNextPlayback` → `ReceiveHandover` → `PlayInternal`
-synchronously, and `PlayControl` reaches `SetupAudioTrack` with nothing yielding before it — so
-`SetupAudioTrack` reads `IsDominator == false` on a player whose `_decorators` is still `null`, and takes a
-**generic** track from the pool.
-
-The decorator itself survives (`TransferDecorators`/`SetDecorators`), so `IsDominator` reads true again a
-warm-up time later, and the duck never lets go: `DominatorPlayer.PlayerIsPlaying()` is the decorator's own
-`IsActive`, the decorator is re-pointed at the incoming player before the outgoing one is recycled (and the
-outgoing `Recycle()` no longer sees the list, so it never recycles the decorator), and the `.While()` waitable
-in `TweakTrackParameter` never observes a false. `Main` stays at `MinDecibelVolume` and everything audible
-keeps flowing through `Main_Dominated` at the ducked level.
-
-The result is finding #42's self-ducking, arriving on its own: from the first loop seam onward the
-"dominator" plays under `Main` at the volume it imposed on everyone else. Unlike #42 the caller did nothing
-wrong — `AsDominator()` was chained onto `Play()` exactly as documented, and the handle they kept is still the
-live one. The generic track also picks up any non-dominator `BroAudio.SetEffect` filter via
-`SetupAudioTrack`'s `SetTrackEffect(audioTypePref.EffectType, Add)`, which a real dominator skips.
-
-A fix would be for `ReceiveHandover` (or `PlaybackHandoverData`) to carry the outgoing player's `TrackType`,
-or for the decorators to be transferred at handover-request time rather than at `BeginHandover`.
+A fix: carry the outgoing `TrackType` through `ReceiveHandover`/`PlaybackHandoverData`, or transfer
+decorators at request time.
 
 Status: Open, characterized. Pinned by
 `DominatorTrackRoutingTests.Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack`,
-which asserts the decorator survives, the duck survives, and the track does not.
-
----
+which asserts the decorator and the duck survive and the track does not.
 
 ## 45. `TransferAddedEffectComponents` runs once per decorator, plus once, and the effect list multiplies at every seam
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs`, `AudioPlayerInstanceWrapper.UpdateInstance`
+**Where:** `AudioPlayerInstanceWrapper.UpdateInstance`
 
-```csharp
-if (Instance.TransferDecorators(out var decorators))
-{
-    foreach (var decorator in decorators)
-    {
-        decorator.UpdateInstance(newInstance);
-    }
-    newInstance.SetDecorators(decorators);
-}
+`AudioPlayerDecorator` is an `AudioPlayerInstanceWrapper`, so each `decorator.UpdateInstance(newInstance)`
+re-enters this override and calls `Instance.TransferAddedEffectComponents(newInstance)`, then the outer call
+does it once more. The other transfers null their source; `_addedEffects` does not, so with N decorators the
+list is copied N+1 times. Unity allows one filter of each type per GameObject, so only the first
+`AddComponent` succeeds; each later one logs Unity's untagged "Can't add component" as `LogType.Log`, but
+`SetAddedEffectComponents` still appends an entry. With two decorators and one added filter the list is 3
+long after the first seam and 9 after the second, with 2 then 8 refusals logged, tripling per seam.
 
-Instance.TransferAddedEffectComponents(newInstance);
-```
+Reachable by any looping entity with an added filter and a decorator, e.g. a looping Music entity
+(`AlwaysPlayMusicAsBGM` attaches `MusicPlayer`) whose spatial setting `HasLowPassFilter`.
 
-`AudioPlayerDecorator` *is* an `AudioPlayerInstanceWrapper`, so `decorator.UpdateInstance(newInstance)`
-re-enters this same override with its own `Instance` still pointing at the outgoing player — and runs
-`Instance.TransferAddedEffectComponents(newInstance)` itself. Then the outer call runs it once more. The
-delegate and decorator transfers are self-limiting because each nulls its source; `_addedEffects` is never
-cleared, so with N decorators the outgoing player's added-effect list is copied N+1 times.
-
-Unity allows one filter of each type per GameObject, so the voice does **not** end up with N+1 filters:
-the first `AddComponent` succeeds and every later one returns null, logging Unity's own untagged
-"Can't add component" message as a plain `LogType.Log`. `SetAddedEffectComponents` appends an entry for every attempt anyway
-(`TransferValueTo` returns early on a null target, so nothing throws), and the next seam iterates all of them.
-With two decorators and one added filter, the incoming player's list is 3 long after the first seam and 9
-after the second, and the seams log 2 and then 8 refusals (observed exactly so on CI). Both grow threefold per iteration for as long as
-the loop runs, so a long-running looping sound spends more time and log output on every seam.
-
-Reachable for any looping entity that has both an added filter component and a decorator — including a
-looping Music entity, where `RuntimeSetting.AlwaysPlayMusicAsBGM` attaches `MusicPlayer` automatically and
-`SetSpatial` adds a low-pass component for a spatial setting with `HasLowPassFilter`.
-
-Status: **Open, characterized.** Pinned by
-`AudioEffectTests.Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter`,
-which asserts one filter carrying the added settings on each incoming player, list lengths of 3 and 9, and
-2 and 8 untagged refusals at the first two seams. The list is private, so it is read by reflection. A seam's
-refusals are counted as the largest group of identical untagged `LogType.Log` messages in that seam's window,
-so an unrelated untagged log cannot shift the count, and the test never reads what the message says.
-
----
+Status: Open, characterized. Pinned by
+`AudioEffectTests.Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter`:
+one filter per incoming player, list lengths 3 and 9 (read by reflection), and 2 and 8 refusals, counted as
+the largest group of identical untagged logs in each seam's window without reading their text.
 
 ## 46. `ResetSpatial` resets `rolloffMode` but leaves the `CustomRolloff` curve data behind
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.cs`, `AudioPlayer.ResetSpatial`, called from
-`AudioPlayer.EndPlaying` in `AudioPlayer.Playback.cs` (i.e. at the end of *every* playback, before `Recycle()`).
+**Where:** `AudioPlayer.ResetSpatial` (called from `AudioPlayer.EndPlaying` on every playback end)
 
-```csharp
-private void ResetSpatial()
-{
-    AudioSource.spatialBlend = AudioConstant.SpatialBlend_2D;
-    transform.position = Vector3.zero;
+Every scalar spatial property is reset, and `rolloffMode` leaves `Custom`, but the `CustomRolloff` keyframes
+are never cleared (`Utility.SetCustomCurveOrResetDefault` refuses that curve type). A pooled `AudioSource`
+keeps a previous entity's rolloff curve for the rest of the run. Inert today, since `SetSpatial` selects
+`Custom` only together with a fresh `SetCustomCurve`; any path that sets `Custom` without a curve would
+inherit an unrelated sound's attenuation.
 
-    AudioSource.panStereo = AudioConstant.DefaultPanStereo;
-    AudioSource.dopplerLevel = AudioConstant.DefaultDoppler;
-    AudioSource.minDistance = AudioConstant.AttenuationMinDistance;
-    AudioSource.maxDistance = AudioConstant.AttenuationMaxDistance;
-    AudioSource.reverbZoneMix = AudioConstant.DefaultReverZoneMix;
-    AudioSource.spread = AudioConstant.DefaultSpread;
-    AudioSource.rolloffMode = AudioConstant.DefaultRolloffMode;
-}
-```
-
-Every scalar it names is genuinely reset, and the pooled player hands the next sound a clean source for
-all of them. `CustomRolloff` is the exception: the mode is reset away from `AudioRolloffMode.Custom`, but
-nothing ever calls `SetCustomCurve(AudioSourceCurveType.CustomRolloff, ...)` to clear the keyframes, and
-there is no scalar shortcut for it — `Utility.SetCustomCurveOrResetDefault` (`Runtime/Utility/Utility.cs`) refuses
-that curve type outright and logs an error telling the caller to use `RolloffMode` to detect default
-instead. So an `AudioSource` that once played an entity with a custom rolloff curve carries that entity's
-raw keyframes for the rest of the run, across every later borrower of that pooled player.
-
-Inert today: `SetSpatial` only ever selects `Custom` together with a fresh `SetCustomCurve` call
-(`AudioPlayer.SetSpatial`), so nothing currently reads the stale curve. It becomes audible the moment any
-path sets `rolloffMode = Custom` without supplying a curve — the sound would inherit a previous,
-unrelated sound's attenuation shape.
-
-Status: **Open, characterized.** Pinned by
+Status: Open, characterized. Pinned by
 `SpatialAndPriorityTests.Recycle_AfterA3DSound_ResetsScalarSpatialStateButLeavesTheCustomRolloffCurveBehind`,
-which asserts both halves: the scalars that *are* reset, and the curve that is not. Fixing this means
-clearing the curve in `ResetSpatial` and updating that test's final assertion.
-
----
+which asserts both the reset scalars and the leftover curve.
 
 ## 48. `BroAudio.SetEffect` is not `Manager?.`-gated like the other release verbs
 
-**Where:** `Assets/BroAudio/Runtime/BroAudio.cs`, both `BroAudio.SetEffect` overloads
+**Where:** both `BroAudio.SetEffect` overloads
 
-```csharp
-public static IAutoResetWaitable SetEffect(Effect effect)
-    => SoundManager.Instance.SetEffect(effect);
+The release verbs on the facade (`Stop`, `Pause`, `UnPause`, `SetVolume`, `SetPitch`, the `Release*`
+methods) go through the null-safe `BroAudio.Manager` and no-op during teardown. `SetEffect` uses the throwing
+`SoundManager.Instance`, so it throws `BroAudioException` once the manager is gone. The code does not say
+which group it belongs to, but it reads as release-side (the natural `OnDisable` call to clear a filter) and
+returns a waitable, not a player.
 
-public static IAutoResetWaitable SetEffect(Effect effect, BroAudioType audioType)
-    => SoundManager.Instance.SetEffect(audioType, effect);
-```
-
-Every other non-play verb on the facade goes through the null-safe `BroAudio.Manager`,
-which returns null when there is no instance, so `Stop`, `Pause`, `UnPause`, `SetVolume` and `SetPitch` all
-degrade to a silent no-op during teardown. `SetEffect` reads the throwing `SoundManager.Instance` instead
-and so behaves like a play verb, throwing `BroAudioException` once the manager is gone.
-
-Whether that is wrong depends on which list `SetEffect` belongs to, and the codebase does not say. It reads
-as a release-side verb — it is the one you would call from `OnDisable` to clear a filter — and it returns
-a waitable rather than a player, so the play-verb rationale ("you asked for a sound, you must get one or an
-error") does not obviously apply.
-
-Status: **Open, characterized.** Pinned by
-`TeardownTests.SetEffect_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException`, which asserts the
-actual throwing behavior. If this is later moved onto `Manager?.`, that test fails and is the prompt to
-update it.
-
----
+Status: Open, characterized. Pinned by
+`TeardownTests.SetEffect_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException`; moving it onto
+`Manager?.` turns that test red.
 
 ## 49. Release verbs on a player handle that outlived the manager throw instead of no-op'ing
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayerInstanceWrapper.cs` (`AudioPlayerInstanceWrapper.LogInstanceIsNull`),
-reached from `Assets/BroAudio/Runtime/Extension/Tools/InstanceWrapper.cs` (`InstanceWrapper<T>.Instance` and `IsAvailable`)
+**Where:** `AudioPlayerInstanceWrapper.LogInstanceIsNull`, reached from `InstanceWrapper<T>.Instance` /
+`IsAvailable`
 
-```csharp
-protected T Instance => IsAvailable() ? _instance : null;   // logWarning defaults to true
+`Instance` calls `IsAvailable()` with `logWarning: true`, so accessing a wrapper whose player is gone calls
+`LogInstanceIsNull()`, which reads `SoundManager.Instance.Setting` through the throwing accessor. Pooled
+players are children of the manager's transform (`AudioPlayerObjectPool`), so destroying the manager
+destroys them too, and a cached `IAudioPlayer` then throws `BroAudioException` from `Stop`, `Pause`,
+`UnPause`, `SetVolume` and `SetPitch`, against the teardown contract. `IsActive`/`IsPlaying` use
+`IsAvailable(false)` and stay safe. A fix: check `SoundManager.HasInstance` (or `BroAudio.Manager`) first.
 
-protected override void LogInstanceIsNull()
-{
-    if (SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning)   // throwing accessor
-    { ... }
-}
-```
-
-`IsAvailable()` defaults to `logWarning: true`, so any access to a wrapper whose backing `AudioPlayer` is
-gone calls `LogInstanceIsNull()` — which reaches `SoundManager.Instance`, the accessor that throws
-`BroAudioException` when there is no instance, rather than the null-safe `BroAudio.Manager` used everywhere
-else on this path.
-
-Pooled players are instantiated as children of the manager's own transform
-(`AudioPlayerObjectPool.CreateObject`), so the manager's destruction destroys every `AudioPlayer` with it.
-Both conditions therefore arrive together, and a caller holding an `IAudioPlayer` across that moment —
-exactly what a script does when it caches the handle it got from `Play` — gets a throw from `Stop`,
-`Pause`, `UnPause`, `SetVolume` and `SetPitch`.
-
-This contradicts the teardown-asymmetry contract as documented: the null-safe route exists so release verbs
-survive `OnDestroy`/`OnApplicationQuit` ordering, and here the handle-level release verbs do not. The
-contrast that localizes it: `IsActive` and `IsPlaying` call `IsAvailable(false)` and stay safe.
-
-Status: **Open, characterized.** Pinned by
-`TeardownTests.StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsThrowInsteadOfSilentlyNoOp`, which
-asserts the throw *and* the safe `IsActive`/`IsPlaying` contrast, so a fix flips the test rather than
-quietly widening it. The fix is one line — `LogInstanceIsNull` consulting `SoundManager.HasInstance` (or
-`BroAudio.Manager`) before dereferencing.
-
----
+Status: Open, characterized. Pinned by
+`TeardownTests.StaleHandle_HeldAcrossManagerDestruction_ReleaseVerbsThrowInsteadOfSilentlyNoOp`, which also
+asserts the safe `IsActive`/`IsPlaying` contrast.
 
 ## 50. `Fader.StopCoroutine`'s defensive no-op reaches the throwing accessor
 
-**Where:** `Assets/BroAudio/Runtime/Player/FaderModule.cs`, `Fader._coroutineExecutor`
+**Where:** `Fader._coroutineExecutor`
 
-`Fader`'s coroutine executor is `SoundManager.Instance`. The guard is described as defensively no-op'ing
-when the manager is gone during teardown, but as written it dereferences the throwing accessor and would
-raise `BroAudioException` on that path — the same root cause as #49.
+The executor is `SoundManager.Instance`, so the teardown guard dereferences the throwing accessor (same root
+cause as #49): with the manager destroyed, `Fader.Complete` throws `BroAudioException`. No production path
+is known to reach it, because every `Fader` lives in an `AudioPlayer` destroyed with the manager.
 
-Observed: with the manager destroyed, `Fader.Complete` throws `BroAudioException`, where the same call on
-the same `Fader` succeeds while the manager is alive. No production path has been seen to reach it: every
-`Fader` lives inside an `AudioPlayer` that is a child of the manager's transform, so destroying the manager
-destroys the `Fader` in the same step. The guard does not guard, but nothing currently depends on it.
-
-Status: **Open, characterized.** Pinned by
+Status: Open, characterized. Pinned by
 `TeardownTests.Fader_CompleteWithManagerDestroyed_ThrowsBroAudioExceptionInsteadOfTheDefensiveNoOp`, which
-builds a `Fader` directly with a recording `IAudioBus` so no player is orphaned.
-
----
+builds a `Fader` directly with a recording `IAudioBus`.
 
 ## 51. A zero-fade `SetVolume` cannot cancel an in-flight master fade
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `SoundManager.SetMasterVolume` (the non-WebGL branch)
+**Where:** `SoundManager.SetMasterVolume`
 
-```csharp
-targetVol = targetVol.ToDecibel();
-if (_broAudioMixer.SafeGetFloat(MasterTrackName, out float currentVol))
-{
-    if (currentVol == targetVol)
-    {
-        return;
-    }
+Only the timed branch calls `RestartCoroutine`, which is what stops the previous ramp. A zero-fade
+`SetVolume(vol, 0f)` writes Master once and leaves a running fade alive to overwrite it next frame. The
+early return when the target equals the current value also skips cancellation. Both bite when paused: a
+master fade started at `Time.timeScale == 0` under `AudioMixerUpdateMode.Normal` rewrites its start value
+every frame, so a `SetVolume(thatValue, 0f)` early-returns and the fade resumes on unpause. The WebGL branch
+has the same shape. A fix would stop `_masterVolumeCoroutine` on both the zero-fade branch and the early
+return.
 
-    if (fadeTime != 0f)
-    {
-        this.RestartCoroutine(SetMasterVolume(currentVol, targetVol, fadeTime), ref _masterVolumeCoroutine);
-    }
-    else
-    {
-        _broAudioMixer.SafeSetFloat(MasterTrackName, targetVol);
-    }
-}
-```
-
-`RestartCoroutine` is the only thing that stops the previous ramp (`CoroutineExtension.RestartCoroutine` calls
-`SafeStopCoroutine` before starting the new one), and it is reached only on the `fadeTime != 0f` branch.
-`BroAudio.SetVolume(vol, 0f)` — the documented way to set master volume instantly — takes the other
-branch: it writes the parameter once and leaves any running fade alive, which then overwrites that value
-on its very next frame. The instant set is silently undone.
-
-The `currentVol == targetVol` early return compounds it: a caller who asks for the value the parameter
-already holds gets no write *and* no cancellation, so a fade running toward some other target continues
-uninterrupted.
-
-Both halves are reachable from a paused game. A master fade started while `Time.timeScale == 0` under
-`AudioMixerUpdateMode.Normal` has `GetDeltaTime() == 0`, so its loop rewrites Master with the *starting*
-value every frame — the parameter never moves, every `SetVolume(thatValue, 0f)` early-returns, and the
-fade resumes against the caller's wishes as soon as the game unpauses.
-
-Status: **Open, characterized by its consequence rather than by a dedicated test.** Found when
-`UpdateModeClockTests` left a deliberately frozen master fade behind and it turned
-`VolumePitchMixerTests.SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct` red one fixture
-later (CI run 20). `BroAudioTestFixture.DrainMasterVolumeFade` now drains the fade in teardown rather
-than relying on the reset, so the suite no longer depends on the broken cancellation. Not pinned: this is
-recorded from that consequence, and no test asserts the failed cancellation itself. A fix would stop the
-stored coroutine on both the zero-fade branch and the early return.
+Status: Open, characterized. Not pinned: no test asserts the failed cancellation;
+`BroAudioTestFixture.DrainMasterVolumeFade` drains any master fade in teardown so the suite does not depend
+on it.
 
 ## 53. `SetEase` discards `Mathf.Clamp01`'s return value
 
-**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs`, `EaseExtension.SetEase`
+**Where:** `EaseExtension.SetEase`
 
-```csharp
-public static float SetEase(this float value, Ease ease)
-{
-    Mathf.Clamp01(value);
+`Mathf.Clamp01(value);` is a bare statement, so `value` reaches the curve unclamped. Out-of-range input is
+corrected, inverted, amplified or turned into NaN depending on the curve: `1.5f` under InQuad gives `2.25`,
+`1.2f` under OutSine turns back down to `0.951`, InCirc past 1 is NaN, and `-1f` under InQuad is `1`.
 
-    return ease switch
-```
+The master-volume ramp, `AudioPlayer.PitchControl` and `EffectAutomationHelper.Tweak` evaluate the ease
+after adding the frame's delta, so their last pass uses `t > 1` (`FaderModule` checks first and stays in
+range). `Mathf.Lerp` clamps, so a rising curve is harmless, but a curve that turns down past 1 (OutSine, the
+factory fade-out ease; OutQuad; InOutSine) ends short of the target, and InCirc writes NaN to the mixer
+parameter. A later timed master fade lerps from that NaN and stays NaN; only a zero-fade `SetVolume` clears it. Pitch
+always uses Linear and is unaffected. Absorbs the former #47.
 
-`Mathf.Clamp01` is pure — it returns the clamped number and mutates nothing. Called as a bare statement
-its result is thrown away, so the line has no effect and `value` reaches the curve exactly as passed. The
-method reads as though it guarantees a normalized input; it does not.
-
-The consequences are asymmetric and none of them is an exception. `t > 1` overshoots: `1.5f.SetEase(
-Ease.InQuad)` returns `2.25`. A curve that peaks at `t = 1` turns back down past it: `1.2f.SetEase(
-Ease.OutSine)` is `0.951`. `Ease.InCirc` (`1 - sqrt(1 - t^2)`) has no real value past 1 and returns NaN. A
-negative `t` comes back *positive* through the even powers — `(-1f).SetEase(Ease.InQuad)` is `1`, i.e. a
-ratio below the start of the fade reads as fully complete — while `Ease.Linear` passes `-1` straight
-through. So the same out-of-range input is silently corrected, inverted, amplified or turned into NaN
-depending on which curve the user picked.
-
-Out-of-range input is not hypothetical. `FaderModule.Update` checks `_elapsedTime < _fadeTime` before it
-evaluates, so the per-player faders stay in range. But `SoundManager.SetMasterVolume`'s ramp,
-`AudioPlayer.PitchControl` and `EffectAutomationHelper.Tweak` add `Utility.GetDeltaTime()` to their elapsed
-time and then evaluate in the same pass, so the last pass before `while (currentTime < fadeTime)` is
-re-checked evaluates the ease at `t > 1`. Every one of them feeds the result through `Mathf.Lerp`, which
-clamps its own `t`, so a curve that keeps rising past 1 lands exactly on the target and does no harm:
-- Pitch always uses `Ease.Linear`, so it is unaffected.
-- The master ramp (`DefaultFadeInEase` / `DefaultFadeOutEase`) and effect automation (the effect's own
-  fade ease) take whatever curve the user configured. With a curve that turns down past 1, such as OutSine
-  (the factory fade-out ease), OutQuad or InOutSine, the ramp's final write lands short of the target. With
-  InCirc it writes NaN to the mixer parameter.
-- Nothing corrects the final write afterwards, and a later *timed* master fade starts its `Mathf.Lerp` from
-  the NaN it reads back, so it stays NaN. Only a zero-fade `SetVolume`, whose early return compares with `==`
-  (which NaN never satisfies), rewrites the parameter.
-
-`EditorVolumeTransporter` and `PlayerMoverment` re-clamp at the call site, so they are unaffected.
-
-Status: **Open, characterized.** Pinned by
-`EaseCurveTests.SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01` (the unclamped values,
-including OutSine turning down past 1), `EaseCurveTests.SetEase_InCircPastOne_IsNaN`, and
-`VolumePitchMixerTests.SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer`, which shows the NaN
-reaching the Master parameter and a zero-fade `SetVolume` clearing it. How far short a turning-down curve
-lands depends on the last frame's length, so that case is pinned only at the function. The fix is one word
-— `value = Mathf.Clamp01(value);` — and those tests are written to go red on it, so the repair is a
-deliberate test update rather than a surprise. This finding was also logged separately as #47, which has
-been folded in here.
+Status: Open, characterized. Pinned by
+`EaseCurveTests.SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01`,
+`EaseCurveTests.SetEase_InCircPastOne_IsNaN`, and
+`VolumePitchMixerTests.SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer` (NaN reaches Master,
+and a zero-fade `SetVolume` clears it). The short landing depends on frame length, so it is pinned only at
+the function. Fix: `value = Mathf.Clamp01(value);`.
 
 ## 54. An undefined `Ease` silences the whole fade
 
-**Where:** `Assets/BroAudio/Runtime/Extension/EaseExtension.cs` — the `_ => 0` arm of the `switch`
+**Where:** `EaseExtension.SetEase` (the `_ => 0` arm)
 
-The switch's default arm returns `0` for any `Ease` value that is not a defined member. Because the
-returned number is the fade's progress ratio, a `0` for every `t` holds the fade at its origin for its
-entire duration: a fade-in stays silent to the end and then snaps to full volume, rather than throwing or
-degrading to `Ease.Linear`.
+Any undefined `Ease` value returns progress `0` for every `t`, so a fade-in stays silent for its whole
+duration then snaps to full. Reachable without a bad cast: `Ease` is serialized by ordinal into
+`RuntimeSetting.DefaultFadeInEase` and friends, so a reordered or shrunk enum deserializes to an undefined
+value, with no console error.
 
-This is reachable without anyone writing a bad cast. `Ease` is serialized **by ordinal** into
-`RuntimeSetting.DefaultFadeInEase` and friends, so a project saved by a build whose enum had more members
-— or an asset carrying an ordinal that a later reorder removed — deserializes to an undefined value and
-silently loses the fade. The failure presents as an audio bug with no error in the console.
-
-Status: **Open, characterized.** Pinned by `EaseCurveTests.SetEase_UndefinedEaseValue_FallsBackToZero`.
-`EaseCurveTests.EaseMember_KeepsItsSerializedOrdinal` covers the other half of the exposure by failing if
-any member's ordinal moves.
+Status: Open, characterized. Pinned by `EaseCurveTests.SetEase_UndefinedEaseValue_FallsBackToZero`, with
+`EaseCurveTests.EaseMember_KeepsItsSerializedOrdinal` failing if any member's ordinal moves.
 
 ## 55. A per-type pitch replaces the entity's authored pitch instead of scaling it
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Pitch.cs`, `GetBasePitch`
+**Where:** `AudioPlayer.GetBasePitch`
 
-```csharp
-if (!Mathf.Approximately(audioTypePlaybackPref.Pitch, AudioConstant.DefaultPitch))
-{
-    return entity.GetRandomValue(audioTypePlaybackPref.Pitch, RandomFlag.Pitch);
-}
-return entity.GetPitch();
-```
+When the per-type pitch is not the default, the entity's authored `Pitch` is ignored: after
+`SetPitch(SFX, 0.5f)` an entity authored at 1.5 plays at 0.5, not 0.75, and its random range applies around
+the per-type value. Volume layers multiply instead. Invisible at the default pitch, which new entities use.
 
-The entity's authored `Pitch` is read only on the fall-through branch. Once `SetPitch(SFX, 0.5f)` has been
-issued, an entity authored at pitch 1.5 plays at **0.5**, not 0.75: its authored pitch is discarded rather
-than composed. This is the opposite of how volume layers, which multiply throughout
-(`_clipVolume * _trackVolume * _audioTypeVolume`). The entity's random *range* still applies, but around the
-per-type base rather than its own.
-
-The defect is invisible at the default, where replacing and multiplying give the same number, which is why
-nothing noticed it: `AudioEntity.CreateNewInstance` sets `Pitch` to exactly `AudioConstant.DefaultPitch`.
-
-Status: **Open, characterized.** Pinned by
+Status: Open, characterized. Pinned by
 `AuthoredPitchAndRandomizationTests.Play_WithAuthoredEntityPitch_ReachesAudioSourceAndIsReplacedNotScaledByTypePitch`,
-which asserts 0.5 and explicitly pins "not 0.75" — a change to composing pitch is a deliberate test update,
-not a silent pass.
+which asserts 0.5 and explicitly not 0.75.
 
 ## 56. Master `SetPitch` and master `SetVolume` are asymmetric on `BroAudioType.All`
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/`, `SetVolume` vs `SetPitch`
+**Where:** `SoundManager.SetVolume` vs `SoundManager.SetPitch`
 
-`SetVolume(vol, All, fade)` short-circuits into `SetMasterVolume` and writes the mixer's Master parameter,
-never entering a per-type pref. `SetPitch(pitch, All, fade)` has no such branch: it runs
-`SetPlaybackPrefByType` across every concrete type. So a "master" pitch is really every type's pitch written
-at once — it is stored five times, reaches every future player through the non-default branch of finding
-#55's `GetBasePitch`, including types the caller never named, and can only be undone type by type.
+`SetVolume` with `All` writes the mixer's Master parameter. `SetPitch` with `All` has no such branch and
+writes every concrete type's pref through `SetPlaybackPrefByType`, so a "master" pitch reaches every future
+player through `GetBasePitch` (see #55) and can only be undone type by type.
 
-Status: **Open, characterized.** Pinned by
+Status: Open, characterized. Pinned by
 `AuthoredPitchAndRandomizationTests.SetPitch_Master_StoresIntoEveryConcreteTypePrefAndReachesFuturePlayers`.
 
 ## 57. A timed per-type `SetVolume` snaps future players while live ones ramp
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `SetVolume(float, BroAudioType, float)`
+**Where:** `SoundManager.SetVolume(float, BroAudioType, float)`
 
-`SetPlaybackPrefByType(targetType, vol, AudioTypePlaybackPreference.OnSetVolume)` runs before the
-active-player loop and takes no `fadeTime`, so the stored `AudioTypePlaybackPreference.Volume` jumps straight
-to the target while every live player of that type is handed a `fadeTime`-long `Fader` ramp. `PlayControl`
-then applies the stored pref with `_audioTypeVolume.Complete(audioTypePref.Volume, false)`, so a sound played
-one second into a five-second type fade-out starts *already* at the end volume, next to siblings that are
-still most of the way up.
+`SetPlaybackPrefByType` stores the target volume immediately (no `fadeTime`), while live players of the
+type get a `fadeTime` ramp. `PlayControl` applies the stored pref with `Complete`, so a sound started
+mid-fade begins at the end value beside siblings still ramping, audible in the usual "duck a category while
+sounds keep firing" case.
 
-The asymmetry is audible exactly where a type fade is normally used: ducking a whole category over a beat
-while sounds keep firing. Fixing it means either ramping the pref on the same clock or seeding a fresh
-player's `_audioTypeVolume` from the in-flight ramp rather than its endpoint — both behavior changes, so it
-stays characterized.
-
-Status: **Open, characterized.** Pinned by
-`VolumeFadeTests.SetVolume_ByTypeWithFade_RampsLivePlayerOverDuration`, which asserts both halves in the frame
-of the call: the pref already at the target, the live player still exactly at its origin.
+Status: Open, characterized. Pinned by `VolumeFadeTests.SetVolume_ByTypeWithFade_RampsLivePlayerOverDuration`,
+which asserts in the frame of the call that the pref is already at target and the live player still at origin.
 
 ## 58. `Stop` with a fade on a looping sound goes silent at the current iteration's end
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `StopControl`
+**Where:** `AudioPlayer.StopControl`
 
-`StopControl` replaces `PlayControl` on the same coroutine slot, cancels `ScheduleNextPlayback` and discards
-the pre-spawned `_nextPlayer`. Nothing then hands the loop over at its next seam, and `AudioSource` itself
-never loops, so the voice ends when the iteration that was playing reaches its clip end. The clip-volume
-ramp keeps running over silence, and the handle reports `IsActive` until the fade completes. For a loop
-shorter than the fade, the requested fade-out is heard as a cut at the seam.
+`StopControl` replaces `PlayControl`, cancels `ScheduleNextPlayback` and discards the pre-spawned
+`_nextPlayer`, so nothing hands the loop over and the voice ends at the current iteration's clip end. The
+volume ramp continues over silence and the handle stays `IsActive` until the fade completes; for a loop
+shorter than the fade, the fade-out is heard as a cut. One-shots are unaffected.
 
-One-shots are unaffected: their clip normally outlasts the fade. A fix has to keep the loop handing over
-(or let the last iteration extend) until the fade finishes, which is a behavior change, so it stays
-characterized.
-
-Status: **Open, characterized.** Pinned by
+Status: Open, characterized. Pinned by
 `LoopHandoverTests.Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd`.
 
 ## 59. A `SeamlessLoop` whose `TransitionTime` outlasts the clip loops once per `TransitionTime`
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `PlayControl` and `ScheduleNextPlayback`
+**Where:** `AudioPlayer.PlayControl`, `AudioPlayer.ScheduleNextPlayback`
 
-For a seamless loop, `PlayControl` first waits out its own fade-in (`while (_clipVolume.IsFading)`), then
-calls `_pref.ApplySeamlessFade()` — which makes both fades `TransitionTime` long — and starts
-`ScheduleNextPlayback`. That coroutine waits until `_playbackEndDspTime - seamlessFadeOut - warmUpTime` and
-schedules the successor at `_playbackEndDspTime - seamlessFadeOut`, clamped to *now*.
-
-When `TransitionTime` is longer than the clip, both points are already in the past, so the successor is
-scheduled at once. Nothing recurses: the successor's own `PlayControl` parks on its `TransitionTime`-long
-fade-in before it reaches `ScheduleNextPlayback`, so each player spawns exactly one successor, one
-`TransitionTime` after it started. The loop's period therefore stretches from the clip length to the
-`TransitionTime`. The clip's own voice still ends after one clip length, so a 0.5 s clip with a 1.5 s
-transition sounds for 0.5 s, then the rest of each 1.5 s period is a fade running over silence — not the
-continuous loop `SeamlessLoop` promises. The number of live players stays bounded (each one fades out and
-recycles), so this is a timing defect, not a leak.
-
-No clean fix is implied: clamping `TransitionTime` to the clip length, or scheduling successors by clip
-length with overlapping fades, are both behavior changes to decide, so it stays characterized.
+`PlayControl` waits out its fade-in (now `TransitionTime` long via `ApplySeamlessFade`) before starting
+`ScheduleNextPlayback`, which schedules the successor at the clip end minus the fade-out, clamped to now.
+With `TransitionTime` longer than the clip, each player spawns its successor one `TransitionTime` after it
+started, so the loop period becomes `TransitionTime`: a 0.5 s clip with a 1.5 s transition sounds for 0.5 s
+then fades over silence for the rest of each period. Live players stay bounded, so this is timing, not a leak.
 
 Status: Open, characterized. Pinned by
-`LoopHandoverTests.SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount`,
-which plays a 0.5 s clip with a 1.5 s transition for three transitions and asserts between 3 and 6 player
-starts (a per-clip period would show about 9), at most 4 players live at once, and that the caller's handle
-still drives the loop and `Stop` recycles every player. A fix that restores the clip-length period turns
-the upper bound red.
+`LoopHandoverTests.SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount`:
+over three transitions it asserts 3–6 player starts (a per-clip period would give about 9), at most 4 live
+at once, and that the handle still drives the loop and `Stop` recycles every player.
 
 ## 60. `Play(id, (Transform)null)` throws a raw `NullReferenceException` before any validation
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.Playback.cs`,
-`SoundManager.Play(SoundID, Transform, float, IPlayableValidator)`
+**Where:** `SoundManager.Play(SoundID, Transform, float, IPlayableValidator)`
 
-```csharp
-if (IsPlayable(id, customValidator, followTarget.position, out var entity, out var player))
-```
-
-`followTarget.position` is evaluated as an argument to `IsPlayable`, so a null target is dereferenced before
-`IsPlayable` looks at the `SoundID`, the entity or the playback group. Every overload that takes a
-`Transform` reaches this line, including the fade-in one. The caller gets a raw `NullReferenceException` out
-of the `BroAudio` facade — not a `BroAudioException`, and not the logged error plus inert `Empty.AudioPlayer`
-that every other invalid-input path returns. Even `SoundID.Invalid` never logs its own error when paired
-with a null target. This conflicts with the project rule that expected "invalid input" gameplay paths log
-and return rather than throw.
-
-The throw happens before `_audioPlayerPool.Extract()`, so nothing is checked out of the pool and nothing
-leaks. It is distinct from the teardown case, where `SoundManager.Instance` throws first because the
-manager is gone.
+`followTarget.position` is evaluated as an argument to `IsPlayable`, so every `Transform` overload throws a
+raw `NullReferenceException` before the `SoundID`, entity or playback group is checked; even
+`SoundID.Invalid` logs nothing. Every other invalid-input path logs and returns `Empty.AudioPlayer`, per the
+project's log-and-return rule. Nothing is extracted from the pool first, so nothing leaks.
 
 Status: Open, characterized. Pinned by
-`ErrorPathTests.Play_WithANullFollowTarget_ThrowsNullReferenceExceptionBeforeAnyValidation`, which asserts
-the throw for both `Transform` overloads and for `SoundID.Invalid` (with no log expected, so a validation
-log arriving first would fail it), that no voice starts, and — as the contrast — that `Play(SoundID.Invalid)`
+`ErrorPathTests.Play_WithANullFollowTarget_ThrowsNullReferenceExceptionBeforeAnyValidation`: the throw for
+both overloads and for `SoundID.Invalid` with no log, no voice, and the contrast that `Play(SoundID.Invalid)`
 without a target logs and returns an inactive player.
 
 ## 61. A failed `Trim` leaves a zeroed sample buffer that later edits apply to
 
-**Where:** `Assets/BroAudio/Runtime/Extension/AudioExtension.cs`, `AudioExtension.TryGetSampleData`, and
-`Assets/BroAudio/Editor/Extension/AudioClipEditingHelper.cs`, `AudioClipEditingHelper.Trim`
+**Where:** `AudioExtension.TryGetSampleData`, `AudioClipEditingHelper.Trim`
 
-`TryGetSampleData` allocates its `out` array before it calls `AudioClip.GetData`, and hands that array back
-even when `GetData` fails and it returns false. `Trim` writes the out parameter straight into
-`_sampleDatas` (`HasEdited = _originalClip.TryGetSampleData(out _sampleDatas, ...)`), so after a failed
-Trim — a streaming clip is the documented way to make `GetData` refuse — the helper holds a buffer of zeros
-the size of the requested range that was never read from the clip.
-
-`CanEdit` then reads true, and every later edit (`AdjustVolume`, `Reverse`, …) runs on that silence and
-sets `HasEdited`. `GetResultClip` would then build its result from the zeroed buffer, i.e. silence — this
-last step is suspected rather than observed, because the result clip is re-created as a streamed clip whose
-content the test cannot read back. Without the failed Trim the same helper is not editable: its lazy read
-fails through `GetSampleData`, which returns null on failure.
+`TryGetSampleData` allocates its `out` array before `AudioClip.GetData` and returns it even when `GetData`
+fails. `Trim` assigns it straight into `_sampleDatas`, so after a failed Trim (e.g. a streaming clip) the
+helper holds zeros, `CanEdit` is true, and later edits run on silence and set `HasEdited`. `GetResultClip`
+would then build silence; that last step is suspected, not observed, because the result clip cannot be read
+back. Without the failed Trim the helper is not editable (`GetSampleData` returns null on failure).
 
 Status: Open, characterized. Pinned by
-`ClipEditingTests.Trim_OnStreamingClip_LeavesAZeroedBufferThatLaterEditsApplyTo`, which asserts that after
-the failed Trim `CanEdit` is true, `AdjustVolume` reports an edit, and the private buffer is ten zeros.
-Contrast: `ClipEditingTests.StreamingClip_WithoutAFailedTrim_IsNotEditable`.
+`ClipEditingTests.Trim_OnStreamingClip_LeavesAZeroedBufferThatLaterEditsApplyTo` (`CanEdit` true,
+`AdjustVolume` reports an edit, the buffer is ten zeros). Contrast:
+`ClipEditingTests.StreamingClip_WithoutAFailedTrim_IsNotEditable`.
 
 ## 62. `Scoping(Rect, Rect)` clamps a scope-local rect against the scope's global edge
 
-**Where:** `Assets/BroAudio/Editor/Extension/EditorScriptingExtension.cs`, `EditorScriptingExtension.Scoping(Rect, Rect, Vector2)`
+**Where:** `EditorScriptingExtension.Scoping(Rect, Rect, Vector2)`
 
-```csharp
-Rect rect = new Rect(originRect.position.Scoping(scope, offset), originRect.size);
-rect.xMax = rect.xMax > scope.xMax ? scope.xMax : rect.xMax;
-rect.yMax = rect.yMax > scope.yMax ? scope.yMax : rect.yMax;
-```
+It converts the rect to scope-local coordinates, then clamps against the global `scope.xMax`/`yMax`. Correct
+only with the scope at the origin; real callers pass an `EditorWindow.position`. With scope (100, 100, 50, 50),
+local (10, 10, 80, 90) is not clamped at all, and local (10, 10, 200, 200) becomes 140 × 140 instead of
+40 × 40. `DeScope` uses the same clamp on global coordinates and is correct.
 
-The first line converts the rect into scope-local coordinates; the clamp then compares it against
-`scope.xMax`/`scope.yMax`, which are global. With the scope at the origin the two agree, which is why the
-bug is invisible there. Off the origin — and real callers pass an `EditorWindow`'s `position`, which is
-not at the origin — it goes wrong both ways:
-
-- a local rect that overhangs the scope but whose local `xMax`/`yMax` stay under the global edge is not
-  clamped at all (scope (100, 100, 50, 50), local rect (10, 10, 80, 90) keeps its full 80 × 90);
-- once the local `xMax`/`yMax` pass the global edge, they are cut back to that global value instead of to
-  `scope.width`/`scope.height` (local (10, 10, 200, 200) becomes 140 × 140, where a correct clamp gives 40 × 40).
-
-`DeScope(Rect, Rect, Vector2)` has the same clamp but produces global coordinates, so it is correct.
-
-Status: Open, characterized. Pinned by
-`RectScopingTests.Scoping_OffOriginScope_ClampsLocalRectAgainstGlobalEdge` and
-`RectScopingTests.Scoping_OffOriginScope_LocalRectPastTheGlobalEdge_IsClampedToTheGlobalEdge`. Contrast:
+Status: Open, characterized. Pinned by `RectScopingTests.Scoping_OffOriginScope_ClampsLocalRectAgainstGlobalEdge`
+and `Scoping_OffOriginScope_LocalRectPastTheGlobalEdge_IsClampedToTheGlobalEdge`. Contrast:
 `RectScopingTests.DeScope_OffOriginScope_ClampsGlobalRectAgainstGlobalEdge`.
 
 ## 65. `UnPause` during a Pause fade-out leaves `IsStopping` set, so every later faded `Stop` is discarded
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `AudioPlayer.Stop`, `StopControl`,
-`IAudioStoppable.UnPause(float)` and `PlayInternal`
+**Where:** `AudioPlayer.Stop`, `StopControl`, `IAudioStoppable.UnPause(float)`, `PlayInternal`
 
-A faded `Pause` runs through `Stop(fade, StopMode.Pause, …)`, which starts `StopControl` in the
-`_playbackControlCoroutine` slot. `StopControl` sets `_stopMode = StopMode.Pause` and `IsStopping = true` as
-it starts, and clears `IsStopping` only after its fade, as its last step. `UnPause` checks only
-`_stopMode == StopMode.Pause`, so mid-fade it passes and calls `PlayInternal`, whose
-`RestartCoroutine(PlayControl(…), ref _playbackControlCoroutine)` stops `StopControl` before that last step
-runs. The resume itself works, but `IsStopping` stays true on a playing player until `EndPlaying` resets it.
-
-`Stop`'s first guard is `if (IsStopping && fade != FadeData.Immediate) return;`, so from then on every `Stop`
-with a fade is silently discarded, including the clip-setting default that `BroAudio.Stop(id)` and a bare
-`Stop()` pass. The sound plays on until its natural end, or until a zero-fade `Stop` gets past the guard. A
-faded `Stop` interrupted by `UnPause` is not affected: `_stopMode` is `Stop` there, so `UnPause` warns and
-returns (`ErrorPathTests.UnPause_WhileAFadedStopIsInProgress_WarnsAndTheStopStillCompletes`).
-
-A fix would clear `IsStopping` (and whatever else `StopControl` leaves half-done) when `PlayInternal`
-replaces a running `StopControl`.
+A faded `Pause` runs `StopControl`, which sets `IsStopping` and clears it only as its last step. `UnPause`
+checks only `_stopMode == StopMode.Pause`, so mid-fade it calls `PlayInternal`, whose `RestartCoroutine`
+kills `StopControl` before that step. The resume works, but `IsStopping` stays true until `EndPlaying`, and
+`Stop` returns early for any non-immediate fade while `IsStopping`, so every faded `Stop` (including the
+clip-setting default of `BroAudio.Stop(id)` and bare `Stop()`) is ignored; only a zero-fade `Stop` gets
+through. A faded `Stop` interrupted by `UnPause` is unaffected: `UnPause` warns and returns
+(`ErrorPathTests.UnPause_WhileAFadedStopIsInProgress_WarnsAndTheStopStillCompletes`). A fix would clear
+`IsStopping` when `PlayInternal` replaces a running `StopControl`.
 
 Status: Open, characterized. Pinned by
-`ErrorPathTests.UnPause_DuringAPauseFadeOut_ResumesButLeavesIsStoppingSet_SoALaterFadedStopIsIgnored`, which
-asserts that `IsStopping` is still set on the resumed, playing player, and that a later `Stop(0.5f)` leaves it
-playing at full volume after the fade time has passed.
+`ErrorPathTests.UnPause_DuringAPauseFadeOut_ResumesButLeavesIsStoppingSet_SoALaterFadedStopIsIgnored`
+(`IsStopping` still set while playing; a later `Stop(0.5f)` leaves it at full volume).
 
 ## 66. An Addressables key that fails to load throws out of `PlayControl` and strands the player
 
-**Where:** `Assets/BroAudio/Runtime/DataStruct/BroAudioClip.Addressables.cs`, `BroAudioClip.GetAudioClip`, and
-`Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `PlayControl` and `WaitForAddressablesToLoad`
+**Where:** `BroAudioClip.GetAudioClip` (`BroAudioClip.Addressables.cs`); `AudioPlayer.PlayControl`,
+`WaitForAddressablesToLoad`
 
-When a clip's `AssetReference` has a GUID that no catalog resolves, `PlayControl` waits in
-`WaitForAddressablesToLoad` for the load to finish (failed), then calls `_clip.GetAudioClip()`. That call
-never returns null for a failed load; it throws:
-
-- in the Editor, `assetIdentity = AudioClipAssetReference.editorAsset.name` dereferences a null
-  `editorAsset` (there is no asset for the GUID), a `NullReferenceException`;
-- in a player, the synchronous retry (`LoadAssetAsync().WaitForCompletion()`) fails again and the method
-  throws `BroAudioException`.
-
-The throw happens inside a coroutine step, outside `PlayInternal`'s `try`/`catch` (which covers only the
-synchronous start of the coroutine), so Unity logs the exception and drops the coroutine. `EndPlaying` never
-runs: the player the caller holds is active, silent and checked out of the pool until something stops it
-explicitly. `WaitForAddressablesToLoad`'s own `Failed to load addressable audio clip` error, which tests
-`GetAudioClip()` for null, can never be reached on this path. With the factory setting
-(`AutomaticallyLoadAddressableAudioClips` off) the only BroAudio-tagged log is the "not preloaded" error
-logged before the load.
-
-This conflicts with the project rule that an expected "not found" path logs and returns rather than throws.
-A fix would make `GetAudioClip` report a failed load (null, or a `TryGet*`) and have `PlayControl` end the
-player.
+For an `AssetReference` whose GUID no catalog resolves, `PlayControl` waits for the failed load and calls
+`GetAudioClip()`, which throws rather than returning null: a `NullReferenceException` in the Editor
+(`editorAsset` is null), a `BroAudioException` in a player (the synchronous retry fails). The throw is in a
+coroutine step outside `PlayInternal`'s `try`/`catch`, so the coroutine dies, `EndPlaying` never runs, and
+the player stays active, silent and out of the pool until stopped. `WaitForAddressablesToLoad`'s own
+"Failed to load" error is unreachable. Conflicts with the log-and-return rule.
 
 Status: Open, characterized. Pinned by
-`AddressablesTests.Play_WithAKeyThatCannotLoad_ThrowsOutOfPlayControlAndStrandsThePlayerActiveAndSilent`,
-behind `PACKAGE_ADDRESSABLES` (gated out, and accepted as such, where the package is absent). It asserts
-the non-preloaded error, an `Exception` log, and that the player stays active and never plays.
+`AddressablesTests.Play_WithAKeyThatCannotLoad_ThrowsOutOfPlayControlAndStrandsThePlayerActiveAndSilent`
+(behind `PACKAGE_ADDRESSABLES`): the "not preloaded" error (the only BroAudio-tagged log with the factory
+`AutomaticallyLoadAddressableAudioClips` off), an `Exception` log, and the player active and never playing.
 
 ## 67. `StopMode.Mute` has no path that unmutes, and a muted player is never recycled
 
-**Where:** `Assets/BroAudio/Runtime/Enums/StopMode.cs`, `StopMode.Mute`;
-`Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `Stop`, `StopControl`, `StartPlaying` and
-`IAudioStoppable.UnPause(float)`; `Assets/BroAudio/Runtime/Player/MusicPlayer.cs`, `StopCurrentPlayer`
+**Where:** `StopMode.Mute`; `AudioPlayer.Stop`, `StopControl`, `StartPlaying`, `IAudioStoppable.UnPause(float)`;
+`MusicPlayer.StopCurrentPlayer`
 
-`StopMode.Mute` is documented as "it will keep playing in the background until it's played (Unmuted) again",
-and `StartPlaying` has a `StopMode.Mute when AudioSource.isPlaying` case for that re-play. It is reachable only
-as a BGM transition stop mode (`SetTransition(transition, StopMode.Mute)`, applied by
-`MusicPlayer.StopCurrentPlayer`). Two things go wrong:
+`StopMode.Mute` is documented to keep playing in the background until played again, and `StartPlaying` has
+a case for that, but it is reachable only as a BGM transition stop mode and:
 
-- **Nothing re-plays the muted instance.** `BroAudio.Play(id)` always extracts a fresh player from the pool,
-  and `UnPause` accepts only `_stopMode == StopMode.Pause`, so it warns and returns. "Playing it again"
-  starts a second, full-volume player next to the muted one, which runs on silently. Only a `SetVolume` on
-  the old handle, which the caller rarely still holds, would make it audible again.
-- **A muted player leaks until stopped.** `Stop` starts `StopControl` in the `_playbackControlCoroutine`
-  slot, which stops the `PlayControl` that would have ended the player at its clip's end. Pause depends on
-  that (its resume starts a new `PlayControl`), but a muted player is never resumed. When its clip runs out
-  the source stops, `EndPlaying` never runs, and the player keeps its pool slot (`IsActive`, not playing)
-  until an explicit `Stop`. A BGM routine that mutes the outgoing track at every change accumulates such
-  players.
-
-Either the doc or the mechanism has to change. Making `Play(id)` resume a muted instance, or letting a muted
-player run out and recycle, are both behavior changes to decide, so the finding stays characterized.
+- **Nothing re-plays the muted instance.** `BroAudio.Play(id)` always extracts a new player, and `UnPause`
+  accepts only `StopMode.Pause`, so it warns. Playing again starts a second, full-volume player beside the
+  silent one.
+- **A muted player leaks until stopped.** `StopControl` replaces the `PlayControl` that would have ended the
+  player at its clip end, so when the clip runs out `EndPlaying` never runs and the player keeps its pool
+  slot (`IsActive`, not playing). A BGM routine that mutes at every change accumulates them.
 
 Status: Open, characterized. Pinned by
 `BGMEdgeCaseTests.StopModeMute_PlayingTheSameSoundAgainStartsANewPlayerAndLeavesTheMutedOneRunningSilently`
-(the new player, the muted one still running muted, and `UnPause` warning) and
-`BGMEdgeCaseTests.StopModeMute_TheMutedPlayerIsNeverRecycledWhenItsClipEnds_OnlyAnExplicitStopFreesIt` (still
-`IsActive` after its clip ran out; only `Stop` frees it).
+and `BGMEdgeCaseTests.StopModeMute_TheMutedPlayerIsNeverRecycledWhenItsClipEnds_OnlyAnExplicitStopFreesIt`.
 
 ## 69. `TryParseCoreData` throws on malformed JSON instead of returning false
 
-**Where:** `Assets/BroAudio/Editor/Utility/BroEditorUtility/BroEditorUtility.Json.cs`,
-`BroEditorUtility.TryParseCoreData`; caller `BroUserDataGenerator.GetInitialData`
+**Where:** `BroEditorUtility.TryParseCoreData`; caller `BroUserDataGenerator.GetInitialData`
 
-The only guard is "text asset null or empty". Any other text goes straight to
-`JsonUtility.FromJson<SerializedCoreData>`, which throws `ArgumentException` on malformed JSON, and the
-`Try*` method lets it escape instead of returning false. Its caller, `GetInitialData`, runs while the
-user-data assets are generated and migrates a legacy core-data file when one is found. A corrupted legacy
-file therefore aborts that generation with an exception rather than falling back to the default output
-path, which is what the `else` branch does when parsing fails.
+Only a null or empty text asset is guarded; malformed JSON makes `JsonUtility.FromJson` throw
+`ArgumentException` out of the `Try*` method. `GetInitialData` migrates a legacy core-data file during
+user-data generation, so a corrupted legacy file aborts generation instead of falling back to the default
+output path.
 
 Status: Open, characterized. Pinned by
 `CoreDataAndUpdaterTests.TryParseCoreData_WithMalformedText_ThrowsInsteadOfReturningFalse`.
 
 ## 70. `SetFadeInEase`/`SetFadeOutEase` have no effect on the clip's own authored fades
 
-**Where:** `Assets/BroAudio/Runtime/Player/PlaybackPreference.cs`, `PlaybackPreference.TryGetFadeIn`,
-`TryGetFadeOut` and `TryGetOrConsumeOverride`; `Assets/BroAudio/Runtime/Player/FadeData.cs`,
-`FadeData.SetEase` and `TryGetOrConsumeOverride`
+**Where:** `PlaybackPreference.TryGetFadeIn`, `TryGetFadeOut`, `TryGetOrConsumeOverride`;
+`FadeData.SetEase`, `FadeData.TryGetOrConsumeOverride`
 
-`IAudioPlayer.SetFadeInEase` / `SetFadeOutEase` ("Sets the fade in/out easing function for this player")
-write the ease into the player's `FadeData` (both its base and its one-shot ease). `TryGetOrConsumeOverride`
-starts from the ease it is handed, RuntimeSetting's `DefaultFadeInEase` / `DefaultFadeOutEase`, and swaps
-in the `FadeData`'s ease only when `FadeData.TryGetOrConsumeOverride` returns true, which requires a pending
-one-shot override (`Play(id, fadeIn)`, `Stop(fadeOut)`) or a base fade (only a `SeamlessLoop` sets one,
-through `ApplySeamlessFade`). A plain `Play()` / `Stop()` that runs the clip's own authored `FadeIn` /
-`FadeOut` has neither, so it keeps the RuntimeSetting default and the setter is silently ignored. The same
-holds for the fade-out `PlayControl` runs before a clip's natural end.
-
-A caller who authors fades in the Library Manager and shapes them per player with these setters hears the
-global default curve. A fix would use the `FadeData`'s ease whenever the setter was called, whatever the
-fade's source.
+The setters write the ease into the player's `FadeData`, but `TryGetOrConsumeOverride` starts from
+`RuntimeSetting`'s default ease and uses the `FadeData` ease only when there is a pending one-shot override
+(`Play(id, fadeIn)`, `Stop(fadeOut)`) or a base fade (set only by `SeamlessLoop`). A clip's authored
+FadeIn/FadeOut, including the fade-out before a natural end, therefore always uses the global default curve.
 
 Status: Open, characterized. Pinned by
-`FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_DoNotShapeTheClipsOwnAuthoredFades`, which samples a clip's
-authored 3 s FadeIn and FadeOut a third of the way in and finds the factory curves (InCubic in, OutSine out),
-not the requested OutCubic / InCubic. Contrast: `FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_ShapeExplicitFades`.
+`FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_DoNotShapeTheClipsOwnAuthoredFades`, which samples authored
+3 s fades a third of the way in and finds the factory curves (InCubic in, OutSine out), not the requested
+OutCubic/InCubic. Contrast: `FadeAndTrimTests.SetFadeInEase_AndSetFadeOutEase_ShapeExplicitFades`.
 
 ## 71. A timed non-dominator `SetEffect` leaves the type routed through the effect send after it resets
 
-**Where:** `Assets/BroAudio/Runtime/SoundManager/SoundManager.cs`, `SoundManager.SetEffect(BroAudioType, Effect)`
-and `SetPlayerEffect`; `Assets/BroAudio/Runtime/SoundManager/EffectAutomationHelper.cs`,
-`TweakTrackParameter`
+**Where:** `SoundManager.SetEffect(BroAudioType, Effect)`, `SoundManager.SetPlayerEffect`;
+`EffectAutomationHelper.TweakTrackParameter`
 
-For a non-default, non-dominator effect, `SetEffect` picks `SetEffectMode.Add` and calls `SetPlayerEffect`
-inline. That sets the effect's bit on the per-type `AudioTypePlaybackPreference.EffectType` and re-routes every
-live player of the type through its `<Track>_Effect` send. It then hands the automation helper a **null**
-`onReset`; only the `Remove` path (a default-valued `Effect`) wires `onReset` to
-`SetPlayerEffect(…, SetEffectMode.Remove)`. When a `ForSeconds` / `Until` / `While` waitable finishes,
-`TweakTrackParameter` tweaks the mixer parameter back to its default and invokes that null callback.
-
-So the timed effect's audible half is undone and its routing half is not. The players that were live through
-it stay on the effect send, the type's bit stays set, and every player of that type started afterwards is
-routed through the effect send too, with the filter at its default, until someone calls `SetEffect` with a
-default-valued effect. The practical cost is an extra effect path for every such voice, and a later
-`SetEffect` of the same type then filters voices the caller did not expect it to reach. The base test
-fixture has to clear this explicitly (`ResetTrackEffects`), and `VerifyGlobalStateRestored` checks that it did.
-
-A fix would pass the `Remove` callback for a timed `Add` as well, so the reset also clears the routing.
+For a non-default, non-dominator effect, `SetEffect` calls `SetPlayerEffect(..., Add)` inline, which sets the
+type's pref effect bit and routes live players through `<Track>_Effect`, then passes a null `onReset`; only
+the `Remove` path wires one. When a `ForSeconds`/`Until`/`While` waitable ends, the mixer parameter is reset
+but the routing is not: the type's bit stays set, and current and future players of the type stay on the
+effect send until a default-valued `SetEffect`. The test fixture clears this (`ResetTrackEffects`) and
+`VerifyGlobalStateRestored` checks it. A fix would pass the `Remove` callback for a timed `Add` too.
 
 Status: Open, characterized. Pinned by
 `AudioEffectTests.SetEffect_LowPass_ForSeconds_ResetsTheParameterButLeavesTheTypeRoutedThroughTheEffectSend`
-(behind `!UNITY_WEBGL`, like the rest of that file). After `Effect_LowPass` is back at its default, it
-asserts the SFX pref's LowPass bit is still set, the live player is still on the send, and a player started
-afterwards carries LowPass with its level on `<Track>_Effect` and its dry track muted. It then shows that an
-explicit `Effect.ResetLowPass()` clears all three.
+(behind `!UNITY_WEBGL`): after `Effect_LowPass` resets, the SFX LowPass bit is set, the live player is on the
+send, and a new player is routed through `<Track>_Effect` with its dry track muted; `Effect.ResetLowPass()`
+then clears all three.
 
 ## 72. A `SetPitch` after the next loop player is pre-spawned does not reach it
 
-**Where:** `Assets/BroAudio/Runtime/Player/AudioPlayer.Playback.cs`, `ScheduleNextPlayback`;
-`Assets/BroAudio/Runtime/Player/AudioPlayer.Scheduling.cs`, `RecalculateScheduledEndTime` and
-`ShiftScheduledTimes`; `Assets/BroAudio/Runtime/Player/AudioPlayer.Pitch.cs`, `IAudioPlayer.SetPitch`
+**Where:** `AudioPlayer.ScheduleNextPlayback`; `AudioPlayer.RecalculateScheduledEndTime`,
+`ShiftScheduledTimes`; `IAudioPlayer.SetPitch` (`AudioPlayer.Pitch.cs`)
 
-A looping player requests its successor `ScheduledPlaybackWarmUpTime` before the seam, and bakes
-`PlaybackHandoverData.Pitch` (its `TargetPitch`) into the request. The caller's handle keeps pointing at the
-playing instance until the seam. A `SetPitch` on the handle in that window changes the playing instance and
-runs `RecalculateScheduledEndTime`, which moves the seam and passes the delta on to the pre-spawned player
-through `ShiftScheduledTimes`. Nothing re-pitches that player, though. At the seam the handle is re-pointed
-at it, and the loop continues at the pitch from before the `SetPitch`. That player then carries the old
-pitch into every later seam, so the change is lost for good, not for one iteration.
+A looping player requests its successor `ScheduledPlaybackWarmUpTime` before the seam with its `TargetPitch`
+baked into `PlaybackHandoverData.Pitch`. A handle `SetPitch` in that window re-pitches the playing instance
+and shifts the successor's schedule (`ShiftScheduledTimes`) but not its pitch, so after the seam the loop
+continues, permanently, at the old pitch. The window is `AudioConstant.MixerWarmUpTime` (0.1 s) or the output
+latency if longer. Per-type `SoundManager.SetPitch` walks every active player and is unaffected. A fix would
+forward the pitch to `_nextPlayer` as the schedule shift already is.
 
-The window is short: `ScheduledPlaybackWarmUpTime` is `AudioConstant.MixerWarmUpTime` (0.1 s), or the output
-device's latency when that is longer. A per-type `SoundManager.SetPitch` is not affected, because it walks
-every active player, the pre-spawned one included. Only the per-handle call misses it.
-
-A fix would forward the pitch change to `_nextPlayer` (and to its `TargetPitch`), just as the schedule shift
-already is.
-
-Status: Open, characterized from the code. Not pinned: the window is too narrow for a test to land a
-`SetPitch` in it reliably, and widening it would mean overwriting `ScheduledPlaybackWarmUpTime` on the live
-`SoundManager` by reflection, which the maintainer chose not to do.
+Status: Open, characterized from the code. Not pinned: the window is too narrow to land a `SetPitch` in
+reliably, and widening it would mean overwriting `ScheduledPlaybackWarmUpTime` on the live `SoundManager` by
+reflection, which the maintainer chose not to do.

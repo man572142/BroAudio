@@ -1,239 +1,151 @@
 # Selection, policy and decorators
 
-Source walked: `Runtime/Utility/ClipSelection/*`, `Runtime/DataStruct/Core/AudioEntity.cs` (+`.Localization.cs`),
-`Runtime/Player/PlaybackGroup/*`, `Runtime/Interface/IPlayableValidator.cs`, `Runtime/Player/MusicPlayer.cs`,
-`DominatorPlayer.cs`, `AudioPlayerDecorator.cs`, `Runtime/RuntimeSetting.cs`, `Runtime/BroAudioChainingMethod.cs`,
-`Runtime/SoundManager/SoundManager.Playback.cs`, `SoundManager.Localization.cs`.
+Two setup facts apply to most entries:
 
-Two setup facts apply to nearly every behavior below and are not repeated in every row:
-
-- **Groups**: a code-built `AudioEntity` (`TestAudioLibrary.CreateEntity`) has `_group == null` and `AudioAsset == null`,
-  so `AudioEntity.PlaybackGroup` (`_group ? _group : _upperGroup`) resolves to `null`. In
-  `SoundManager.IsPlayable`, `validator = customValidator ?? entity.PlaybackGroup`,
-  and `if (validator != null && !validator.IsPlayable(...))` — a null validator means the check is skipped
-  entirely and Play always succeeds. Any group/voice-limit/comb-filtering test must either set `_group` via
-  `TestAudioLibrary.SetPrivateField(entity, "_group", group)` or pass an `IPlayableValidator` to the `Play(id, validator)` overload.
-- **Clip-selection state lives on the `AudioEntity`, not on the player or the play call.** `AudioEntity._clipSelectionStrategy`
-  is a single field reused across every `PickNewClip()` call for that entity. Two
-  concurrent `Play()` calls on the same `SoundID` advance the *same* Sequence/Shuffle cursor. State only resets
-  via the explicit `BroAudio.ResetMultiClipStrategy(id[, sequenceId])` API — never automatically between plays, stops, or entity recycles.
+- **Groups.** A code-built entity (`NewSound`/`NewEntity`) has no `_group` and no `AudioAsset`, so `AudioEntity.PlaybackGroup` is null and `SoundManager.IsPlayable` skips validation (`validator = customValidator ?? entity.PlaybackGroup`). Group tests wire `_group` (`TestAudioLibrary.Reflected.AudioEntity.Group`) to a fixture `NewGroup(...)`, or pass an `IPlayableValidator` to `Play(id, validator)`.
+- **Clip-selection state lives on the `AudioEntity`.** `_clipSelectionStrategy` is one instance per entity, so concurrent plays of one `SoundID` advance the same Sequence/Shuffle cursor. It resets only through `BroAudio.ResetMultiClipStrategy(id[, sequenceId])`, never between plays, stops or recycles.
 
 ## Clip selection strategies
 
 ### Single mode always plays clips[0]
 
-- **Observable**: `player.AudioSource.clip` after one frame, or `SingleClipStrategy.SelectClip(clips, ctx, out index)` directly.
-- **Setup**: entity with `MulticlipsPlayMode = MulticlipsPlayMode.Single` (default); `Clips[0]` set.
-- **Timing class**: EditMode-pure for the strategy; frame for the AudioSource proxy.
-- **Edge cases**: `Clips` null/empty → `Utility.ClipListIsNullOrEmpty` logs and returns null; `Clips[0]` reference-null → logs `"...first clip is null."` and returns null; `Clips[0]` non-null but unset (`IsSet == false`, i.e. no `AudioClip`/addressable) → logs `"No valid clip is set in [...]"` and returns null. Reference-null and unset are separate checks with distinct messages, and Single no longer accepts the unset case and returns it deferring the failure to playback — it now matches `Sequence`/`Shuffle`.
-- **Regression risk**: low — the strategy is trivial; the null-vs-unset distinction is the only subtlety.
+- **Observable**: `AudioSource.clip` after start, or `SingleClipStrategy.SelectClip(clips, ctx, out index)`.
+- **Edge cases**: null/empty `Clips` → `Utility.ClipListIsNullOrEmpty` logs and returns null; `Clips[0]` null → logs "first clip is null"; `Clips[0]` unset (`IsSet == false`) → logs "No valid clip is set" and returns null, like Sequence and Shuffle.
 
-### Sequence mode (default) cycles clips 0..N-1 and wraps
+### Sequence mode cycles clips 0..N-1 and wraps
 
-- **Observable**: repeated `PickNewClip()` / `SelectClip` calls return clips[0],[1],...,[N-1],[0],... via `out index`.
-- **Setup**: `MulticlipsPlayMode = Sequence`; `Clips` array with 2+ set entries.
-- **Timing class**: EditMode-pure (strategy) or DSP/frame if driven through repeated `BroAudio.Play(id)` calls.
-- **Edge cases**: a single-clip array stays on index 0 every call (`nextIndex >= clips.Length ? 0 : nextIndex` with Length 1 → always 0). An unset clip at the computed `nextIndex` logs `GetNoValidClipMessage` and resets `_sequenceIndex = -1` (so the *next* call restarts the scan from `clips[0]` if it's set, not necessarily from where it left off) — worth a dedicated edge-case test with a hole in the middle of the array.
-- **Regression risk**: medium — the wrap arithmetic and the "clips[0].IsSet" bootstrap branch (`_sequenceIndex == -1` and first call) are easy to get subtly wrong (off-by-one on wrap, or reordering after a Reset).
+- **Observable**: repeated `SelectClip` calls yield indices 0, 1, …, N-1, 0 via `out index`.
+- **Edge cases**: a one-clip array stays at 0; an unset clip at the next index logs, returns null with index −1, and resets the cursor, so the next call restarts from `clips[0]` rather than after the hole.
 
 ### Sequence mode: named SequenceIds run independent cursors
 
-- **Observable**: `ClipSelectionContext.SequenceId` set to different strings on the same entity yields independent index progressions per id, tracked in `SequenceClipStrategy._namedSequenceIndices` (a `Dictionary<string,int>`).
-- **Setup**: same entity; vary `context.SequenceId` (EditMode) or chain `.SetSequenceId("foo")` on the returned `IAudioPlayer` before the frame's `LateUpdate` drains the play queue (`AudioPlayer.cs` forwards to `_pref.SetSequenceId(...)`, which no-ops outside Sequence mode; the clip is picked lazily in `PlayControl`, so the call must land before that coroutine runs — i.e. chained in the same statement as `BroAudio.Play`).
-- **Edge cases**: `SequenceId == null` explicitly routes to the *default* (non-named) cursor, not a named entry called `"null"` — `SequenceClipStrategy` checks `context.SequenceId != null`. `Reset(sequenceId: null)` resets the default cursor; `Reset(sequenceId: "x")` only removes `"x"`'s dictionary entry.
-- **Regression risk**: medium — two independent pieces of mutable state (`_sequenceIndex` and the dictionary) must stay behaviorally identical; a fix to one path alone is a classic regression source.
+- **Observable**: different `ClipSelectionContext.SequenceId` values on one entity advance independently (`_namedSequenceIndices`). Through a live player, chain `.SetSequenceId("x")` in the same statement as `BroAudio.Play`, before `PlayControl` picks the clip.
+- **Edge cases**: `SequenceId == null` uses the default cursor; `Reset(null)` resets only the default cursor; `Reset("x")` removes only `"x"`.
 
 ### Random mode: uniform when all Weights are 0, weighted otherwise
 
-- **Observable**: `RandomClipStrategy.SelectClip` return distribution over many calls (EditMode, statistical test) or `out index` counts.
-- **Setup**: `MulticlipsPlayMode = Random`; vary each `Clips[i].Weight` (public field on `BroAudioClip`, no reflection needed — `entity.Clips[i].Weight = n`).
-- **Timing class**: EditMode-pure.
-- **Edge cases**: all weights 0 → `Random.Range(0, clips.Length)`, uniform. Any nonzero weight anywhere → switches to weighted mode for *all* clips, including the ones left at 0 (they become unreachable, `targetWeight < sum` never true for a 0-width bucket). Single-clip array always returns that clip regardless of Weight.
-- **Regression risk**: medium — statistical, so a broken weighting is easy to ship without a flaky-enough test catching it; a test should assert bucket boundaries deterministically (e.g. seed `UnityEngine.Random` or assert index 0 never appears when its Weight is forced to 0 among nonzero peers) rather than trust raw frequency counts.
+- **Observable**: `RandomClipStrategy.SelectClip` distribution over many seeded calls; set weights directly (`entity.Clips[i].Weight`, a public field).
+- **Edge cases**: all weights 0 → `Random.Range(0, clips.Length)`; any nonzero weight switches to weighted mode for all clips, making zero-weight clips unreachable; a one-clip array always returns that clip. Assert bucket boundaries deterministically (e.g. a zero-weight clip never appears) rather than trusting raw frequencies. Random keeps no state (`Reset()` is a no-op) and can repeat consecutively.
 
-### Shuffle mode never repeats the immediately-previous clip, and cycles the full pool before allowing any repeat
+### Shuffle mode avoids a repeat only across a cycle reset
 
-- **Actual behavior**: the heading is Shuffle's documented intent, and the code does not hold to it. It can
-  return the immediately-previous clip, and it does not return every clip once per cycle — which is not
-  part of its contract. Over many draws each clip's share is still uniform. When the fallback scan runs,
-  the `out index` can disagree with the clip actually returned.
-- **Observable**: `ShuffleClipStrategy.SelectClip` sequence over many calls — assert no two consecutive picks are equal, and every clip appears once before any clip repeats within a full-pool cycle.
-- **Setup**: `MulticlipsPlayMode = Shuffle`; 3+ set clips (2-clip case is a dedicated edge case, see below).
-- **Timing class**: EditMode-pure.
-- **Edge cases**: **single-clip entity** — `Use(clips, index, out result, true)` immediately fails the `checkLastUsed` branch (`result == _lastUsed`) after the first pick, forcing the fallback scan loop; with only one clip the loop's `increment` search still lands back on the same clip (there is no other index to land on), so Shuffle degrades to "always the same clip" without erroring — worth asserting explicitly, since it's a real behavior not an error path. **Two-clip entity** forces strict alternation. The "ran out of unused clips" branch (`Reset()` + remembering `_lastUsed`) is the other cheap-to-miss edge case: assert that after every clip has been used once, the *next* pick still avoids repeating the clip that was just used (mediated by `_lastUsed`, set even through the reset path).
-- **Regression risk**: high — this is the most stateful, most branch-heavy strategy in the group (two loops, a `HashSet`, a `_lastUsed` sentinel with a documented "avoid overusing Random when few clips remain" trick); it is also the strategy most likely to be touched by a future "make it truly random" refactor that would quietly break the no-immediate-repeat guarantee.
+- **Behavior**: an in-cycle pick is not checked against the clip just returned or the clips already used, so Shuffle can repeat the previous clip and does not visit every clip once per cycle — contrary to the `MulticlipsPlayMode.Shuffle` doc comment. When `_used` covers every clip, it resets and remembers `_lastUsed`, so the first pick after a reset is steered off the previous clip. Over many draws each clip's share is uniform.
+- **Observable**: `ShuffleClipStrategy.SelectClip` over many calls; locate the returned clip with `Array.IndexOf`, because after the fallback scan the `out index` can disagree with the clip returned.
+- **Edge cases**: a one-clip entity always returns that clip without error; a two-clip entity can repeat.
 
-### Shuffle vs Random: the guarantee Random explicitly does not make
+### Velocity mode selects by Weight thresholds
 
-- **Behavior**: Random can return the same clip on consecutive calls (no history tracking at all — `RandomClipStrategy` holds no state, `Reset()` is a no-op); Shuffle cannot except via the `_lastUsed` sentinel across a full-pool reset.
-- **Observable**: run N calls on identically configured entities in Random vs Shuffle mode; Random should show consecutive repeats over enough trials, Shuffle should not (barring the single-clip edge case above).
-- **Setup / Timing**: same as the two rows above.
-- **Regression risk**: medium — this is the contract most likely to be described informally in docs/comments and worth pinning down as an explicit comparison test, not just two separate strategy tests.
+- **Behavior**: clips are ascending thresholds (`Velocity == Weight`). The strategy returns the clip before the first one whose `Velocity > context.Value`, or the last clip if none exceeds it.
+- **Observable**: `VelocityClipStrategy.SelectClip(clips, new ClipSelectionContext(value), out index)`; through a live player, chain `.SetVelocity(n)`.
+- **Edge cases**: a value below every threshold returns index 0 (`i == 0 ? 0 : i - 1`); a value above every threshold returns the last clip but leaves `out index` at 0; ordering is not validated, so non-ascending weights degrade silently; `SetVelocity` on a non-Velocity entity logs an error and leaves the context value unchanged.
 
-### Velocity mode selects by the highest Weight threshold not exceeding the given Velocity
+### Chained mode maps PlaybackStage to a fixed clip index
 
-- **Observable**: `VelocityClipStrategy.SelectClip(clips, new ClipSelectionContext(value), out index)` — clips are treated as ascending thresholds; the strategy returns the *last* clip whose `Velocity` (== `Weight`) is `<= context.Value`, or the very last clip if `Value` exceeds every threshold.
-- **Setup**: `MulticlipsPlayMode = Velocity`; set `Clips[i].Weight` as ascending thresholds (e.g. 0, 40, 80, 127 for a MIDI-style velocity curve). Via a live player: chain `.SetVelocity(n)` on the `IAudioPlayer` — `IAudioPlayer.SetVelocity` calls `PlaybackPreference.SetVelocity`, which itself guards `Entity.PlayMode != MulticlipsPlayMode.Velocity` and logs+no-ops otherwise — a good dedicated edge case.
-- **Edge cases**: `Value` below every threshold (including 0 when `Clips[0].Weight > 0`) → the loop's `i == 0 ? 0 : i-1` guard means index 0 is still returned, not an out-of-range/negative index. Non-monotonic Weight ordering (author error) — the linear scan doesn't validate ordering, so behavior degenerates silently; worth one test documenting "no ordering validation exists" rather than assuming it does. `SetVelocity` called on a non-Velocity entity: logs an error, `_contextValue` is left untouched (stays at 0, i.e. whatever `GetContextValue` set for that PlayMode).
-- **Regression risk**: medium — the `i == 0 ? 0 : i - 1` boundary is a classic off-by-one and the "no validation of ascending order" behavior is the kind of thing a well-meaning fix could silently "improve" into a breaking change.
+- **Observable**: `ChainedClipStrategy.SelectClip(clips, new ClipSelectionContext((int)stage), out index)` → `index = Math.Max(stage - 1, 0)`: Start → clips[0], Loop → clips[1], End → clips[2]; `None` floors to 0. A fresh play is seeded at `PlaybackStage.Start` (`PlaybackPreference.GetContextValue`).
+- **Edge cases**: fewer than 3 clips → the End stage logs "There's no clip for Chained Play Mode Stage" and returns null. `PlaybackPreference.CanHandoverToEnd()` checks the same condition independently (`Clips.Length < (int)PlaybackStage.End`); the two must agree.
 
-### Chained mode maps PlaybackStage directly to a fixed clip index
+### Localization mode selects the row matching the active locale
 
-- **Observable**: `ChainedClipStrategy.SelectClip(clips, new ClipSelectionContext((int)PlaybackStage.Start/Loop/End), out index)` → `index = context.Value - 1`, i.e. Start(1)→clips[0] (intro), Loop(2)→clips[1] (loop body), End(3)→clips[2] (outro). `Math.Max(context.Value - 1, 0)` floors `PlaybackStage.None` (0) to index 0 too.
-- **Setup**: `MulticlipsPlayMode = Chained`; 3 clips. `PlaybackPreference`'s private `GetContextValue` seeds a fresh play at `PlaybackStage.Start` automatically — a first `BroAudio.Play(id)` on a Chained entity always starts at the intro clip without any extra setup.
-- **Edge cases**: `clips.Length < 3` (missing the End clip) → `index >= clips.Length` logs `"There's no clip for Chained Play Mode Stage..."` and returns null; this is exactly the situation `PlaybackPreference.CanHandoverToEnd()` guards against separately (`Entity.Clips.Length < (int)PlaybackStage.End`) — the two checks are redundant/overlapping and worth a comment in Conflicts if they ever disagree.
-- **Regression risk**: low for the strategy itself (pure arithmetic); the stage *progression* (Start→Loop/End via handover) is high-risk but belongs to the looping/handover territory (see project memory `looping-via-handover.md`), not this section — noted here only because the strategy is the cheap, pure half of that story and is fully EditMode-testable in isolation from the handover machinery.
-
-### Localization mode selects the BroAudioClip row whose Locale matches the active locale, then resolves the actual AudioClip out-of-band
-
-- **Observable**: `LocalizationClipStrategy.SelectClip` return value's `.GetAudioClip()`, and `out index` for row identification.
-- **Setup**: this strategy is **not** reachable through `AudioEntity.PickNewClip()` without a live `SoundManager` (it constructs `new SoundID(this)` and calls `SoundManager.Instance.TryGetCachedLocalizedClip`) — but the strategy class itself takes no such dependency. Call `LocalizationClipStrategy.Inject(localizedAudio, entityName, tryGetCachedClip)` directly:
-  - `localizedAudio`: a `UnityEngine.Localization.LocalizedAudioClip` with non-empty `TableReference`/`TableEntryReference` — these only need `ReferenceType != Empty` (i.e. a `TableReference` constructed from any non-null name/GUID string), **they do not need to resolve to a real, existing table** (`SoundManager.Localization.cs`'s `HasValidLocalizationReferences` performs the identical shape check).
-  - `tryGetCachedClip`: a plain `Func<AudioClip>` — inject a lambda returning a `NewClip()` test double. This is checked *before* the real `LoadAssetAsync()`/`WaitForCompletion()` path, so a non-null return here fully bypasses Addressables/Localization asset resolution.
-  - Per-row `Locale` field: `entity.Clips[i].Locale` (public field, `BroAudioClip.Locale`, only compiled under `PACKAGE_LOCALIZATION` — present in this project). Set to a `LocaleIdentifier` matching one of `en` / `ja-JP` / `zh-TW` from `Assets/Localization/`.
-  - Swap `UnityEngine.Localization.Settings.LocalizationSettings.SelectedLocale` in the test and restore it in teardown.
-- **Timing class**: EditMode-pure for the strategy in isolation (per the injection trick above); DSP/frame if exercised through `BroAudio.Play()` on a real `SoundManager`-backed Localization entity.
-- **Edge cases**: `_localizedAudio == null` or empty references → logs error, `index = -1`, returns null. `tryGetCachedClip()` returns null *and* the real load also fails/returns null → logs warning, `index = -1`. `SelectedLocale` doesn't match any row's `Locale` → falls through to the `LocalizedBroAudioClipWrapper(resolvedClip)` overload (no `BroAudioClip` backing, `index = 0`, and per-clip playback properties — Volume/Delay/StartPosition/etc. — silently default rather than erroring).
-- **Regression risk**: medium — the "no row matches locale, degrade to defaults" fallback is easy to lose sight of in a refactor since it doesn't throw or clearly log at error level (only a warning).
+- **Observable**: `LocalizationClipStrategy.SelectClip`'s returned `.GetAudioClip()` and `out index`.
+- **Setup**: through `PickNewClip()` the strategy needs a live `SoundManager` (`TryGetCachedLocalizedClip`); in isolation it does not. Call `Inject(localizedAudio, entityName, tryGetCachedClip)`:
+  - `localizedAudio`: a `LocalizedAudioClip` whose table and entry references are non-empty; they need not resolve to a real table (the same shape check as `HasValidLocalizationReferences`).
+  - `tryGetCachedClip`: a lambda returning a test clip; a non-null return bypasses `LoadAssetAsync`.
+  - Per-row `entity.Clips[i].Locale` (exists only under `PACKAGE_LOCALIZATION`) set to a `LocaleIdentifier` of one of the project's `Locale` assets.
+  - Swap `LocalizationSettings.SelectedLocale` and restore it in teardown.
+  End-to-end `Play` resolving a real clip needs an authored `AssetTable` with an `AudioClip` entry.
+- **Edge cases**: null or empty references → error, index −1, null; cached getter and load both null → warning, index −1; no row matches the locale → `LocalizedBroAudioClipWrapper(resolvedClip)` with index 0, and per-clip properties (Volume, Delay, StartPosition…) silently take defaults.
 
 ### ChangeClipPerLoop re-picks a clip on every loop iteration
 
-- **Observable**: `IAudioPlayer.CurrentPlayingClip` (or `.AudioSource.clip`) differs across successive loop iterations of the same play, for a Random/Shuffle/Sequence entity with the flag set.
-- **Setup**: `TestAudioLibrary.SetPrivateField(entity, "Flags", AudioEntityFlag.ChangeClipPerLoop)` (auto-property `Flags` → backing field `<Flags>k__BackingField`), combined with `Loop = true` or `SeamlessLoop = true`.
-- **Timing class**: DSP (driven by the handover mechanism's `needNewClip` check) — this is squarely the "looping via handover" territory documented separately in project memory; flagged here only because the *entity flag itself* and its Random/Shuffle/Sequence interaction is this section's concern.
-- **Edge cases**: without the flag, a looping entity keeps playing the *same* clip instance across iterations (no re-pick) — worth a contrasting test.
-- **Regression risk**: medium — cross-cutting with handover; a change to either side (flag check or handover scheduling) can break this without either area's own tests noticing.
+- **Observable**: `AudioSource.clip` differs across iterations of one play. Setup: set `AudioEntity.Flags` to `AudioEntityFlag.ChangeClipPerLoop` with `Loop` or `SeamlessLoop`.
+- **Edge cases**: without the flag a loop keeps the same clip.
 
 ## Randomization ranges (RandomFlag / pitch & volume jitter)
 
-### RandomFlag.Volume / RandomFlag.Pitch apply ± half-range jitter around the base value; absent flags return the base value exactly
+### RandomFlag.Volume / Pitch jitter by ± half the range; absent flags return the base exactly
 
-- **Observable**: `entity.GetMasterVolume()` / `entity.GetPitch()` (public API on `IAudioEntity`) — or the underlying `AudioEntity.GetRandomValue(baseValue, flag)` — called many times, asserting results fall within `[base - range/2, base + range/2]` and (statistically) are not always equal to `base` when the flag is set, and are *always* exactly `base` when it is not.
-- **Setup**: `MasterVolume`/`Pitch` (auto-properties, backing fields `<MasterVolume>k__BackingField` / `<Pitch>k__BackingField`), `VolumeRandomRange`/`PitchRandomRange` (same pattern), and `RandomFlags` (`<RandomFlags>k__BackingField`) — a `[Flags]` enum, set via `RandomFlag.Volume | RandomFlag.Pitch` to test both, or either alone.
-- **Timing class**: EditMode-pure (`GetRandomValue` only touches `UnityEngine.Random`, no SoundManager).
-- **Edge cases**: `range == 0` with the flag set → jitter collapses to exactly `base` (half = 0, `Random.Range(-0,0)` always 0) — a legitimate "flag on but no-op" state worth asserting doesn't throw. `RandomFlags == RandomFlag.None` → `GetRandomValue` short-circuits before ever calling `Random.Range`, so `Pitch`/`Volume` random range values are provably irrelevant when the flag is off — a good "doesn't matter" assertion.
-- **Regression risk**: low — small, pure, well-isolated function; the main risk is the `[Flags]` `Contains` extension (project convention forbids `Enum.HasFlag`) silently regressing to boxing/wrong semantics if someone "simplifies" it.
+- **Observable**: `entity.GetMasterVolume()` / `entity.GetPitch()` (or `AudioEntity.GetRandomValue(base, flag)`) over many calls fall within `[base - range/2, base + range/2]`; without the flag they always equal `base`.
+- **Setup**: `MasterVolume`, `Pitch`, `VolumeRandomRange`, `PitchRandomRange` and `RandomFlags` are auto-properties (backing fields `<Name>k__BackingField`).
+- **Edge cases**: range 0 with the flag set returns `base`; `RandomFlag.None` short-circuits before `Random.Range`, so the ranges are irrelevant.
 
 ## Playback-group voice limiting and rejection
 
-### MaxPlayableCountRule rejects Play once the concurrent count reaches the configured limit
+### MaxPlayableCountRule rejects Play once the group's count reaches the limit
 
-- **Observable**: `BroAudio.Play(id)` returns `Empty.AudioPlayer` (an inactive, `IsActive == false` player) once the limit is reached, versus a real active player below it. Best proxy: `IAudioPlayer.IsActive` immediately after the call (no frame wait needed — rejection happens synchronously in `SoundManager.IsPlayable`, before the play queue).
-- **Setup**: build a `DefaultPlaybackGroup` via `ScriptableObject.CreateInstance<DefaultPlaybackGroup>()`, set its private field `_maxPlayableCount` to a `MaxPlayableCountRule` (implicit `int`→`MaxPlayableCountRule` conversion, so `TestAudioLibrary.SetPrivateField(group, "_maxPlayableCount", (MaxPlayableCountRule)1)` or construct the rule directly), then wire it onto the entity: `TestAudioLibrary.SetPrivateField(entity, "_group", group)`. Track the group with `Track()` for teardown.
-- **Timing class**: immediate (rejection) / frame (to confirm the accepted ones actually start).
-- **Edge cases**: limit of exactly 1 — second concurrent Play on the same or a *different* `SoundID` sharing the group is rejected (the rule is per-group, not per-entity: `DefaultPlaybackGroup._currentPlayingCount` is one field on the group instance). Limit `<= 0` (including the factory default `-1`, exposed in the inspector as "Infinity") means no limit at all — `_maxPlayableCount <= 0 || _currentPlayingCount < _maxPlayableCount`. Count decrements via `player.OnEnd(...)`, so a rejected slot frees up only once the *accepted* player actually finishes/stops and its `OnEnd` fires — not merely when playback audibly ends but when `AudioPlayer` recycling runs its `OnEnd` callbacks.
-- **Regression risk**: high — voice limiting is a headline feature; the count is a single mutable `int` on a ScriptableObject with no defensive bounds-checking, and the increment/decrement pairing (`OnGetPlayer` vs `OnEnd`) is exactly the kind of thing that leaks under an exception mid-callback or a player recycled without ever completing.
+- **Observable**: `Play` returns `Empty.AudioPlayer` (`IsActive == false`) synchronously once the limit is reached.
+- **Setup**: `NewGroup(maxPlayableCount: n)`, wired onto the entity's `_group`.
+- **Edge cases**: the count is per group (`_currentPlayingCount`), so a limit of 1 also rejects a different `SoundID` in the same group; `<= 0` (factory `-1`, "Infinity") means no limit; the count decrements through `OnEnd`, i.e. when the accepted player recycles, not when its audio ends.
 
-### The voice-limit count increments at enqueue time (OnGetPlayer), not at audible playback start
+### The voice-limit count increments at enqueue time
 
-- **Observable**: two `BroAudio.Play(id)` calls issued in the *same frame*, before `LateUpdate` drains the queue, are both counted immediately — the second is rejected (given limit 1) even though neither has started audible playback yet.
-- **Setup**: same as above; issue both `Play()` calls before yielding a frame.
-- **Timing class**: immediate — `validator?.OnGetPlayer(player)` runs synchronously inside `SoundManager.IsPlayable`, before the player is even enqueued.
-- **Regression risk**: medium — a plausible "fix" would move the count increment to actual playback start, which would change this contract; worth pinning down explicitly since it's surprising and not obviously documented anywhere else.
+- **Behavior**: `validator.OnGetPlayer(player)` runs inside `SoundManager.IsPlayable`, before the queue drains.
+- **Observable**: two `Play` calls in the same frame with limit 1 — the second is rejected though neither has started.
 
-### CombFilteringRule rejects a same-ID replay within the configured time window (and needs a live SoundManager)
+### CombFilteringRule rejects a same-ID replay within its window
 
-- **Observable**: two `BroAudio.Play(id)` calls on the same `SoundID` within `_combFilteringTime` seconds — the second one's `IsActive` is false immediately, and (if `_logCombFilteringWarning`) a `Debug.LogWarning` fires.
-- **Setup**: `DefaultPlaybackGroup` with `_combFilteringTime` set (`TestAudioLibrary.SetPrivateField(group, "_combFilteringTime", (CombFilteringRule)0.5f)`), wired onto `entity._group`. Requires a live `SoundManager` regardless — the rule reads `SoundManager.Instance.TryGetPreviousPlayerFromCombFilteringPreventer`, and `SoundManager._combFilteringPreventer` is populated for **every** play regardless of whether any group uses the rule ("Whether there's any group implementing this or not, we're tracking it anyway", per the code comment).
-- **Edge cases**: **Ignore If Same Frame** (`_ignoreCombFilteringIfSameFrame`) — two same-ID plays enqueued in the same frame are exempted from the rule when true (`isSameFrame` is also true when the previous play is still queued but hasn't executed — `Mathf.Approximately(previousPlayTime, 0f)`). **Ignore If Distance Is Greater Than** (`_ignoreIfDistanceIsGreaterThan`) — for two *positioned* (non-global) plays farther apart than this distance, the rule is skipped even within the time window; for one global + one positioned play, distance is meaningless and the rule instead ignores based on `_ignoreIfDistanceIsGreaterThan > 0f` alone — a genuinely odd asymmetric case worth a dedicated test.
-- **Regression risk**: high — most branch-dense rule in the codebase (frame-boundary detection via `TimeExtension.UnscaledCurrentFrameBeganTime`, global-vs-positioned distance logic, an explicit TODO in `DefaultPlaybackGroup` about using the AudioListener's position instead). This is a good candidate for the orchestrator to prioritize.
+- **Observable**: a second play of one `SoundID` within `_combFilteringTime` returns an inactive handle, and logs a warning when `_logCombFilteringWarning` is on (`NewGroup` turns it off).
+- **Setup**: `NewGroup(combFilteringTime: t, ...)`. Needs a live `SoundManager` (the rule reads `TryGetPreviousPlayerFromCombFilteringPreventer`).
+- **Edge cases**: `_ignoreCombFilteringIfSameFrame` exempts same-frame plays, and a previous play still in the queue counts as same-frame; two positioned plays farther apart than `_ignoreIfDistanceIsGreaterThan` are exempt; one global plus one positioned play is exempt whenever `_ignoreIfDistanceIsGreaterThan > 0`.
 
-### A custom IPlayableValidator passed to Play() overrides the entity's own PlaybackGroup entirely
+### A custom IPlayableValidator replaces the entity's PlaybackGroup
 
-- **Observable**: `BroAudio.Play(id, customValidator)` — `customValidator ?? entity.PlaybackGroup` means a non-null explicit validator is used exclusively; the entity's own `_group` (if any) is never consulted for that call.
-- **Setup**: a hand-rolled `IPlayableValidator` test double (trivial to implement — two methods) is the cheapest way to test `SoundManager.IsPlayable`'s branching without touching `PlaybackGroup`/`Rule`/ScriptableObjects at all.
-- **Timing class**: immediate.
-- **Regression risk**: low — a straightforward `??` — but worth one test since it's the doorway for the whole `IPlayableValidator` extension point mentioned in `Runtime/Interface/IPlayableValidator.cs`'s XML doc ("often used with overriding the PlaybackGroup").
+- **Observable**: `Play(id, customValidator)` consults only the custom validator (`customValidator ?? entity.PlaybackGroup`). A hand-rolled `IPlayableValidator` tests `IsPlayable`'s branching without any ScriptableObject.
 
 ## Decorators: AsBGM / AsDominator
 
-### AsBGM() attaches a MusicPlayer decorator to the player — it is composition, not a subtype swap
+### AsBGM() composes, it does not swap the player
 
-- **Observable**: `player.AsBGM()` returns an `IMusicPlayer`; the *same* underlying `AudioPlayer`/`SoundID` continues to satisfy `IAudioPlayer` (they're the same `AudioPlayerInstanceWrapper` — `Wrap(...)` always returns `this`). Confirm via `((IAudioPlayer)musicPlayerResult).ID == originalPlayer.ID`.
-- **Setup**: any active player from `BroAudio.Play(id)`.
-- **Timing class**: immediate (decorator attach is synchronous, no frame wait) — though the entity should be `BroAudioType.Music` or `AlwaysPlayMusicAsBGM` disabled if you don't want the *implicit* auto-attach (see RuntimeSetting section) to interfere with an explicit-attach test.
-- **Regression risk**: low for the attach mechanism itself; see the next row for the actually-risky part.
+- **Observable**: `player.AsBGM()` returns the same `AudioPlayerInstanceWrapper` (`Wrap(...)` returns `this`), so `((IAudioPlayer)result).ID == player.ID`. Attach is synchronous.
+- **Setup**: for an explicit-attach test, use a non-Music entity or turn `AlwaysPlayMusicAsBGM` off.
 
-### Calling AsBGM() a second time on the same player returns the same MusicPlayer decorator instance — it does not stack or replace
+### A second AsBGM() reuses the same MusicPlayer
 
-- **Observable**: reference-equality of two `AsBGM()` calls' *decorator* is not directly exposed through the public `IMusicPlayer` interface (both return the same wrapper), but is observable behaviorally: call `.SetTransition(Transition.Immediate)` then `.AsBGM().SetTransition(Transition.CrossFade)` again — the second call's settings win for the *same* decorator (there's only ever one `MusicPlayer` per `AudioPlayer`, tracked in `_decorators` via `Utility.GetOrCreateDecorator`, which does a `TryGetDecorator<T>` lookup before creating).
-- **Setup**: same player, two `AsBGM()` calls in sequence with different `SetTransition` args between them.
-- **Timing class**: immediate.
-- **Edge cases**: this is the "distinct case" called out in the task brief — a naive test might expect a *new* `IMusicPlayer` each call, or expect the second call to be a no-op; neither is correct. The correct assertion is "settings from the second call are the ones honored at the next `DoTransition`".
-- **Regression risk**: medium — `GetOrCreateDecorator`'s idempotency is easy to break if someone "simplifies" it to always `Add` a new decorator, silently reintroducing duplicate-decorator bugs (duplicate `OnEnd`/transition wiring).
+- **Behavior**: `Utility.GetOrCreateDecorator` looks up an existing decorator before creating one, so a player has at most one `MusicPlayer`.
+- **Observable**: `.AsBGM().SetTransition(Immediate)` then `.AsBGM().SetTransition(CrossFade)` — the second call's settings are the ones the next `DoTransition` uses; there is no second decorator.
 
-### AsDominator() attaches independently of AsBGM() — a player can carry both decorators simultaneously
+### AsDominator() and AsBGM() coexist
 
-- **Observable**: `player.AsBGM()` then separately `player.AsDominator()` (or vice versa) both succeed and both remain queryable via `AudioPlayer.TryGetDecorator<T>` (used internally by `AudioPlayerInstanceWrapper.GetDecorator<T>`).
-- **Setup**: same player, both decorator methods called.
-- **Timing class**: immediate. Gated behind `#if !UNITY_WEBGL` in source — irrelevant for Editor Play Mode tests, worth a one-line note only.
-- **Regression risk**: low — both live in the same `List<AudioPlayerDecorator>` keyed by type, no interaction between them at attach time.
+- **Observable**: both attach to one player and both resolve via `AudioPlayer.TryGetDecorator<T>` (inspect `TestAudioLibrary.Reflected.AudioPlayer.Decorators`). `AsDominator` is compiled out under `UNITY_WEBGL`.
 
-### AlwaysPlayMusicAsBGM (RuntimeSetting) auto-attaches the BGM decorator for BroAudioType.Music, using the configured default transition
+### AlwaysPlayMusicAsBGM auto-attaches the BGM decorator to Music plays
 
-- **Observable**: `BroAudio.Play(musicId)` — without ever calling `.AsBGM()` explicitly — still produces a player for which `MusicPlayer.CurrentBGMPlayer` becomes non-null after a frame, and a second `BroAudio.Play(otherMusicId)` triggers a transition per `Setting.DefaultBGMTransition`/`DefaultBGMTransitionTime`.
-- **Setup**: entity `AudioType = BroAudioType.Music`; `SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = true` (public field, direct assignment — restored automatically by the base fixture's `JsonUtility.FromJsonOverwrite` snapshot/restore in `BroAudioTestFixture`, no manual cleanup needed).
-- **Timing class**: frame (need `LateUpdate` to drain the queue) for `IsPlaying`/`AudioSource` observations; immediate for the decorator attach itself.
-- **Edge cases**: setting `AlwaysPlayMusicAsBGM = false` and playing a `BroAudioType.Music` entity — no implicit `AsBGM()`, `MusicPlayer.CurrentBGMPlayer` is untouched by that play. Non-Music `AudioType` entities are never auto-decorated regardless of the setting.
-- **Regression risk**: medium — this is a global default that silently changes behavior for an entire `AudioType`; a test asserting the *off* state is as valuable as one asserting the *on* state, since it's easy to only test the (more visible) default-on path.
+- **Observable**: `Play(musicId)` without `.AsBGM()` sets `MusicPlayer.CurrentBGMPlayer`, and a second Music play transitions per `Setting.DefaultBGMTransition`/`DefaultBGMTransitionTime`.
+- **Edge cases**: with the setting off, a Music play leaves `CurrentBGMPlayer` untouched; non-Music types are never decorated.
 
 ## Chaining-method fluent API (BroAudioChainingMethod.cs)
 
-### Every chaining method is null-safe and no-ops on a recycled/invalid player
+### Every chaining method no-ops on a recycled or empty player
 
-- **Observable**: call any `BroAudioChainingMethod` extension (`.SetVolume`, `.SetPitch`, `.AsBGM`, `.Stop`, etc.) on `Empty.AudioPlayer` or a player after it has fully recycled (post-Stop, past `IsActive == false`) — none throw; most return a non-null but inert wrapper (`?.` operator throughout).
-- **Setup**: `BroAudio.Stop(id, 0f)`, wait for `!player.IsActive`, then invoke chaining methods on the stale reference.
-- **Timing class**: immediate.
-- **Regression risk**: low — mechanical `?.` forwarding — but a good defensive smoke test given how much of the public API surface funnels through this one file.
+- **Observable**: any `BroAudioChainingMethod` extension on `Empty.AudioPlayer` or a recycled handle does not throw; most return a non-null, inert handle.
 
-### SetVelocity and SetSequenceId are both guarded no-ops outside their own mode
+### SetVelocity and SetSequenceId are guarded outside their own mode
 
-- **Observable**: `.SetVelocity(n)` on a non-Velocity entity logs `Debug.LogError` and leaves `_contextValue` unchanged; `.SetSequenceId("x")` on a non-Sequence entity does the same and leaves `SequenceId` unchanged (both in `PlaybackPreference.cs`). `SequenceId`'s setter is private, so the guard cannot be bypassed.
-- **Setup**: entity in `Random`/`Single`/etc. mode; call `.SetVelocity()` and separately `.SetSequenceId()`; expect a logged error from each.
-- **Timing class**: immediate.
-- **Regression risk**: low — the guards are symmetric; the risk is a refactor that drops one of them.
+- **Observable**: `.SetVelocity(n)` on a non-Velocity entity and `.SetSequenceId("x")` on a non-Sequence entity each log an error and change nothing (`PlaybackPreference`). `SequenceId`'s setter is private, so the guard cannot be bypassed.
 
 ## RuntimeSetting toggles that change Play behavior
 
-RuntimeSetting fields are **public plain fields** (not auto-properties), e.g. `public bool AlwaysPlayMusicAsBGM = true;` — set them directly on `SoundManager.Instance.Setting` in a test, no `TestAudioLibrary.SetPrivateField`/reflection needed. The base fixture already snapshots/restores the whole `RuntimeSetting` via `JsonUtility` per test, so mutating it is safe and requires no manual cleanup.
+`RuntimeSetting` fields are public; set them on `SoundManager.Instance.Setting`. The fixture snapshots and restores the whole `RuntimeSetting` per test.
 
 | Field | Behavior it changes | Notes |
 |---|---|---|
-| `AlwaysPlayMusicAsBGM` | Auto-attaches `MusicPlayer` decorator to every `BroAudioType.Music` play | see decorator section above |
-| `DefaultBGMTransition` / `DefaultBGMTransitionTime` | Transition type/time used by the auto-BGM path above | only applies when `AlwaysPlayMusicAsBGM` is true and a prior BGM is active |
-| `DefaultChainedPlayModeLoop` / `DefaultChainedPlayModeTransitionTime` | `AudioEntity.HasLoop()` (parameterless overload) falls back to these when a Chained-mode entity has neither `Loop` nor `SeamlessLoop` set | the 4-arg `HasLoop(out,out,loop,time)` overload takes explicit defaults instead and needs no `SoundManager` — prefer it for EditMode coverage of the fallback logic itself |
-| `LogAccessRecycledPlayerWarning` | Whether accessing a recycled `IAudioPlayer` logs a warning (`AudioPlayerInstanceWrapper.LogInstanceIsNull`) | orthogonal to selection but lives in the same settings object; cheap to cover alongside a decorator/group test that already recycles a player |
-| `GlobalPlaybackGroup` | The group every shipped entity plays under when its `AudioAsset` names none (`AudioAsset.PlaybackGroup` links it), and the parent fallback for any `PlaybackGroup` rule with `_isOverride == false` | **not** an edge case: `BroUserDataGenerator` always assigns a `DefaultPlaybackGroup` here, so every `Play` of an authored entity passes its rules. It reaches only `AudioAsset`-backed entities (`NewAssetBackedSound` in tests); code-built entities (`NewSound`) have no `AudioAsset` and stay outside it |
-| `AutomaticallyLoadAddressableAudioClips` | Gates automatic Addressables preloading on Play | on: the addressable clip is loaded and played. Off (the factory default): an error is logged, then the clip is loaded and played anyway; setting the non-preloaded log level to Warning only turns that error into a warning. A key that cannot load: `LoadAssetAsync` completes failed with no BroAudio log of its own, and `Play` throws out of `PlayControl`, leaving the player active and silent |
+| `AlwaysPlayMusicAsBGM` | Auto-attaches `MusicPlayer` to every `BroAudioType.Music` play | see decorators above |
+| `DefaultBGMTransition` / `DefaultBGMTransitionTime` | Transition used by the auto-BGM path | applies only with `AlwaysPlayMusicAsBGM` on and a prior BGM active |
+| `DefaultChainedPlayModeLoop` / `DefaultChainedPlayModeTransitionTime` | `AudioEntity.HasLoop(out, out)` falls back to these for a Chained entity with neither `Loop` nor `SeamlessLoop` | the 4-argument `HasLoop` takes the defaults explicitly and needs no `SoundManager` |
+| `LogAccessRecycledPlayerWarning` | Whether a recycled handle logs a warning (`LogInstanceIsNull`) | |
+| `GlobalPlaybackGroup` | The group an `AudioAsset`-backed entity plays under when its asset names none, and the parent a rule with `_isOverride == false` borrows its rule method from | `BroUserDataGenerator` always assigns a `DefaultPlaybackGroup` here, so every authored entity passes its rules. Code-built entities (`NewSound`) have no `AudioAsset` and stay outside it (`NewAssetBackedSound` plays under it). A non-override rule with no parent always passes |
+| `AutomaticallyLoadAddressableAudioClips` | Automatic Addressables loading on Play | on: the clip is loaded and played. Off (factory default): an error is logged, then the clip is loaded and played anyway; setting the non-preloaded log level to Warning only turns that error into a warning. A key that cannot load: `LoadAssetAsync` completes failed with no BroAudio log of its own, and `Play` throws out of `PlayControl`, leaving the player active and silent |
 
 ## EditMode unit-test candidates
 
-No `SoundManager`, no `AudioEntity`, no ScriptableObject needed — construct the strategy, call `SelectClip`/`Reset` directly against a hand-built `BroAudioClip[]` and a `ClipSelectionContext`:
+No `SoundManager` or ScriptableObject: call `SelectClip`/`Reset` on a hand-built `BroAudioClip[]` and `ClipSelectionContext`.
 
-- `Ami.BroAudio.Runtime.SingleClipStrategy.SelectClip`
-- `Ami.BroAudio.Runtime.SequenceClipStrategy.SelectClip` / `.Reset()` / `.Reset(string sequenceId)`
-- `Ami.BroAudio.Runtime.RandomClipStrategy.SelectClip`
-- `Ami.BroAudio.Runtime.ShuffleClipStrategy.SelectClip` / `.Reset()`
-- `Ami.BroAudio.Runtime.VelocityClipStrategy.SelectClip`
-- `Ami.BroAudio.Runtime.ChainedClipStrategy.SelectClip` (feed `ClipSelectionContext((int)PlaybackStage.Start/Loop/End)` directly)
-- `Ami.BroAudio.Runtime.LocalizationClipStrategy.SelectClip`, after `.Inject(localizedAudio, name, tryGetCachedClip)` with a synthetic non-empty `LocalizedAudioClip` and a lambda-supplied `AudioClip` — see the Localization row above for exactly how to avoid needing a real Addressables/Localization table
-- `Ami.BroAudio.Data.AudioEntity.GetRandomValue(float baseValue, float range)` (the static overload) and `AudioEntity.GetRandomValue(baseValue, RandomFlag)` on a `ScriptableObject.CreateInstance<AudioEntity>()` instance with fields set via `TestAudioLibrary.SetPrivateField` — no `SoundManager` needed since this path never touches it
-- `Ami.BroAudio.Data.AudioEntity.HasLoop(out LoopType, out float, LoopType chainedDefaultLoop, float chainedDefaultTransitionTime)` — the 4-arg overload, explicit defaults, no `SoundManager.Instance` dependency (the 2-arg overload *does* need one)
-- `Ami.BroAudio.Utility.GetRandomValue`, `Utility.ClipListIsNullOrEmpty` — small pure helpers exercised incidentally by the above
-
-## Conflicts observed
-
-- `ChainedClipStrategy`'s own bounds check (`index < 0 || index >= clips.Length` → error) and `PlaybackPreference.CanHandoverToEnd()`'s `Entity.Clips.Length < (int)PlaybackStage.End` check are two independent guards against the same "not enough clips for Chained mode" condition, computed differently (one via the strategy at selection time, one via the handover pre-check). They happen to agree today; nothing enforces that they always will if either is edited in isolation.
-
-## Could not determine statically
-
-- Whether `Assets/Localization/` actually has a registered `AssetTable`/`String Table Collection` with an `AudioClip` entry. Reading `Assets/Localization/Localization Settings.asset` directly shows `m_TableCollectionName:` empty in the sampled fields, and no table asset files exist under `Assets/Localization/` (only the three `Locale` assets and the settings asset) — suggesting the *locales* are configured but no actual localized *table* exists yet. This doesn't block testing `LocalizationClipStrategy` itself (the `Inject()` bypass documented above sidesteps it entirely), but it does mean the full `BroAudio.Play()` → `SoundManager` → real resolved `AudioClip` path for `MulticlipsPlayMode.Localization` is untestable as authored today. The orchestrator should confirm this in the live Editor (Window > Asset Management > Localization Tables) rather than trust this file-system read.
-- Exact behavior of `PlaybackGroup.Parent`/`GlobalPlaybackGroup` fallback when a rule's `_isOverride` is false and `GlobalPlaybackGroup` is itself null vs. pointing at another `DefaultPlaybackGroup` with its own rules — the code path exists in `Rule<T>.Initialize` but is a low-traffic edge case not exercised by anything read here; worth a quick live-Editor sanity check before writing tests, since chained-parent resolution (a group's parent's parent) is not obviously handled by the single `_parent` field's logic.
-- Whether `AudioEntity.Flags`/`ChangeClipPerLoop` combined with `Chained` mode (both drive the handover's `needNewClip` check via an `||`) produces any surprising interaction — not traced end-to-end here since it crosses into the handover/looping territory owned by a different section.
+- `SingleClipStrategy`, `SequenceClipStrategy` (incl. `Reset(string)`), `RandomClipStrategy`, `ShuffleClipStrategy`, `VelocityClipStrategy`, `ChainedClipStrategy` (feed `(int)PlaybackStage` directly).
+- `LocalizationClipStrategy` after `Inject(...)` — see the Localization entry.
+- `AudioEntity.GetRandomValue(base, range)` (static) and `GetRandomValue(base, RandomFlag)` on `ScriptableObject.CreateInstance<AudioEntity>()`.
+- The 4-argument `AudioEntity.HasLoop(out, out, chainedDefaultLoop, chainedDefaultTransitionTime)`; the 2-argument overload needs `SoundManager`.
+- `Utility.GetRandomValue`, `Utility.ClipListIsNullOrEmpty`.
 
 ## Further behaviors
-
-Behaviors outside the entries above, stated in one line each.
 
 - **`IAudioPlayer.CurrentPlayingClip`** is the entity row picked for that play, and reads null on a
   recycled handle.

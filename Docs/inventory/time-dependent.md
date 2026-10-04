@@ -1,235 +1,124 @@
 # Time-dependent behavior
 
-Scope: everything in `AudioPlayer.Playback.cs`, `AudioPlayer.Scheduling.cs`, `FaderModule.cs`, `FadeData.cs`,
-`PlaybackPreference.cs`, `PlaybackHandoverData.cs`, `MusicPlayer.cs`, `SoundManager.Playback.cs`, `ISchedulable.cs`.
-
-Three constraints apply to every row below and are not repeated per-row:
-1. `BroAudio.Play()` only enqueues; a test must yield at least one frame (`SoundManager.LateUpdate`) before the AudioSource reflects anything.
-2. `AudioMixer.SetFloat` is unreliable on the first Play Mode frame; `BroAudioTestFixture` already clears it in `[UnitySetUp]`.
-3. DSP time (`AudioSettings.dspTime`) and frame/coroutine time (`Time.deltaTime` / `Time.unscaledDeltaTime` via `Utility.GetDeltaTime()`, selected by `Setting.UpdateMode`) are two different clocks that this code deliberately mixes — see "Fade in / fade out" and "Seamless loop handover seam" below, where a wait gate runs on one clock and the fade itself runs on the other.
-
-Legend for **Clock**: DSP = `AudioSettings.dspTime`; Frame = `Time.deltaTime`/`Time.unscaledDeltaTime` accumulated in a coroutine.
-
----
+Fades and pitch ramps advance on the frame clock (`Utility.GetDeltaTime()`); start/end schedules, loop seams and handovers run on `AudioSettings.dspTime`. Where one behavior mixes the two, its entry says so.
 
 ## Fade in — from clip's own FadeIn setting
 
-| | |
-|---|---|
-| Behavior | A clip with `FadeIn > 0` and no explicit override ramps clip volume from 0 to target over that duration on every fresh `Play()`. |
-| Observable | Poll `IAudioPlayer.AudioSource` — there is no direct public "clip volume" getter, so the best public-API proxy is the mixer's clip-volume parameter (internal `_clipVolume.Current`) or, more reliably, sample `AudioSource.volume`/mixer send over several frames after Play and assert monotonic increase toward target. `IAudioPlayer.OnUpdate` fires every frame the fade coroutine runs — a test can hook it to sample count and shape. |
-| Clock | Frame (coroutine `_clipVolume.Fade` in `FaderModule.Update()`). Tolerance: allow ±2 frames around expected completion; `Mathf.Lerp` + `Ease` is not sample-accurate. |
-| Edge cases | `FadeIn == 0` (`FadeData.Immediate`) skips the wait entirely (`TryGetFadeIn` returns false); fade-in longer than the clip itself (fade never completes before playback ends — no guard against this in source); resume-from-pause re-runs the clip fade-in from silence (`SetupClipVolume` and `TryGetFadeIn` both run on the `isResuming` path), unless `UnPause(fadeIn)` overrides it. |
-| Regression risk | High — fade-in is on the hottest path (every `Play()`); a broken ease/duration is silent (no exception, just wrong-sounding audio). |
+- **Behavior**: a clip with `FadeIn > 0` ramps clip volume from 0 to target on every fresh play.
+- **Observable**: `IAudioPlayer.GetVolume()` sampled over the fade rises monotonically; `OnUpdate` fires each frame the fade runs.
+- **Edge cases**: `FadeIn == 0` skips the fade (`TryGetFadeIn` returns false); a fade longer than the clip never completes (no guard); a resume from pause re-runs the clip fade-in from silence (`SetupClipVolume` and `TryGetFadeIn` run on the `isResuming` path) unless `UnPause(fadeIn)` overrides it.
 
 ## Fade in — explicit override argument
 
-| | |
-|---|---|
-| Behavior | `BroAudio.Play(id, fadeIn)` (or `IAudioPlayer.SetFadeInEase` + a later explicit fade) overrides the clip's own FadeIn for exactly one play, then reverts to clip default. |
-| Observable | Same proxy as above; additionally compare two consecutive plays of the same `SoundID` — first with override, second without — and assert the second play's ramp duration matches the clip's own `FadeIn`, not the override. |
-| Clock | Frame — same fader loop. |
-| Edge cases | Override of `0` forces immediate (no fade) even if clip has `FadeIn > 0`; override negative (`FadeData.UseClipSetting = -1`) explicitly falls back to clip setting — this is the sentinel, not a bug. `SetNextFadeIn` sets `_fadeInData.Next`; `TryGetOrConsumeOverride` consumes it exactly once, so a second play without a fresh override reverts to base/clip. |
-| Regression risk | Medium — the one-shot consume semantics are easy to break by moving where `SetNextFadeIn` is called relative to `PickNewClip`/handover copy. |
+- **Behavior**: `BroAudio.Play(id, fadeIn)` overrides the clip's `FadeIn` for that one play.
+- **Observable**: play the same ID with an override, then without; the second ramp matches the clip's `FadeIn`.
+- **Edge cases**: an override of `0` (`FadeData.Immediate`) forces no fade; a negative override (`FadeData.UseClipSetting`) falls back to the clip. `SetNextFadeIn` stores the override and `TryGetOrConsumeOverride` consumes it once.
 
 ## Fade in — easing curve (`SetFadeInEase`)
 
-| | |
-|---|---|
-| Behavior | `IAudioPlayer.SetFadeInEase(Ease)` changes the interpolation curve, not just linear lerp — e.g. `EaseOutCubic` should reach ~target faster than midpoint of a linear fade. |
-| Observable | Sample `OnUpdate` volume proxy at t = 25%/50%/75% of the fade duration and compare shape against `Mathf.Lerp(...).SetEase(ease)` computed independently in the test (the extension is public, `Ami.Extension.EaseExtension`). |
-| Clock | Frame. |
-| Edge cases | Ease set mid-fade (after `Fade()` already started) — `BeginFade` resets `_elapsedTime` only when `Fade()` is called again, so `SetFadeInEase` before the *next* `Play()` is the only guaranteed application point; changing it mid-fade of the current play has no defined effect in this code path. The setter shapes only explicit fades (`Play(id, fadeIn)`, `Stop(fadeOut)`); a clip's own authored `FadeIn` and `FadeOut` keep the factory ease. |
-| Regression risk | Low — cosmetic; a wrong curve is not a functional break, just an audibly different fade shape. |
+- **Behavior**: `IAudioPlayer.SetFadeInEase(Ease)` changes the fade's interpolation curve.
+- **Observable**: sample at 25/50/75 % of the fade and compare against `Mathf.Lerp(from, to, t.SetEase(ease))` (`Ami.Extension.EaseExtension` is public).
+- **Edge cases**: the ease applies when a fade starts, so setting it mid-fade does not reshape the running fade; it shapes only explicit fades (`Play(id, fadeIn)`, `Stop(fadeOut)`) — a clip's authored `FadeIn`/`FadeOut` keep the factory ease.
 
 ## Fade out — from clip's own FadeOut setting, natural end
 
-| | |
-|---|---|
-| Behavior | A non-looping clip with `FadeOut > 0` ramps to 0 over that duration ending exactly at `_playbackEndDspTime`. |
-| Observable | `OnUpdate` volume proxy; assert the ramp starts at `_playbackEndDspTime - fadeOut` (poll `AudioSettings.dspTime` alongside) and volume reaches ~0 by end. `IAudioPlayer.IsActive`/`IsPlaying` transition to false shortly after `EndPlaying()` runs. |
-| Clock | Mixed: the *wait-to-start-fading* gate is DSP (`while (AudioSettings.dspTime < _playbackEndDspTime - fadeOut)`), but the fade's own progress is Frame (`_elapsedTime += Utility.GetDeltaTime()`). Under a frame-rate hitch or `Time.timeScale` change these clocks diverge — this is the single most important row for tolerance design; allow a window of at least one hitch (e.g. 100ms) around the fade-out start boundary. |
-| Edge cases | `FadeOut` longer than remaining clip duration — the wait condition is immediately false, fade starts right after Play essentially overlapping the whole clip; `FadeOut == 0` skips straight to end-of-clip wait (no `TryGetFadeOut`); `Stop()` called mid-natural-fade-out (see "Stop-with-fade" below) races this coroutine via `RestartCoroutine` on `_playbackControlCoroutine` — one cancels the other. |
-| Regression risk | High — same "hot path, silent failure" reasoning as fade-in, compounded by the two-clock mix. |
+- **Behavior**: a non-looping clip with `FadeOut > 0` ramps to 0, ending at `_playbackEndDspTime`. The wait before the ramp is DSP-gated (`dspTime < _playbackEndDspTime - fadeOut`); the ramp itself is frame-driven.
+- **Observable**: volume starts falling about `fadeOut` before the clip's end and reaches about 0 by the end; `IsActive`/`IsPlaying` go false after `EndPlaying()`.
+- **Edge cases**: a `FadeOut` longer than the clip starts the ramp right after play; `FadeOut == 0` waits straight for the end; a `Stop()` during the natural fade — see "Stop with fade — general".
 
 ## Fade out — explicit `Stop(fadeOut)` override
 
-| | |
-|---|---|
-| Behavior | `BroAudio.Stop(id, fadeOut)` or `IAudioStoppable.Stop(fadeOut)` fades out over the given duration regardless of clip's own FadeOut, then deactivates the player. |
-| Observable | Public API: call `Stop`, then poll `IAudioPlayer.IsActive` (should stay true until fade completes) and `IsPlaying`; volume proxy for the ramp itself. |
-| Clock | Frame (`StopControl` coroutine). No DSP wait gate here — the fade starts immediately on `Stop()`, unlike the natural end-of-clip case above. |
-| Edge cases | `Stop(0)` = `FadeData.Immediate` → no fade, instant `EndPlaying()`; calling `Stop` again while `IsStopping` is already true is a no-op unless the new fade is `0` (an explicit immediate-stop always wins over an in-flight fade-out); `Stop` during a seamless-loop handover interacts with `_nextPlayer` cleanup — see "Stop pre-empts pending handover" below. |
-| Regression risk | High — `Stop` is the most-called release verb and the `IsStopping` re-entrancy guard is subtle (compare `Mathf.Approximately(overrideFade, FadeData.Immediate)`). |
+- **Behavior**: `Stop(id, fadeOut)` or `player.Stop(fadeOut)` fades over the given time regardless of the clip's `FadeOut`, then deactivates. The ramp starts immediately (`StopControl`), with no DSP gate.
+- **Observable**: `IsActive` stays true until the fade completes; volume ramps down.
+- **Edge cases**: `Stop(0)` ends at once; a second `Stop` while `IsStopping` is ignored unless its fade is exactly `FadeData.Immediate`; `Stop` during a loop cancels the pending handover — see "Plain looping".
 
 ## Fade out easing (`SetFadeOutEase`)
 
-Same shape as fade-in easing above — mirror the observable/clock/edge cases, applied to `_fadeOutData`/`StopControl`. Regression risk: Low (cosmetic).
+Mirrors fade-in easing, applied to `_fadeOutData` in `StopControl`.
 
 ## Clip StartPosition (trim from the front)
 
-| | |
-|---|---|
-| Behavior | `BroAudioClip.StartPosition` (seconds) makes playback begin partway into the underlying `AudioClip` instead of sample 0. |
-| Observable | Public: `IAudioPlayer.AudioSource.timeSamples` immediately after the player becomes `IsPlaying` should equal `GetSample(audioClip.frequency, clip.StartPosition)`, assigned in `PlayControl`. This is a legitimate use of AudioSource state per the "Unity runtime state" preference ranking. |
-| Clock | Frame (one yield after Play to let LateUpdate drain the queue), no DSP dependency for this one value. |
-| Edge cases | `StartPosition` beyond clip length (unclamped in source — `GetSample` just multiplies; a runaway value could set `timeSamples` past `audioClip.samples`, engine behavior undefined here — flagged below); `StartPosition == 0` (default, no-op). Interacts with `EndPosition` via `Utility.GetPlayableDuration` (see next row) — the two are NOT symmetric: `StartPosition` shifts the read head, `EndPosition` shortens the computed duration, both by straight subtraction (`audioClip.GetPreciseLength() - clip.StartPosition - clip.EndPosition`). |
-| Regression risk | Medium — used by "intro-skip" style content; a broken offset is audible but not exception-throwing. |
+- **Behavior**: `BroAudioClip.StartPosition` (seconds) starts playback partway into the clip.
+- **Observable**: `AudioSource.timeSamples` on the first playing frame equals `GetSample(audioClip.frequency, clip.StartPosition)`.
+- **Edge cases**: unclamped — a value past the clip length sets `timeSamples` past `audioClip.samples`; the playable duration is `audioClip.GetPreciseLength() - StartPosition - EndPosition` (`GetPlayableDuration`).
 
 ## Clip EndPosition (trim from the back)
 
-| | |
-|---|---|
-| Behavior | `BroAudioClip.EndPosition` (seconds, counted back from the clip's natural end) shortens both the derived-from-clip scheduled end time and the sample count used to recompute remaining time after a pitch change. |
-| Observable | Public: total measured playback duration (`Play` timestamp to `IsPlaying` becoming false) should equal `clip.length - StartPosition - EndPosition` (adjusted for pitch — see `PitchAdjusted`). Internal cross-check if needed: `RecalculateScheduledEndTime`'s `endSample = audioClip.samples - audioClip.GetTimeSample(_clip.EndPosition)`. |
-| Clock | DSP for the derived end time (`_playbackEndDspTime`, computed in `ResolveScheduledTiming`); the boundary test itself should poll on DSP time, not frame count. |
-| Edge cases | `EndPosition` large enough that `StartPosition + EndPosition >= clip.length` → non-positive playable duration (`GetPlayableDuration` can go negative; downstream `PitchAdjusted`/wait-loop behavior with a negative or zero `endDspTime` is not obviously guarded — flagged below); interacts with pitch changes mid-play (`RecalculateScheduledEndTime` recomputes `endSample` from the *current* `EndPosition` every time it's called, so `EndPosition` set once at play-start stays fixed for the life of that player instance — there's no live "SetEndPosition" API to test a change mid-play). |
-| Regression risk | Medium — same mechanism error class as StartPosition, but also feeds the loop-handover seam timing (`_playbackEndDspTime` in `ScheduleNextPlayback`), so a EndPosition bug can misalign loop seams too. |
+- **Behavior**: `BroAudioClip.EndPosition` (seconds before the clip's end) shortens the clip-derived end time and the sample count used when pitch changes recompute it.
+- **Observable**: start-to-end duration on the DSP clock equals `clip.length - StartPosition - EndPosition`, pitch-adjusted (`PitchAdjusted`). `RecalculateScheduledEndTime` uses `endSample = audioClip.samples - GetTimeSample(EndPosition)`.
+- **Edge cases**: `StartPosition + EndPosition >= clip.length` gives a non-positive duration, unguarded downstream; `EndPosition` also sets loop seam timing (`_playbackEndDspTime` in `ScheduleNextPlayback`).
 
 ## Clip Delay (per-clip, not per-call)
 
-| | |
-|---|---|
-| Behavior | `BroAudioClip.Delay > 0` postpones the *start* of audible playback by that many seconds — but only if the caller didn't already set an explicit scheduled start time. |
-| Observable | Public: `IAudioPlayer.IsPlaying` becomes true immediately (matches `PlayScheduled`/`PlayDelayed` semantics per the engine-facts doc), but `AudioSource.isPlaying` audibly starts (or `AudioSource.time` starts advancing from 0) only after `Delay` seconds — poll `AudioSource.time > 0` on the DSP clock. |
-| Clock | DSP (`SetClipDelayIfNotScheduled` sets `_pref.ScheduledStartTime = AudioSettings.dspTime + _clip.Delay`, consumed the same way as an explicit schedule from there on). Tolerance: `AudioConstant.MixerWarmUpTime` (0.1s) plus one frame. |
-| Edge cases | **Priority conflict, already characterized**: an explicit `ISchedulable.SetScheduledStartTime`/`SetDelay` call BEFORE `Play()` wins outright — `SetClipDelayIfNotScheduled` only fires `if (_pref.ScheduledStartTime <= 0 ...)` — clip.Delay is silently dropped in that case, not added on top. `Delay == 0` no-ops. Interacts with loop handover: only the *first* iteration of a loop consults `clip.Delay` (the `isFirstLoopIteration` gate in `ResolveScheduledTiming`) — subsequent loop iterations schedule off `_playbackEndDspTime`, not `clip.Delay`, even if `ChangeClipPerLoop` picks a new clip with its own `Delay`. Observed on a looping entity: the clip `Delay` postpones only the first iteration, not each seam (see "Conflicts observed" for why the code alone leaves this open). |
-| Regression risk | High — the priority rule (explicit schedule beats clip.Delay) is exactly the kind of one-line guard that regresses silently. |
+- **Behavior**: `BroAudioClip.Delay > 0` postpones the start (`SetClipDelayIfNotScheduled` sets `ScheduledStartTime = dspTime + Delay`) unless a start time is already set.
+- **Observable**: `IsPlaying` is true from the call; the hold shows only on the playhead (`timeSamples` stays at the start sample until the delay elapses).
+- **Edge cases**: an explicit `SetScheduledStartTime`/`SetDelay` before the queue drains wins outright — `clip.Delay` is dropped, not added. Only a loop's first iteration is delayed: each later iteration's player is handed a `ScheduledStartTime` at the seam, so `SetClipDelayIfNotScheduled` skips — including a newly picked clip under `ChangeClipPerLoop`.
 
 ## Scheduled start time — `ISchedulable.SetScheduledStartTime` / `SetDelay`
 
-| | |
-|---|---|
-| Behavior | Sets an absolute (`SetScheduledStartTime`) or relative-to-now (`SetDelay`) DSP start time. Calling it before the player has ever played schedules a fresh `PlayScheduled`; calling it on an already-playing source pauses playback until the new time (a deliberate, documented quirk — the code comment reads: "Some might consider this behavior a feature, so it has been left as is"). |
-| Observable | Public: `IAudioPlayer.IsPlaying`/`IsActive` and `AudioSource.isPlaying` (both true immediately per engine facts); `AudioSource.time`/`timeSamples` staying at 0 until the scheduled moment; for the re-schedule-while-playing case, observe the source audibly stalling (time stops advancing) until the new dspTime. |
-| Clock | DSP throughout. |
-| Edge cases | Called with a past/very-near dspTime (`System.Math.Max(_pref.ScheduledStartTime, dspTime)` in `SchedulePlayback` — clamps to "now", won't schedule into the past); called twice before playback starts — `_secondsUntilScheduledStart` is adjusted by the delta, not reset, so ordering matters; called on an inactive/never-played player triggers `PlayInternal()` directly, bypassing the normal enqueue-then-LateUpdate path — a test asserting "Play always needs a frame to take effect" would need an exception note for this entry point. |
-| Regression risk | Medium — public API (`ISchedulable` is `internal` but reachable through `BroAudioChainingMethod` extension methods), the "pause on reschedule" behavior is intentional per comment but easy to mistake for a bug in review. |
+- **Behavior**: sets an absolute (`SetScheduledStartTime`) or relative (`SetDelay`) DSP start. On a source not yet playing it calls `PlayInternal()` directly, bypassing the queue; on a playing source it calls `AudioSource.SetScheduledStartTime`, stalling playback until that time (kept intentionally). The `ISchedulable` members are `internal`, reached through `BroAudioChainingMethod`.
+- **Observable**: the playhead stays at the start sample until the scheduled time. On a reschedule while playing, `IsPlaying`/`IsActive` stay true and `OnPause` does not fire — the stall shows only on the raw `AudioSource` playhead.
+- **Edge cases**: a past time clamps to now (`Math.Max` in `SchedulePlayback`); a second call before start adjusts `_secondsUntilScheduledStart` by the delta rather than resetting it.
 
 ## Scheduled end time — `ISchedulable.SetScheduledEndTime`
 
-| | |
-|---|---|
-| Behavior | Sets an absolute DSP end time that is NOT rescaled by later pitch changes (an explicit contract, unlike the clip-duration-derived default). |
-| Observable | Public: total playback duration measured against the caller's own dspTime target; combine with a mid-play `SetPitch` call and assert the end time did NOT move (contrast with the "derived from clip" case below, which DOES move). |
-| Clock | DSP. |
-| Edge cases | The flag `_isEndTimeDerivedFromClip = false` is what suppresses rescaling — calling `SetScheduledEndTime` and then triggering a loop handover resets that flag on the *next* player to `true` unconditionally, in `ReceiveHandover` (whose comment reads: "Handover end times always come from a clip-duration computation") — so an explicit end-time contract does NOT survive a loop handover; only the player instance it was set on honors it. |
-| Regression risk | Medium — the derived-vs-explicit distinction is load-bearing for the pitch-rescale feature and is easy to invert by mis-ordering the flag write relative to the `AudioSource.SetScheduledEndTime` call. |
+- **Behavior**: sets an absolute DSP end that later pitch changes do not rescale (`_isEndTimeDerivedFromClip = false`).
+- **Observable**: playback ends at the given time; a mid-play `SetPitch` does not move it.
+- **Edge cases**: a loop handover sets `_isEndTimeDerivedFromClip = true` on the next player (`ReceiveHandover`), so the explicit end applies only to the player it was set on.
 
 ## Mid-play pitch change rescaling the derived end time
 
-| | |
-|---|---|
-| Behavior | Changing pitch mid-play (`IAudioPlayer.SetPitch`) on a clip-duration-derived end time recomputes the DSP end time from the actual playhead position, in `RecalculateScheduledEndTime`, so speeding up shortens remaining playback and vice versa — and propagates the shift to a pre-spawned next player in a seamless-loop chain via `_nextPlayer?.ShiftScheduledTimes(delta)`. |
-| Observable | Public: measure wall/DSP duration remaining before and after a `SetPitch` call mid-play; for the loop-propagation case, measure the *second* loop iteration's start dspTime and confirm it moved by the same delta. |
-| Clock | DSP for the recompute; the recompute itself is triggered synchronously from `SetPitch`, not polled. |
-| Edge cases | Pitch set to exactly 0 (`Mathf.Approximately(pitch, 0f)`) → recompute is skipped entirely, "playhead frozen"; negative pitch (reverse) → recompute pushes the hardware `SetScheduledEndTime` far into the future and leaves ending to the frame-based `while` loop instead — the comment admits "there's no API to clear it," so a reverse-then-forward-again pitch sequence is a plausible source of a stale over-long scheduled end; pitch changed while still inside the warm-up/pre-start window uses a different branch in `RecalculateScheduledEndTime` than pitch changed after the playhead has started moving — both should be treated as distinct edge cases, not one. A per-handle `SetPitch` that lands after the next loop player has been pre-spawned (inside `ScheduledPlaybackWarmUpTime` before the seam) shifts that player's schedule but does not re-pitch it, so the loop continues at the old pitch from the seam on; a per-type `SetPitch` walks every active player, the pre-spawned one included, and is not affected. |
-| Regression risk | High — this is dense, multi-branch arithmetic with an explicit "no API to undo this" admission in a comment; a strong candidate for the hardest bugs in this whole area. |
+- **Behavior**: `SetPitch` mid-play on a clip-derived end time recomputes the DSP end from the playhead (`RecalculateScheduledEndTime`): faster pitch shortens the remainder, slower lengthens it. The shift propagates to a pre-spawned next loop player (`_nextPlayer?.ShiftScheduledTimes(delta)`).
+- **Observable**: remaining DSP duration before vs. after `SetPitch`; for loops, the second iteration's start moves by the same delta.
+- **Edge cases**:
+  - Pitch 0 skips the recompute (playhead frozen); a paused player is skipped too.
+  - Negative pitch pushes the hardware scheduled end past any possible stop and leaves ending to the frame loop; nothing clears that push, so a negative-then-positive sequence needs a generous upper-bound timeout rather than an exact-time assertion.
+  - A change inside the warm-up window (before the playhead moves) takes a separate branch from one after.
+  - A per-handle `SetPitch` after the next loop player is pre-spawned (within `ScheduledPlaybackWarmUpTime` of the seam) shifts that player's schedule but does not re-pitch it, so from the seam the loop plays at the old pitch. A per-type `SetPitch` reaches every active player, the pre-spawned one included.
 
 ## Plain looping (`LoopType.Loop`)
 
-| | |
-|---|---|
-| Behavior | A looping clip hands off to a freshly-extracted `AudioPlayer` at (or, with a clip FadeOut, just after) the natural end of each iteration — NOT via `AudioSource.loop`. |
-| Observable | Public: track `IAudioPlayer.ID` or a per-instance marker across `OnStart`/`OnEnd` callbacks and DSP timestamps to confirm iteration N+1 starts at/after iteration N's `_playbackEndDspTime`; `AudioSource.loop` should read `false` throughout (confirms the handover mechanism, not the built-in one) — this AudioSource-state check is cheap and worth including explicitly per the memory note that handover (not `.loop`) is the mechanism. |
-| Clock | DSP for the seam itself, in `BeginHandover` (both the fade-out case and the no-fade-out case); the pre-spawn of the next player runs on a separate coroutine gated by DSP too, in `ScheduleNextPlayback`, which waits `while (AudioSettings.dspTime < _playbackEndDspTime - seamlessFadeOut - warmUpTime)`. |
-| Edge cases | `ChangeClipPerLoop` entity flag forces a new clip pick each iteration (the `needNewClip` flag) — the new clip's own StartPosition/EndPosition/Delay then apply, but recall from the Delay row above that `clip.Delay` is only honored on the very first iteration overall, never on a per-loop clip change; `Stop()` called mid-loop cancels the pending handover coroutine and discards any already-pre-spawned `_nextPlayer`, in `StopControl` — this is the "stop pre-empts pending handover" case, worth its own explicit test. |
-| Regression risk | High per project memory — "loops use player handover... source of pause/resume seam NREs." |
+- **Behavior**: each iteration hands over to a freshly extracted `AudioPlayer` at the end (or, with a clip `FadeOut`, just after) — never `AudioSource.loop`. `ScheduleNextPlayback` pre-spawns the next player on a DSP gate (`_playbackEndDspTime - seamlessFadeOut - warmUpTime`); `BeginHandover` fires at the seam.
+- **Observable**: `AudioSource.loop` is false throughout; iteration N+1 starts at or after iteration N's end on the DSP clock; the caller's handle keeps driving the sound across seams.
+- **Edge cases**: `ChangeClipPerLoop` re-picks a clip each iteration, whose `StartPosition`/`EndPosition` then apply (but not its `Delay`); `Stop()` mid-loop cancels the pending handover and discards a pre-spawned `_nextPlayer` (`StopControl`).
 
 ## Seamless looping with a transition time (`LoopType.SeamlessLoop`)
 
-| | |
-|---|---|
-| Behavior | The transition time from `AudioEntity.HasLoop(out _, out transitionTime)` is applied as BOTH the fade-out of the ending player AND the fade-in of the next, in `PlaybackPreference.ApplySeamlessFade`, and the handover to the next player happens BEFORE the fade-out starts (`BeginHandover()` runs immediately before the `_clipVolume.Fade(fadeOut, ...)` call) — this is the actual crossfade: two players briefly audible at once. |
-| Observable | Public: two-player crossfade is only observable by holding references to both the outgoing and the handed-over `IAudioPlayer` (via `OnEnd`/instance-wrapper tracking) and asserting both report `IsPlaying == true` for a window equal to the transition time. |
-| Clock | DSP for the seam boundary; Frame for each side's fade ramp (same two-clock mix as "Fade out" above, doubled — both a fade-out and a fade-in are in flight on two different `AudioPlayer` instances' coroutines simultaneously). |
-| Edge cases | Transition time longer than the clip itself — `ApplySeamlessFade` sets both `_fadeInData.Base` and `_fadeOutData.Base` to the same `transitionTime` unconditionally, so a transition time exceeding clip duration produces overlapping/negative wait windows in `ScheduleNextPlayback`'s DSP gate (`_playbackEndDspTime - seamlessFadeOut - warmUpTime` could be in the past, meaning the `while` loop exits immediately and the handover fires essentially on the same frame as playback start; observed, the loop period stretches from the clip length to the transition time while the player count stays bounded); pause/resume spanning the handover boundary — the highest-risk edge case per project memory (`looping-via-handover.md`), not something a static read of the source can fully characterize (see below). |
-| Regression risk | High — explicitly named as a known NRE source in project memory; the two-clock, two-instance nature makes this the single hardest behavior to write a stable test for. |
+- **Behavior**: `PlaybackPreference.ApplySeamlessFade` uses the transition time as both the outgoing fade-out and the incoming fade-in, and `BeginHandover()` runs before the fade-out starts, so two players are audible together for the transition time.
+- **Observable**: the outgoing and incoming players both report `IsPlaying` for a window equal to the transition time.
+- **Edge cases**: a transition longer than the clip puts the pre-spawn gate in the past, so the handover fires almost at once; the loop period stretches from the clip length to the transition time while the player count stays bounded. Pause inside the crossfade: see lifecycle.md.
 
 ## Chained playback (`MulticlipsPlayMode.Chained`: intro → loop → outro)
 
-| | |
-|---|---|
-| Behavior | Plays clip[Start] once, then hands over to clip[Loop] repeatedly, and on `Stop()` hands over one more time to clip[End] instead of fading the loop clip out in place. |
-| Observable | Public: track `ChainedModeStage` indirectly via which clip plays (compare `AudioSource.clip` identity across handovers against the three known test clips) and via `OnStart`/`OnEnd` sequencing; `CanHandoverToEnd()` requires `Entity.Clips.Length >= (int)PlaybackStage.End` i.e. at least 3 clips — a chained entity with fewer than 3 clips should be characterized as "Stop behaves like a normal fade-out, no outro" rather than throwing. |
-| Clock | DSP for all handover seams, same mechanism as looping above (`ScheduleNextPlayback` with `isEnd: true` fires synchronously from `StopControl`, not gated by the DSP wait loop that normal loop iterations use — the outro handover is immediate on Stop, not scheduled ahead of time). |
-| Edge cases | `Stop()` called during the Start-clip (before ever reaching Loop stage) — `ChainedModeStage` stays `Start`; `CanHandoverToEnd` still permits it since stage isn't `End`/`None`; `Stop()` called twice in quick succession — second call is a no-op while `IsStopping` unless immediate (see Stop-with-fade edge cases). |
-| Regression risk | Medium — less commonly used than plain/seamless loop, but the immediate (non-DSP-gated) outro handover is a different code path from every other handover and easy to leave untested. |
+- **Behavior**: plays clip[Start] once, hands over to clip[Loop] repeatedly, and on `Stop()` hands over to clip[End] instead of fading the loop. The outro handover fires synchronously from `StopControl` (`ScheduleNextPlayback(isEnd: true)`), not on a DSP gate.
+- **Observable**: `AudioSource.clip` identity across handovers, and `OnStart`/`OnEnd` order.
+- **Edge cases**: fewer than 3 clips (`CanHandoverToEnd`) — `Stop` is a normal fade-out with no outro; `Stop()` during the intro still hands over to the outro; a second `Stop()` is ignored while `IsStopping` unless immediate.
 
 ## BGM transitions (`Transition` modes via `IMusicPlayer.SetTransition`)
 
-| | |
-|---|---|
-| Behavior | `AsBGM().SetTransition(Transition.X, stopMode, overrideFade)` controls how the outgoing `MusicPlayer.CurrentBGMPlayer` stops relative to the incoming one starting: `Immediate` (no fades, sequential), `OnlyFadeIn`, `OnlyFadeOut`, `CrossFade` (both fade, overlapping), `Default` (follow clip's own settings, fade-out-then-fade-in, sequential). |
-| Observable | Public: `IAudioPlayer.IsPlaying` on both the old and new BGM player instances over time; for `CrossFade`/`Default` the new player's `PlayControl` explicitly waits (`while (musicPlayer.IsWaitingForTransition) yield return null;`) before `StartPlaying()` — so for the *sequential* transitions (`Default`, `OnlyFadeOut`) the new BGM is provably silent/not-started until the old one finishes stopping; for `CrossFade`/`OnlyFadeIn` there is no such wait, so overlap is expected and correct; under `CrossFade` the outgoing BGM ends once its fade-out completes. |
-| Clock | Frame — `IsWaitingForTransition` is a coroutine-driven bool flipped by `FinishTransition` as an `onFinished` callback off the old player's `Stop()`, itself running the Frame-clock fade-out coroutine described above. |
-| Edge cases | `NeedTransition == false` (no prior BGM, or same instance replaying, or prior player already gone) skips the whole transition machinery and sets `CurrentBGMPlayer = Instance` directly — this is the "first BGM ever" and "same clip replayed" cases, both worth their own test; `Transition.Immediate` stops the old BGM with `fadeOut = 0` (immediate) regardless of clip FadeOut settings, via `StopCurrentPlayer`. |
-| Regression risk | High — BGM transitions are a headline feature; the sequential-vs-overlapping distinction between transition modes is exactly the kind of thing a lazy refactor could silently invert. |
+- **Behavior**: `AsBGM().SetTransition(transition, stopMode, overrideFade)` decides how the outgoing `MusicPlayer.CurrentBGMPlayer` stops relative to the incoming one. `Default` and `OnlyFadeOut` fade the old one out and the new one waits (`IsWaitingForTransition`, cleared by `FinishTransition` as the old player's `onFinished`). `Immediate` and `OnlyFadeIn` stop the old one with no fade; `CrossFade` fades both, overlapping. The new BGM fades in under `OnlyFadeIn`, `Default` and `CrossFade`.
+- **Observable**: `IsPlaying` on the old and new handles over time: under the waiting modes the new BGM has not started until the old one finishes; under `CrossFade` they overlap and the old one ends once its fade completes.
+- **Edge cases**: `NeedTransition == false` (no prior BGM, the same instance replaying, or the prior player gone) skips the machinery and sets `CurrentBGMPlayer` directly.
 
 ## `AlwaysPlayMusicAsBGM` (RuntimeSetting)
 
-| | |
-|---|---|
-| Behavior | When `Setting.AlwaysPlayMusicAsBGM` is true (default), every `Play()` of a `BroAudioType.Music` sound is auto-wrapped with `AsBGM().SetTransition(Setting.DefaultBGMTransition, Setting.DefaultBGMTransitionTime)` even if the caller never called `AsBGM()`. |
-| Observable | Public: play two `Music`-typed sounds back to back without ever calling `AsBGM()` and confirm the second still triggers a transition (old one stops per `Setting.DefaultBGMTransition`) rather than both playing concurrently; toggle the setting off (it's a plain field on the `RuntimeSetting` ScriptableObject, restorable via the fixture's snapshot/restore already built in `BroAudioTestFixture.BroAudioSetUp`/`TearDown`) and confirm two Music plays now overlap freely. |
-| Clock | Same as "BGM transitions" above — this setting only decides *whether* that machinery engages, not its timing. |
-| Edge cases | Setting flips mid-test — only affects plays that happen after the flip, not an already-decorated in-flight player; non-`Music` audio types are never affected regardless of the setting. |
-| Regression risk | Medium — a global default that quietly changes behavior for every Music play in every other test in this suite if a test forgets to restore it (the fixture already guards this via JSON snapshot/restore, so a test-writer's own risk is "don't bypass the fixture," not "the setting itself is fragile"). |
+- **Behavior**: when on, every `Play()` of a `BroAudioType.Music` sound is wrapped with `AsBGM().SetTransition(Setting.DefaultBGMTransition, Setting.DefaultBGMTransitionTime)`.
+- **Observable**: two Music plays without `AsBGM()` transition (the first stops per the default); with the setting off they overlap.
+- **Edge cases**: flipping the setting affects only later plays; non-Music types are never wrapped.
 
 ## `OnBGMChanged` event
 
-| | |
-|---|---|
-| Behavior | `MusicPlayer.OnBGMChanged` (static; public as `BroAudio.OnBGMChanged`) fires when `CurrentBGMPlayer` changes, passing the new player's instance wrapper (or `null` when BGM stops with nothing replacing it). |
-| Observable | Public: `BroAudio.OnBGMChanged` forwards to `MusicPlayer.OnBGMChanged`. It is a static event, so a subscriber must unsubscribe. A swap from one BGM to another raises it twice, once with `null` and once with the new player. |
-| Clock | Synchronous — fires immediately inside the `CurrentBGMPlayer` setter, no coroutine/DSP involvement itself, only the surrounding transition logic that decides *when* the setter is called is time-dependent (see BGM transitions above). |
-| Edge cases | Setting `CurrentBGMPlayer` to the same instance it already is → event does NOT fire (guarded by `if (_currentBGMPlayer != value)`); `UpdateInstance` during a loop/chain handover deliberately writes the backing field directly to skip the event (comment: "the logical BGM hasn't changed") — this is an explicit, documented case where a handover does NOT re-fire `OnBGMChanged` even though the underlying `AudioPlayer` instance changed; a naive test asserting "event fires on every instance change" would be wrong here. |
-| Regression risk | Medium — low usage surface (static), but the "skip on handover" exception is subtle and worth protecting explicitly since it is exactly the kind of guard a refactor forgets to preserve. |
+- **Behavior**: `BroAudio.OnBGMChanged` forwards to the static `MusicPlayer.OnBGMChanged`, raised synchronously by the `CurrentBGMPlayer` setter with the new wrapper, or `null` when BGM stops with no replacement.
+- **Observable**: subscribe through the fixture's `SubscribeBgmChanged` (a static event needs unsubscribing). A swap raises it twice: `null`, then the new player.
+- **Edge cases**: assigning the same instance does not raise it; `UpdateInstance` during a loop/chain handover writes the backing field directly, so a handover never raises it.
 
 ## Stop with fade — general
 
-The ramp itself is described above under "Fade out — explicit `Stop(fadeOut)` override". Additional cross-cutting facts:
-
-| | |
-|---|---|
-| Behavior | `Stop()` during an in-flight *natural* fade-out (from reaching end-of-clip) does not double-fade; `StopControl` inspects whether `_clipVolume.IsFadingOut` is already true and, if there's no explicit override and no end-handover just happened, simply waits out the existing fade rather than restarting one. |
-| Observable | Public: call `Stop()` with no explicit fade argument right as a clip nears its natural end-of-clip fade-out; total time-to-silence should match the clip's own `FadeOut`, not `FadeOut` + a second full fade cycle. |
-| Clock | Frame, same coroutine reused (not restarted) — `RestartCoroutine` on `_playbackControlCoroutine` in `Stop()` does cancel-and-restart the *outer* `PlayControl`/`StopControl` coroutine, but the *inner* `_clipVolume` fade itself is a separate object (`Fader`) whose own coroutine is untouched unless `_clipVolume.Fade(...)` is called again — hence the "don't double-fade" check is necessary and meaningful. |
-| Edge cases | `Stop()` with an explicit override fade WHILE a natural fade-out is in flight — `hasExplicitOverride` forces a fresh `_clipVolume.Fade` with the new duration, overriding rather than waiting; `Stop()` immediately after an end-of-chain or end-of-loop handover already fired — `didHandoverToEnd` suppresses passing `_onUpdate` to the fade call to avoid a stale-callback invariant violation, per an explanatory code comment at that call site; `Stop()` and `Pause()` with no fade argument fall back to the clip's authored `FadeOut` (`FadeData.UseClipSetting`); a faded `Stop` on a looping sound goes silent at the end of the current iteration rather than fading. |
-| Regression risk | High — this re-entrancy/don't-double-fade logic is exactly the kind of "characterize, don't fix" territory: it is subtle and comment-heavy. |
-
-## Pause across a handover seam
-
-| | |
-|---|---|
-| Behavior | Pausing a player mid-clip freezes `AudioSource`; per project memory this is a known source of NullReferenceExceptions when a pause/resume straddles a loop or chain handover boundary. |
-| Observable | Public: `IAudioPlayer.IsPlaying`/`AudioSource.isPlaying` around a `Pause()` → wait past where a handover would have fired → `UnPause()`, watching for exceptions in the Editor console (Unity swallows some coroutine exceptions silently — a test should assert no `LogAssert.Expect`-worthy error was logged, using `UnityEngine.TestTools.LogAssert`). |
-| Clock | DSP for the handover timing itself, Frame for pause-duration bookkeeping is NOT used — `_pauseDspTime` is a DSP timestamp set in `Stop`, and `RebaseScheduleAfterPause` slides schedules by DSP delta. |
-| Edge cases | This is exactly the scenario the project memory file `looping-via-handover.md` documents in depth — **could not fully re-derive the NRE mechanism from this read alone**; the source shows `CanHandoverToLoop()` explicitly guards `Entity == null` for "a default/reset pref... belongs to a torn-down player" reachable "when pause/resume lets a recycled player fall into BeginHandover", which is a real guard against one manifestation, but whether all manifestations are now guarded is not something a static read can confirm. |
-| Regression risk | High — named explicitly in project memory as a live risk area; treat as the top candidate for a dedicated, carefully-sequenced test (pause exactly at the DSP instant a handover coroutine would fire). |
-
----
-
-## Inherently flaky candidates and stabilization notes
-
-- **Fade-out DSP-gate vs. frame-clock fade duration** (both plain and seamless loop): a wait gated on `AudioSettings.dspTime` followed by a ramp measured in `Time.deltaTime` means a single frame hitch during the gate can shift when the ramp starts relative to wall-clock, while the ramp's own duration is frame-accurate. Stabilize with clips long enough (≥2-3s) that a hitch is a small fraction of total duration, and assert ranges/thresholds ("volume is below X by dspTime Y") rather than exact sample equality.
-- **Seamless loop crossfade with transition time ≥ clip length**: the DSP wait window in `ScheduleNextPlayback` can be negative, making the pre-spawn/handover timing collapse to "immediately." Use a deliberately short clip and a transition time deliberately longer than it as an explicit edge-case test rather than trying to avoid the condition — the current behavior (immediate handover) is itself worth locking in as a characterization.
-- **Mid-play pitch change with negative pitch, then reversed back positive**: a code comment in `RecalculateScheduledEndTime`'s negative-pitch branch admits there's no API to un-set an over-long `SetScheduledEndTime`. A test here is not really flaky so much as needing an explicit multi-step pitch sequence and a generous upper-bound timeout (`WaitUntilOrTimeout`) rather than an exact-time assertion.
-- **Pause exactly at a handover boundary**: to make this deterministic rather than a race, drive it from `AudioSettings.dspTime` proximity (poll until within N ms of the expected seam, per `WaitDspSeconds`) rather than a fixed real-time delay, and use a clip/transition-time combination long enough to give a wide window to land the `Pause()` call inside.
-
-## Conflicts observed
-
-- **`clip.Delay` on subsequent loop iterations with `ChangeClipPerLoop`**: `ResolveScheduledTiming` only consults `clip.Delay` via `SetClipDelayIfNotScheduled` on the very first loop iteration (gated by `isFirstLoopIteration`); `SetClipDelayIfNotScheduled` itself is called unconditionally at the top of `PlayControl` for every handover, including subsequent loop iterations — so it's not obviously true that later iterations ignore a newly-picked clip's `Delay`. This needs a closer read of the interaction between `SetClipDelayIfNotScheduled` (per-play) and `ResolveScheduledTiming`'s `isFirstLoopIteration` gate (per-schedule) than a static pass can fully resolve — flagged for live-Editor probing rather than asserted as a definite bug.
-
-## Could not determine statically
-
-- Whether `Stop(fadeOut) → UnPause()` (pause requested mid-fade-out) is a supported/characterized sequence, or whether `IsStopping` blocks it entirely — needs a live trace.
-- Exact interaction of `clip.Delay` with `ChangeClipPerLoop` across loop iterations beyond the first (see "Conflicts observed").
-- Whether `AudioSource.SetScheduledStartTime`'s "pause current playback until dspTime" side effect (the documented quirk on `ISchedulable.SetScheduledStartTime`) actually fires the `_onPaused` callback or any pause-related state — the comment describes engine behavior but the surrounding BroAudio code doesn't visibly hook `_stopMode`/`_onPaused` for this path, meaning a test asserting "player looks paused" via `IAudioPlayer` state (as opposed to raw `AudioSource.isPlaying` timing) might not have anything to observe. Needs a live check.
+- **Behavior**: a `Stop()` with no override during a natural end-of-clip fade-out waits out the running fade instead of starting a new one (`_clipVolume.IsFadingOut` check in `StopControl`). Restarting the outer coroutine leaves the `Fader`'s own fade untouched, so the check is what prevents a double fade.
+- **Observable**: `Stop()` near the end of a clip with `FadeOut`: time to silence matches the clip's `FadeOut`.
+- **Edge cases**: an explicit override during a natural fade starts a fresh fade with the new duration; after an end-of-chain handover (`didHandoverToEnd`) the fade runs without `_onUpdate`, since the next player owns that dispatch; `Stop()`/`Pause()` with no argument use the clip's `FadeOut` (`FadeData.UseClipSetting`); a faded `Stop` on a loop goes silent at the end of the current iteration instead of fading.
 
 ## Further behaviors
-
-Behaviors outside the entries above, stated in one line each.
 
 - **What a handover carries across a loop seam.** Pitch (including below 1, with the seam period measured
   on the DSP clock), the follow target, an in-flight volume fade spanning several iterations, a fixed

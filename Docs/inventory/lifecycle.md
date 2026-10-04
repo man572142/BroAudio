@@ -1,161 +1,91 @@
 # Play / Stop / Pause lifecycle
 
-Source walked: `Runtime/BroAudio.cs`, `Runtime/SoundManager/SoundManager.Playback.cs`,
-`Runtime/Player/AudioPlayer.cs` + `.Playback.cs` + `.Recycling.cs`,
-`Runtime/Player/AudioPlayerInstanceWrapper.cs`, `Runtime/Player/EmptyInstance.cs`,
-`Runtime/Interface/AudioPlayer/*`, `Runtime/Extension/Tools/{InstanceWrapper,ObjectPool}.cs`,
-`Runtime/Player/ObjectPool/AudioPlayerObjectPool.cs`, `Runtime/Player/PlaybackGroup/*`.
-
-All timing claims below defer to the three facts in the task brief: Play only enqueues
-(`SoundManager.LateUpdate` drains `_playbackQueue` and calls `IPlayable.Play()`), the first
-Play Mode frame can't touch the mixer, and fades/handovers/loops run on `AudioSettings.dspTime`
-while everything else runs on frames.
-
 ## Play — global / positioned / follow-target
 
-| | |
-|---|---|
-| **Behavior** | `BroAudio.Play(id)`, `Play(id, position)`, and `Play(id, transform)` each hand back a live player handle that starts audible playback on the entity's clip, at 2D / a fixed 3D point / a continuously-tracked transform respectively. |
-| **Observable** | `IAudioPlayer.IsActive` true synchronously on return; after `WaitFrames(1)`+ poll, `IsPlaying` true and `player.AudioSource.clip` equals the entity's clip. For position/follow overloads, `AudioSource` `spatialBlend`/`transform.position` (via the underlying `AudioPlayer.transform`, not exposed on the interface — see "Could not determine statically") reflect 3D placement. |
-| **Edge cases** | Invalid/unregistered `SoundID`; entity with no clips (`_pref.PickNewClip()` returns null); a custom `IPlayableValidator` that rejects the play; `followTarget` destroyed mid-playback. |
-| **Timing class** | Frame (enqueue is immediate; audible start is next `LateUpdate`, i.e. next frame minimum). |
-| **Regression risk** | High — this is the primary API surface; the queue/`LateUpdate` split is exactly the kind of thing an "optimization" could silently break (e.g. inlining Play). |
+- **Behavior**: `BroAudio.Play(id)`, `Play(id, position)` and `Play(id, transform)` return a live handle that plays the entity's clip in 2D, at a fixed 3D point, or tracking a transform.
+- **Observable**: `IsActive` true on return; after playback starts, `IsPlaying` true and `AudioSource.clip` is the entity's clip. Position and tracking live on the pooled player's `transform`, which the interface does not expose: reach it with the fixture's `InstanceOf(player)`.
+- **Edge cases**: unregistered `SoundID`; entity with no clips; a rejecting `IPlayableValidator`; follow target destroyed mid-playback.
 
 ## Play returns Empty.AudioPlayer when the sound is not playable
 
-| | |
-|---|---|
-| **Behavior** | When `SoundManager.IsPlayable` fails (unknown `SoundID`, or a validator/rule rejects it — e.g. `DefaultPlaybackGroup`'s max-instance or comb-filtering rule, or a caller-supplied `IPlayableValidator`), `Play` returns the shared `Empty.AudioPlayer` singleton instead of a real handle, and no sound plays. |
-| **Observable** | Public API only: returned handle's `IsActive`/`IsPlaying` are both `false`; all `Stop`/`Pause`/`SetVolume`/etc. calls on it are silent no-ops, with no exception and no audible/mixer side effect. Passing a stub `IPlayableValidator` whose `IsPlayable` returns `false` is the reliable way to force this path without depending on a real `DefaultPlaybackGroup` asset. |
-| **Edge cases** | Invalid `SoundID` (entity lookup fails) vs. a valid entity rejected by a rule — both return the same `Empty.AudioPlayer`, so a test can't distinguish "not found" from "rejected" through the return value alone. |
-| **Timing class** | Immediate (rejection happens synchronously inside `Play`, before anything is queued). |
-| **Regression risk** | Medium — silent-failure path; a regression here manifests as "nothing plays" with no error, easy to miss in manual testing. |
+- **Behavior**: when `SoundManager.IsPlayable` fails (unknown `SoundID`, or the validator rejects it), `Play` returns the shared `Empty.AudioPlayer` and nothing plays. Rejection is synchronous, before anything is queued.
+- **Observable**: the handle's `IsActive`/`IsPlaying` are false and every call on it is a silent no-op. A stub `IPlayableValidator` returning false forces this path without a `PlaybackGroup` asset.
+- **Edge cases**: "not found" and "rejected" return the same object, so the return value cannot tell them apart.
 
 ## Stop by SoundID
 
-| | |
-|---|---|
-| **Behavior** | `BroAudio.Stop(id)` / `Stop(id, fadeOut)` stops every currently active player whose `ID` matches, fading out over the entity's authored fade (or the override) first. |
-| **Observable** | Poll `player.IsActive` (from the original `Play` handle) until `false`; `player.IsPlaying` becomes `false` at the same or an earlier point. With `fadeOut = 0`, `AudioSource.isPlaying` goes false essentially next frame; with `fadeOut > 0`, `AudioSource` keeps playing (audible) while `AudioMixer`/clip volume ramps toward silence — see the Stop fade sub-entry below. |
-| **Edge cases** | Stopping an ID with zero active players (silent no-op — `StopPlayer` just finds nothing to iterate); stopping the same ID twice back-to-back (`IsStopping` guard makes the second call within the fade window a no-op unless `fadeOut` is exactly `0`, i.e. `FadeData.Immediate`, which special-cases through even mid-stop); stopping an ID that was already fully stopped/recycled. |
-| **Timing class** | Frame for the deactivation signal; DSP-driven fade coroutine in between if `fadeOut > 0`. |
-| **Regression risk** | High — `StopPlayer` iterates the live pool backwards and mutates via `player.Stop`; an off-by-one or wrong-direction iteration silently skips players. |
+- **Behavior**: `BroAudio.Stop(id[, fadeOut])` stops every active player with that `ID`, fading over the entity's authored fade or the override.
+- **Observable**: poll the original handle's `IsActive` to false. With `fadeOut > 0` the voice stays audible while its volume ramps down.
+- **Edge cases**: an ID with no active players (no-op); a second `Stop` during the fade is ignored (`IsStopping`) unless its fade is exactly `FadeData.Immediate`; an ID already recycled.
 
 ## Stop by BroAudioType, including the All flag
 
-| | |
-|---|---|
-| **Behavior** | `BroAudio.Stop(BroAudioType audioType[, fadeOut])` stops every active player whose type is contained in `audioType` (a `[Flags]` enum). `BroAudioType.All` is normalized via `ConvertEverythingFlag()` before the `Contains` check, so it must catch every concrete type (`Music`, `UI`, `Ambience`, `SFX`, `VoiceOver` per the fixture's `ConcreteAudioTypes`). |
-| **Observable** | Play one player per concrete `BroAudioType`, call `Stop(BroAudioType.All, 0f)` (exactly what `BroAudioTestFixture.BroAudioTearDown` already relies on for isolation), then poll every player's `IsActive` to `false`. For a single-flag call (e.g. `Stop(BroAudioType.SFX)`), assert only SFX players stop and others remain playing. |
-| **Edge cases** | A combined flag value covering a subset of types; `BroAudioType.All` when zero players are active (no-op); a type with no players currently active mixed with types that do have active players in the same call; a fade across one-shots and a loop — the one-shots fade out, but the loop falls silent at the end of its current iteration instead of fading. |
-| **Timing class** | Frame (deactivation) + DSP fade if `fadeOut > 0`. |
-| **Regression risk** | High — the test harness's own teardown isolation depends on `Stop(All, 0f)` reliably clearing every player; a bug here would cascade into false failures/passes across the whole suite, not just this feature. |
+- **Behavior**: `BroAudio.Stop(BroAudioType[, fadeOut])` stops every active player whose type the `[Flags]` value contains. `All` goes through `ConvertEverythingFlag()` first and must catch every concrete type. The fixture's teardown relies on `Stop(All, 0f)`.
+- **Observable**: play one player per concrete type, stop, poll each `IsActive` to false. For a single flag, only that type's players stop.
+- **Edge cases**: a combined flag covering a subset; `All` with nothing active; a type with no players mixed with types that have some; a fade across one-shots and a loop — the one-shots fade, the loop falls silent at the end of its current iteration.
 
 ## Stop with a completion callback
 
-| | |
-|---|---|
-| **Behavior** | There is no `BroAudio.Stop(id, callback)` at the static-facade level — `SoundManager.Stop(id, fadeTime)` always calls the interface's fade-only overload, so `onFinished` stays `null` for type/ID-wide stops. A callback is only reachable through the `IAudioPlayer` handle returned by `Play`, via `IAudioStoppable.Stop(Action onFinished)` / `Stop(float fadeOut, Action onFinished)`, both `internal` (only reachable from within the `Ami.BroAudio` assembly / via the public method actually named on the interface — confirm accessibility before relying on it from `Assets/Tests`). |
-| **Observable** | The callback fires (`Assert.IsTrue(invoked)`) at the same moment `IsActive` flips to `false` — `onFinished?.Invoke()` is the very last statement of `StopControl`/the immediate-return branch in `AudioPlayer.Stop(float, StopMode, Action)`. |
-| **Edge cases** | Callback supplied but player already inactive (`Stop` immediate-return branch still invokes it, so it always fires exactly once, even for a no-op stop); callback supplied through a since-recycled `IAudioPlayerInstanceWrapper` handle (wrapper's `Instance` is null → `Instance?.Stop(onFinished)` silently drops the call and the callback never fires). |
-| **Timing class** | Immediate for the double-no-op case; coroutine-end (still same-frame-resolvable via fade path) otherwise. |
-| **Regression risk** | Medium — the `internal` visibility of the callback overloads on `IAudioStoppable` means this may not even be reachable from the Tests assembly without `InternalsVisibleTo`; needs a live-Editor check (see "Could not determine statically"). |
+- **Behavior**: the static facade has no callback overload. `IAudioStoppable`'s callback members are `internal`; callers reach them through the public `BroAudioChainingMethod` extensions (`player.Stop(onFinished)`, `Stop(fadeOut, onFinished)`).
+- **Observable**: with a fade, the callback fires after the fade and after `EndPlaying()` has recycled the player, so `IsActive` is already false when it runs. On a player that is not playing, `Stop` takes an early-out that fires it synchronously, before `EndPlaying()`.
+- **Edge cases**: a recycled handle drops the callback silently (`Instance?.Stop(onFinished)` on a null instance), as does `Empty.AudioPlayer`.
 
 ## Pause / UnPause by SoundID and by BroAudioType
 
-| | |
-|---|---|
-| **Behavior** | `BroAudio.Pause(id[, fadeOut])` freezes playback in place (`AudioSource.Pause()`), preserving playhead position; `UnPause(id[, fadeIn])` resumes from exactly that position without re-triggering `OnStart`. Same pair exists for `BroAudioType`. |
-| **Observable** | `player.IsActive` stays `true` throughout (pause does not deactivate); `player.IsPlaying` (== `AudioSource.isPlaying`) goes `false` on Pause and `true` again on UnPause. `AudioSource.timeSamples` should be unchanged (or nearly so, modulo fade) across the Pause→UnPause round trip — the strongest external proof that this is a real pause, not a stop/restart. |
-| **Edge cases** | Pausing a player that hasn't started playing yet (still queued/pre-`LateUpdate`, or itself mid-fade-in) — `IsPausedBeforeStart` short-circuits `Play()` and `Stop(..., StopMode.Pause, ...)` takes the early "not yet playing" branch that flips internal `_stopMode` to `Pause` and fires `OnPause` without ever calling `AudioSource.Pause()` (nothing to pause yet); `UnPause` called on a player that isn't paused (`_stopMode != StopMode.Pause`) — logs a warning and no-ops rather than doing anything destructive; Pause→UnPause across a loop/handover boundary (resume path explicitly skips full re-setup — see `PlayInternal`'s `isResuming` branch — to avoid rewinding the playhead or leaking the mixer track); a clip with its own `FadeIn` restarts that fade-in from silence on resume unless `UnPause(fadeIn)` overrides it; `Pause()` with no fade argument fades out over the clip's authored `FadeOut` before freezing; a pause longer than the rest of the clip resumes from the paused sample and plays the remainder. |
-| **Timing class** | Frame for the `IsPlaying` flip; DSP-based end-time rebasing (`RebaseScheduleAfterPause`, `RecalculateScheduledEndTime`) on resume so the seamless-loop/fade-out schedule doesn't drift by the paused duration. |
-| **Regression risk** | High — the "freeze in place" contract (no playhead loss, no re-fade-in, no double `OnStart`) is exactly the kind of behavior a naive Stop/Play reimplementation would silently violate. |
+- **Behavior**: `Pause(id[, fadeOut])` freezes playback in place; `UnPause(id[, fadeIn])` resumes from the same sample without re-firing `OnStart`. The same pair exists per `BroAudioType`.
+- **Observable**: `IsActive` stays true; `IsPlaying` goes false on pause and true on resume; `AudioSource.timeSamples` is unchanged across the round trip.
+- **Edge cases**:
+  - Pause before the player starts: `Stop(..., StopMode.Pause, ...)` takes the not-playing branch, marks the player paused and fires `OnPause` without calling `AudioSource.Pause()`; `IsPausedBeforeStart` then short-circuits `Play()`.
+  - `UnPause` on a player that is not paused warns and no-ops.
+  - Resume skips full re-setup (`PlayInternal`'s `isResuming` branch); end-time schedules are rebased by the paused DSP duration (`RebaseScheduleAfterPause`).
+  - A clip with its own `FadeIn` restarts that fade from silence on resume unless `UnPause(fadeIn)` overrides it.
+  - `Pause()` with no argument fades out over the clip's authored `FadeOut` before freezing.
+  - A pause longer than the rest of the clip resumes from the paused sample and plays the remainder.
+  - `Pause(0f)` inside a seamless-loop crossfade pauses only the incoming player (the handle already points at it); the outgoing player plays its tail out. `UnPause` resumes it without throwing.
 
 ## StopMode.Mute — a BGM transition stop mode
 
-| | |
-|---|---|
-| **Behavior** | `AudioPlayer.Stop(float, StopMode, Action)` and its `PlayInternal`/`StartPlaying` companions implement a third stop mode, `Mute`, documented on the enum as "keeps playing in the background... unmuted on next play." Its only public entry point is the BGM transition: `SetTransition(this IMusicPlayer, Transition, StopMode)` mutes the outgoing BGM instead of stopping or pausing it. |
-| **Observable** | Public API: after a transition with `StopMode.Mute`, the outgoing BGM's `GetVolume()` drops to (near) zero while its handle stays `IsActive` and `IsPlaying` — nothing calls `AudioSource.Pause`/`Stop` on it. |
-| **Edge cases** | Playing the same sound again starts a new player and leaves the muted one running silently — nothing unmutes it; `UnPause` does not apply (it accepts only a paused player) and warns; when the muted clip runs out the source stops, but the player stays `IsActive` and keeps its pool slot — only an explicit `Stop` frees it. |
-| **Timing class** | Frame (same transition machinery as the other BGM stop modes). |
-| **Regression risk** | Medium — the mode holds a player and a mixer track until something stops it explicitly, so a change to how it ends leaks or frees voices silently. |
+- **Behavior**: `Mute` keeps the voice playing silently. Its only public entry is `SetTransition(this IMusicPlayer, Transition, StopMode)`, which mutes the outgoing BGM instead of stopping or pausing it. The enum doc says it is unmuted on next play, but no path unmutes it.
+- **Observable**: the outgoing BGM's `GetVolume()` drops to near zero while its handle stays `IsActive` and `IsPlaying`.
+- **Edge cases**: playing the same sound again starts a new player and leaves the muted one running; `UnPause` warns (it accepts only a paused player); when the muted clip runs out the source stops but the player stays `IsActive` and keeps its pool slot until an explicit `Stop`.
 
 ## Player recycling and the stale-handle contract
 
-| | |
-|---|---|
-| **Behavior** | When a player finishes (`EndPlaying` → `Recycle()`), it clears `ID` to `SoundID.Invalid`, returns its `AudioMixerGroup` track and itself to their pools, and nulls out the `InstanceWrapper` it handed to the caller. The `IAudioPlayer` the caller is holding is actually an `AudioPlayerInstanceWrapper`, since `PlayerToPlay` always wraps a player before returning it, so the original reference stays valid as an object but becomes inert. |
-| **Observable** | Public API only: after the tracked `player.IsActive`/`IsPlaying` go `false` post-recycle, calling `player.Stop()`/`SetVolume()`/`AsBGM()`/etc. on the *same* stale reference is a safe no-op (`InstanceWrapper.IsAvailable()` guards every member); `player.ID` reads back as `SoundID.Invalid`; the underlying pooled `AudioPlayer` component may already have been handed to a *different* `Play` call and be playing unrelated audio — the stale wrapper must never accidentally observe or affect it. `Setting.LogAccessRecycledPlayerWarning` (an `EditorSetting`/`RuntimeSetting` toggle) additionally logs a warning on stale access via `LogInstanceIsNull()`. |
-| **Edge cases** | Touching the handle exactly on the recycle frame (race between `EndPlaying` and a queued caller action — order depends on whether the caller's code runs before or after `SoundManager.LateUpdate` recycles); calling `AsBGM()`/`AsDominator()` on a stale handle (`Empty.MusicPlayer`/`Empty.DominatorPlayer` returned per `AudioPlayerInstanceWrapper`'s `IsAvailable()` guard, not a crash); reading `.AudioSource` on a stale handle (`Empty.AudioSource`, since `Instance` is null). |
-| **Timing class** | Frame (recycle happens synchronously inside the coroutine that ends playback, itself frame/DSP driven). |
-| **Regression risk** | High — this is the single most dangerous seam in the lifecycle: a caller holding a completed `IAudioPlayer` reference and calling into it is an extremely common real-world pattern (e.g. a stored reference in a MonoBehaviour), and any null-safety regression here becomes a live NRE in a shipped game. |
+- **Behavior**: on finish (`EndPlaying` → `Recycle()`) a player clears `ID` to `SoundID.Invalid`, returns its mixer track and itself to their pools, and detaches the `AudioPlayerInstanceWrapper` it handed out. The caller's handle is always that wrapper, so it stays valid as an object but goes inert.
+- **Observable**: after recycle, every call on the same handle is a no-op (`InstanceWrapper.IsAvailable()` guards each member) and `ID` reads `SoundID.Invalid`. The pooled `AudioPlayer` may already be serving another `Play`; the stale handle must not observe or affect it. `Setting.LogAccessRecycledPlayerWarning` adds a warning on stale access (`LogInstanceIsNull()`).
+- **Edge cases**: touching the handle on the recycle frame (order depends on whether caller code runs before `SoundManager.LateUpdate`); `AsBGM()`/`AsDominator()` on a stale handle return `Empty.MusicPlayer`/`Empty.DominatorPlayer`; `.AudioSource` on a stale handle returns `Empty.AudioSource`.
 
 ## Same pooled AudioPlayer instance is reused across independent Play calls
 
-| | |
-|---|---|
-| **Behavior** | `AudioPlayerObjectPool` (an `ObjectPool<AudioPlayer>`) has an unbounded active side — `Extract()` creates a new instance only when the free-list is empty, and never refuses/caps extraction — but a bounded free-list on return (`Recycle` destroys the excess once `Pool.Count == MaxPoolSize`, from `Setting.DefaultAudioPlayerPoolSize`). So a `GameObject`/`AudioPlayer` component that finished sound A can be immediately re-extracted and start sound B; there is no "pool exhausted, playback dropped" failure mode. |
-| **Observable** | Public API: `HasAnyPlayingInstances` / a second `Play` call returning a *working* handle proves extraction never fails; internal (no reliable external proxy) to prove the same `AudioPlayer` component was reused would require comparing `((AudioPlayerInstanceWrapper)handle)`'s underlying instance via reflection or the explicit `AudioPlayer` cast operator exposed on `AudioPlayerInstanceWrapper`. |
-| **Edge cases** | Rapid Play/Stop/Play cycling beyond `DefaultAudioPlayerPoolSize` to force pool churn (exercises `DestroyObject`/`CreateObject` boundary); `RemoveFromPreventer`'s own guard — it logs a warning if asked to remove a target whose `IsActive` is already `false` (defensive, indicates a double-recycle would be caught, not silently swallowed); after a 3D sound, the recycled player that the next `Play` receives has its scalar spatial settings reset but still carries the previous sound's custom rolloff curve. |
-| **Timing class** | Immediate (pool operations are synchronous, no coroutine involved). |
-| **Regression risk** | Medium — pool bugs (double-extract, double-recycle) are classic and this codebase has an explicit warning guard for exactly one such case (`RemoveFromPreventer`), suggesting it was hit before. |
+- **Behavior**: `AudioPlayerObjectPool` never refuses extraction — it creates a player when the free list is empty — but bounds the free list on return, destroying the excess once it holds `MaxPoolSize` (from `Setting.DefaultAudioPlayerPoolSize`). A finished player can be re-extracted at once; there is no "pool exhausted" failure.
+- **Observable**: a further `Play` always returns a working handle. Reuse of the same component shows by comparing `InstanceOf(handle)` across plays.
+- **Edge cases**: Play/Stop cycling past `DefaultAudioPlayerPoolSize` exercises the create/destroy boundary; `RemoveFromPreventer` warns if asked to remove an inactive player, so a double recycle is logged rather than swallowed; after a 3D sound, the recycled player keeps its scalar spatial settings reset but still carries the previous sound's custom rolloff curve.
 
 ## OnStart / OnUpdate / OnPause / OnEnd callbacks
 
-| | |
-|---|---|
-| **Behavior** | `IAudioPlayer.OnStart/OnUpdate/OnPause/OnEnd` register `Action` delegates (`-=` then `+=`, so re-registering the same delegate instance is idempotent rather than double-firing) that fire respectively: once, when the source actually starts playing (`HasStartedPlaying` flips); every frame while active, via `_onUpdate?.Invoke` calls scattered through the fade/wait loops in `PlayControl`; on every transition into `Pause` (both the "already stopped, mark paused" branch and the coroutine `StopControl` branch call `_onPaused?.Invoke`); and once, from `EndPlaying`, right before `Recycle()` — meaning the handle is still nominally "active" (`ID` not yet cleared) for the duration of the `OnEnd` callback itself. |
-| **Observable** | Public API: register a callback that flips a bool/increments a counter, then assert against wall/DSP-clock-independent counts (e.g. `OnStart` fired exactly once even across a Pause/UnPause round trip — resume explicitly does NOT re-invoke it, see `if (!HasStartedPlaying)` guard in `PlayControl`). `OnEnd`'s `SoundID` parameter should equal the original `ID` even though recycle (which invalidates `ID`) happens immediately after. |
-| **Edge cases** | Registering the same `Action` reference twice (no double-fire, by design of `-=`/`+=`); callbacks registered on a since-recycled/stale handle (silently dropped, handled by the wrapper's `IsAvailable()` guard returning `Empty.AudioPlayer`, so registration itself becomes a no-op that returns a permanently-empty handle); `OnUpdate` firing rate during a fade vs. steady playback (it's invoked inside every `yield return null` wait loop, so once per frame, not tied to DSP granularity); exceptions thrown from a user callback (not guarded anywhere visible — an exception inside `_onStart?.Invoke` would propagate up through the coroutine and potentially abort `PlayControl` mid-setup — flagged below). |
-| **Timing class** | Frame (all four are invoked from frame-stepped coroutine code, never from the audio thread). |
-| **Regression risk** | Medium-high — callbacks are a primary integration point for game code (UI sync, VFX triggers); silent double-fire or drop is subtle and easy to miss without a dedicated regression test. |
+- **Behavior**: registration does `-=` then `+=`, so registering the same delegate twice fires it once. `OnStart` fires once, when the source starts playing; `OnUpdate` once per frame inside `PlayControl`'s and the fade's wait loops; `OnPause` on every transition into pause (both the not-yet-playing branch and `StopControl`); `OnEnd` once, from `EndPlaying` just before `Recycle()`, so `ID` is still valid during the callback.
+- **Observable**: count invocations. `OnStart` fires once across a Pause/UnPause round trip (`if (!HasStartedPlaying)` in `PlayControl`). `OnEnd`'s `SoundID` equals the original `ID`.
+- **Edge cases**: registering on a stale handle is a no-op returning `Empty.AudioPlayer`; `OnUpdate` is frame-rate, not DSP-rate; user callbacks are not try-guarded, so a throwing `OnStart` aborts `PlayControl`.
 
 ## IsActive vs IsPlaying
 
-| | |
-|---|---|
-| **Behavior** | `IsActive` (`ID.IsValid()`) is `true` from the instant `Play` enqueues through Stop's full teardown/recycle; it does not distinguish queued vs. playing vs. paused vs. mid-fade-out. `IsPlaying` (`AudioSource.isPlaying`) is `false` while queued (pre-`LateUpdate`), flips `true` once `AudioSource.Play()`/`UnPause()` actually runs, and flips `false` again on Pause or full Stop. |
-| **Observable** | Public API directly: `IsActive` true immediately after `Play`, `IsPlaying` only true after a frame + poll. |
-| **Edge cases** | The queued-but-not-yet-drained window (`IsActive == true && IsPlaying == false`, exists for exactly one frame minimum); the paused window (same combination, but reachable at any time, not just start); Addressables-not-yet-loaded window if applicable (`PlayControl` yields on `WaitForAddressablesToLoad` before `AudioSource.clip` is even assigned — `IsActive` true, `IsPlaying` false, for an unbounded time if the load hangs). |
-| **Timing class** | Frame. |
-| **Regression risk** | High — this exact distinction is called out in the class doc comments and is clearly load-bearing for consumers who poll it to decide when it's safe to, e.g., read `AudioSource`. |
+- **Behavior**: `IsActive` (`ID.IsValid()`) is true from `Play` until recycle and does not distinguish queued, playing, paused or fading out. `IsPlaying` (`AudioSource.isPlaying`) is false while queued, true once the source plays or resumes, false again on pause or stop.
+- **Observable**: `IsActive` true immediately after `Play`; `IsPlaying` only after playback starts.
+- **Edge cases**: the queued window (`IsActive && !IsPlaying`, at least one frame); the paused window (same pair, at any time); an unloaded Addressables clip — `PlayControl` waits on the load before assigning `AudioSource.clip`, so the pair holds for as long as the load takes.
 
 ## Empty.AudioPlayer — the null-object path
 
-| | |
-|---|---|
-| **Behavior** | `Empty.AudioPlayer` is a single shared `EmptyAudioPlayer` instance (not a `new` one per failure) implementing the full `IAudioPlayer` surface as inert no-ops: `ID` is always `SoundID.Invalid`, `IsActive`/`IsPlaying` always `false`, every mutator (`Stop`, `Pause`, `SetVolume`, `AddAudioEffect`, `OnStart`, etc.) returns `this` (or void) without side effects, `AsBGM()`/`AsDominator()` return the matching shared empty decorator singletons, not something wrapping this instance. |
-| **Observable** | Public API entirely — chain arbitrary calls off a `Play` that returned `Empty.AudioPlayer` and assert nothing throws and no `AudioSource`/mixer state changes anywhere in the scene. |
-| **Edge cases** | Fluent chaining through multiple no-op calls (`player.SetVolume(1f).SetPitch(1f).AsBGM()...`) must keep returning usable empty objects at every step, never `null`, so a chain never NREs; `Empty.AudioPlayer` is a static field, not a property, so nothing here re-creates it — a test must not assume identity resets between calls (it's the same object every time, which is itself an observable/testable invariant). |
-| **Timing class** | Immediate. |
-| **Regression risk** | Low-medium — it's a simple null-object, but its entire purpose is "never let a rejected Play crash calling code," so a single missed interface member (compile-checked, but a *behavioral* slip — e.g. returning `null` instead of `this` from one method) would defeat that purpose for just that one call in the chain. |
+- **Behavior**: `Empty.AudioPlayer` is one shared static `EmptyAudioPlayer`: `ID` is `SoundID.Invalid`, `IsActive`/`IsPlaying` false, every mutator returns `this` (or void) with no side effect, and `AsBGM()`/`AsDominator()` return the shared empty decorators.
+- **Observable**: chain calls off a rejected `Play` and assert nothing throws and no `AudioSource` or mixer state changes.
+- **Edge cases**: a fluent chain (`SetVolume(1f).SetPitch(1f).AsBGM()...`) must never yield `null`; the instance is the same object on every rejection.
 
 ## Comb-filtering preventer bookkeeping
 
-| | |
-|---|---|
-| **Behavior** | Every successful `Play` records `_combFilteringPreventer[id] = player` in `SoundManager`, independent of whether any `PlaybackGroup` rule actually uses it; a player normally removes itself via `RemoveFromPreventer` when recycled, but only if it's still the entry on record for that ID (a later `Play` of the same ID overwrites the dictionary entry, so an earlier player's recycle is a safe no-op against a newer one's entry). |
-| **Observable** | Internal only — `TryGetPreviousPlayerFromCombFilteringPreventer(id, out previousPlayer)` is the sole accessor and it's not exposed publicly; a test would need reflection or an `InternalsVisibleTo` seam to assert on it directly. The externally-observable proxy is `DefaultPlaybackGroup`'s comb-filtering *rejection* (a rapid same-ID re-Play returning `Empty.AudioPlayer`), but that requires a real `PlaybackGroup` asset, so it belongs with playback-group/rules testing rather than a pure-lifecycle test. |
-| **Edge cases** | Rapid re-Play of the same ID before the first player starts (`PlaybackStartingTime` still 0, `previousIsInQueue` branch in `HasPassedCombFilteringRule`); the same ID played twice in the same frame with `_ignoreCombFilteringIfSameFrame` on vs. off. |
-| **Timing class** | Immediate (dictionary write) / frame (comparison uses `TimeExtension.UnscaledCurrentFrameBeganTime`). |
-| **Regression risk** | Low for this lifecycle section specifically — the interesting behavior lives in `DefaultPlaybackGroup`, which is a separate concern; here it's just bookkeeping plumbing. |
-
-## Conflicts observed
-
-- **`StopMode.Mute` is documented as general but reachable only as a BGM transition mode.** The enum describes it as "keeps playing in the background... unmuted on next play", but no path unmutes a muted player: a later play of the same sound starts a new player instead.
-- **`IAudioStoppable`'s callback-bearing `Stop`/`Pause`/`UnPause` overloads are declared `internal`.** `Assets/Tests` is presumably a separate assembly without `InternalsVisibleTo` into the runtime assembly (per project memory: "Tests access internals via System.Reflection (no InternalsVisibleTo)"). If so, `player.Stop(onFinished)` is not directly callable from test code and must go through reflection or an `internal` call site inside the runtime assembly itself — this constrains how the "Stop with a callback" behavior above can actually be exercised.
-
-## Could not determine statically
-
-- Whether `IAudioStoppable.Stop(Action onFinished)` / `Stop(float, Action)` are actually invocable from `Assets/Tests/**` given their `internal` modifier and the "no InternalsVisibleTo" note in project memory — needs a live compile check in the Editor.
-- The exact `AudioSource` field observable for follow-target tracking (`AudioPlayer.Update()` writes `transform.position`, but `transform` isn't exposed through `IAudioSourceProxy`/`IAudioPlayer` — a test would need `player.AudioSource` plus reading the source's `GameObject.transform`, or reflection into the underlying `AudioPlayer`) — confirm `IAudioSourceProxy`'s actual member set before relying on it.
-- Whether pool growth under sustained pressure (many concurrent `Play` calls beyond `DefaultAudioPlayerPoolSize`) has any perceptible cost/behavior difference worth a regression test, or whether it's purely a memory/GC concern with no behavior to characterize.
-- Precise interaction between `Pause` called on a player that is itself mid-handover (seamless loop about to hand off to `_nextPlayer`) — `StopControl`'s `CanHandoverToEnd`/`BeginHandover` logic branches only reference the `Stop` path explicitly; whether `Pause` (which goes through the same `Stop(overrideFade, StopMode.Pause, onFinished)` entry point) correctly suppresses or preserves a pending handover was not traced in depth and would benefit from a live-Editor trace or a dedicated loop/handover test file (it belongs with loop/handover behavior — see project memory's "Looping via handover" note).
+- **Behavior**: every accepted `Play` records `_combFilteringPreventer[id] = player`, whether or not any group uses the rule. A recycled player removes the entry only if it is still the one on record, so an earlier player's recycle leaves a newer one's entry alone.
+- **Observable**: `SoundManager.Instance.TryGetPreviousPlayerFromCombFilteringPreventer(id, out player)` (public). The rejection it drives belongs to `DefaultPlaybackGroup` (see selection-policy.md).
+- **Edge cases**: a same-ID replay before the first player starts (its `PlaybackStartingTime` is still 0, the `previousIsInQueue` branch of `HasPassedCombFilteringRule`); two same-ID plays in one frame with `_ignoreCombFilteringIfSameFrame` on vs. off.
 
 ## Further behaviors
-
-Behaviors outside the entries above, stated in one line each.
 
 - **Play with a fade-in at a position or on a follow target.** `Play(id, position, fadeIn)` and
   `Play(id, followTarget, fadeIn)` place a 3D voice at (or tracking) the target and ramp it from silence

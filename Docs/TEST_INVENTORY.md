@@ -1,11 +1,8 @@
 # BroAudio Test Inventory
 
-Ranked plan for the regression suite. Goal: **maximum behavioral confidence per test.**
-Coverage is not the highest priority, and coverage percentage is not a target.
-
-Detail lives in four section files, which describe each behavior and how it can be observed. This file
-is the index, the ranking, and the only place coverage status is recorded: the tier ledger below and the
-[per-behavior ledger](#per-behavior-ledger).
+The ranking, and the only record of coverage status: the tier ledger below and the
+[per-behavior ledger](#per-behavior-ledger). What each behavior is and how it can be observed lives in
+four section files:
 
 | Section | File |
 |---|---|
@@ -32,134 +29,19 @@ The tier sections below still carry the phase they were planned in, which record
 | 7 — Structural blind spots | **covered** | `TeardownTests.cs`, `OptionalPackageTeardownTests.cs`, `UpdateModeClockTests.cs`, `AuthoredVolumeTests.cs`, `AuthoredPitchAndRandomizationTests.cs`, `SpatialAndPriorityTests.cs` |
 | Suite guards | **covered** | `OptionalPackageTests.cs`, `AudioClockProbeTests.cs`, `ReflectionCanaryTests.cs` (PlayMode); `OptionalPackageEditorTests.cs`, `FindingCoverageTests.cs`, `EditorRunIsolationGuard.cs` (EditMode) |
 
-Tier status is the summary, and a tier is **partial** when any of its rows below is; the **per-behavior**
-ledger required by the plan's Definition of Done is [below](#per-behavior-ledger), one table per section
-file, where every inventoried behavior is marked covered / partial / deferred / out of scope with the test
-that pins it.
+A tier is **partial** when any of its rows in the per-behavior ledger is.
 
-Per-file detail beyond the tier ledger above:
+Files whose scope the per-behavior ledger does not show:
 
-- `AudioEffectTests.cs` covers the per-player Unity filter surface (`AddChorusEffect`/`AddLowPassEffect`/etc.
-  — attach, duplicate, remove, recycle cleanup, the `OnAudioFilterRead` callback, exposed parameter writes),
-  the `GetOutputData` tap,
-  and the mixer-routed `BroAudio.SetEffect` automation.
-- `SoundSourceTests.cs` covers the `SoundSource` no-code component: the three `PositionMode`s (global stays
-  2D; StayHere snapshots the transform; FollowGameObject tracks it — also this suite's only coverage of
-  `BroAudio.Play(SoundID, Transform)`), the Play On Enable / Only Play Once / Stop On Disable / Override
-  Fade Out / Delay / Override Playback Group inspector toggles, Play's replace-don't-layer semantics, and
-  the guard clauses that keep Stop/Pause/UnPause/SetVolume/SetPitch inert without a live player.
-- `SoundVolumeTests.cs` covers both halves of the component's contract: the system half (Apply On Enable,
-  Only Apply Once, Reset On Disable's record-at-enable / restore-at-disable pairing, a composite `[Flags]`
-  audio type fanning out over the types it contains) and the slider half (volume ↔ slider mapping per
-  `SliderType`, rounding to `RoundingDigits`, Allow Boost, and listener add/remove across enable/disable).
-- `SpectrumAnalyzerTests.cs` covers source acquisition (`SetSource`, the serialized `SoundSource` fallback,
-  going quiet once the player is recycled), `Start`-time buffer sizing, and per-band ballistics (attack,
-  decay, smoothing), plus an end-to-end tone test. Most of its tests drive a **silent** clip on purpose:
-  with an all-zero spectrum every band's target is exactly the decibel floor, so the ballistics stay
-  deterministic regardless of what the machine's actual audio device produces.
-- `TeardownTests.cs` covers the `SoundManager.Instance` / `BroAudio.Manager` asymmetry that CLAUDE.md calls
-  load-bearing: the facade's release verbs are silent no-ops with the manager destroyed, play verbs throw
-  by contrast, and a player handle held across the manager's destruction stays inert. The contract does
-  **not** extend to `SetEffect` or to handle-level release verbs, both of which throw. It also pins the
-  manual-init contract: `SoundManager.Init`'s auto-bootstrap attribute tracks `BroAudio_InitManually`, and
-  `Init()` on an absent manager yields one that plays.
-- `UpdateModeClockTests.cs` covers `RuntimeSetting.UpdateMode` and `Utility.GetDeltaTime` — the clock behind
-  every fade, pitch tween and scheduled start: under `Time.timeScale == 0` a fade progresses in
-  `UnscaledTime` and freezes in `Normal`.
-- `AuthoredVolumeTests.cs` covers `clip.Volume * entity.MasterVolume` (`AudioPlayer.Playback`) — both
-  factors default to 1 everywhere else in the suite, so this product previously had no other observer.
-- `SpatialAndPriorityTests.cs` covers spatial settings and `entity.Priority`, including what a pooled
-  player carries into its next sound.
-- `PlayFadeInOverloadTests.cs` covers `Play(id, position, fadeIn)` and `Play(id, followTarget, fadeIn)`: each
-  call places a 3D voice at (or tracking) its target and ramps it from silence over the given fade.
-- `VolumeFadeTests.cs` covers the timed half of `SetVolume` — per-type, per-`SoundID` and per-handle ramps on
-  the frame clock, a ramp reversed mid-flight, and a `Stop` fade that starts from the current level.
-- `AuthoredPitchAndRandomizationTests.cs` covers the entity's authored pitch (and a per-type pitch replacing
-  it, TEST_FINDINGS #55), per-play volume and pitch randomization, and master `SetPitch` (#56).
-- `EaseCurveTests.cs` (EditMode) covers `EaseExtension.SetEase` — the curve behind every fade — against
-  hand-derived literal values, never against `SetEase` itself, including out-of-range input (#53) and an
-  undefined `Ease` (#54).
-- `MixerTrackRecycleTests.cs` covers what a mixer track looks like when it goes back to the pool — muted by
-  `SilenceTrackBeforeReturn`, on its dry side and its effect send — and that the next play takes that same
-  track back (behind `!UNITY_WEBGL`, where tracks exist).
-- `DefaultPlaybackGroupTests.cs` runs `AudioAsset`-backed entities (`NewAssetBackedSound`) under the
-  factory global playback group every shipped entity plays under — its 0.04 s comb-filtering window with
-  same-frame plays not exempt — and `PlaybackGroup`'s parent fallback to it.
-- `ErrorPathTests.cs` covers misuse the rest of the suite never drives: a clip slot with no `AudioClip`, a
-  null follow target (TEST_FINDINGS #60), `UnPause` on a player that is not paused or is fading out (#65), and
-  per-type `SetVolume`/`SetPitch` with `BroAudioType.None` or Unity's "Everything" (-1).
-- `PlaybackEdgeCaseTests.cs` covers the far side of the comb-filtering window, a pause that outlasts the rest
-  of the clip, a looping entity with a clip `Delay`, and the one place BroAudio writes `AudioSource.volume`
-  (a player with no mixer track).
-- `BGMEdgeCaseTests.cs` covers `OnBGMChanged` staying quiet across a looping BGM's handover seam, and what
-  `StopMode.Mute` amounts to: the muted player keeps running silently and is never recycled until stopped
-  (TEST_FINDINGS #67).
-- `LocalizationRuntimeGuardTests.cs` (behind `PACKAGE_LOCALIZATION`) covers load, release and play of a
-  Localization entity with no table — every path reachable without an `AssetTable` fixture.
-- `OptionalPackageTeardownTests.cs` extends `TeardownTests`' sweep to the Addressables/Localization facade
-  verbs: release verbs no-op with the manager gone, load/query verbs throw `BroAudioException`.
-- The suite guards fail a run that silently covers less than it claims. `OptionalPackageTests.cs` (PlayMode)
-  and `OptionalPackageEditorTests.cs` (EditMode) fail when `PACKAGE_ADDRESSABLES` or `PACKAGE_LOCALIZATION`
-  is not compiled in exactly when the run expects it: undefined on an ordinary run, since a suite behind that
-  define would otherwise compile to nothing, and still defined on the CI leg that removed both packages on
-  purpose (`-broaudioCiExpectsNoOptionalPackages`).
-  `AudioClockProbeTests.cs` fails when the DSP clock is not realtime on a machine that promises an audio
-  device (`BROAUDIO_CI_EXPECTS_AUDIO`), where the tests gated on `RequireRealtimeAudioClock` would
-  otherwise all be ignored. `FindingCoverageTests.cs` (EditMode) reconciles `[Category("Finding_N")]` tags
-  on runnable tests in both assemblies with the findings in TEST_FINDINGS.md, in both directions, and holds
-  that file's summary table to its sections and FIXED_ISSUES.md to disjoint numbers.
-  `ReflectionCanaryTests.cs` resolves every name in `TestAudioLibrary.Reflected` against its production type
-  in one place, so a production rename fails once, by name, instead of in whichever tests reach it.
-  `EditorRunIsolationGuard.cs` is the EditMode assembly's `[SetUpFixture]`: it compares the settings
-  assets' bytes on disk, the EditorPrefs keys BroAudio writes, the clipboard and the temp folder before the
-  first test and after the last.
-
-Every PlayMode test runs against factory `RuntimeSetting` values: `BroAudioTestFixture` resets the asset after
-snapshotting it, since the asset is gitignored and a developer's copy may differ from the one CI generates.
-That includes `GlobalPlaybackGroup`, which the fixture sets to a fresh factory `DefaultPlaybackGroup` per
-test — the configuration users ship. It reaches only `AudioAsset`-backed entities (`NewAssetBackedSound`);
-code-built ones (`NewSound`) have no asset and play outside any group, which is what lets most tests play
-one ID twice in quick succession. Under `BroAudio_InitManually` the fixture calls `BroAudio.Init()` once
-itself, as a project on that define must.
-
-TearDown drains every player, then destroys the objects the test tracked — before any global state is put
-back, since a component's `OnDisable` (a `SoundVolume` with Reset On Disable) is itself a writer of it —
-then resets effect parameters and volumes, and finally verifies, by polling, that the per-type volume and
-pitch prefs, the per-type LowPass/HighPass effect bits and the dominator's `Main_LowPass` / `Main_HighPass`
-read their defaults. Anything left over is reported under the test's name.
-Provoked logs are checked by `LogType` and BroAudio's tag (`TestAudioLibrary.BroAudioLogPrefix`), never by
-their sentence; a log with no tag is checked by its `LogType` alone. CI enforces this with
-`.github/scripts/check_log_expectations.py`, whose short allowlist names each untagged Unity log a test may
-expect.
-
-Findings any of these files surfaced are logged in [TEST_FINDINGS.md](TEST_FINDINGS.md), keyed to the
-file that found them. Every fixture passes in isolation, so no test depends on another having run, and a
-nightly CI run executes every leg in a random order (`-randomOrderSeed`) to catch a test that only passes
-after another. The only tests allowed to report Inconclusive under a random order are listed in
-`.github/test-results-policy.json`.
-
-**Tier 0 lives in the EditMode assembly.** `ClipSelectionTests.cs`, `AudioMathTests.cs` and
-`LocalizationClipStrategyTests.cs` are plain `[Test]`s with no `[UnityTest]` and no `SoundManager`, so they
-need no Play Mode. They live in `Assets/Tests/Editor/` and compile into `EditorTests.asmdef`, running in
-the EditMode lane rather than alongside the PlayMode suite.
-
-**Caveat:** a file authored without a connected Unity Editor to compile and run it is not proven until it
-has been. Before trusting this ledger for a given file, confirm it has actually run green.
-
-`RuntimeSetting.DefaultAudioPlayerPoolSize` is **deferred**: it is read when `SoundManager` bootstraps, so
-mutating it on the live manager has no effect. It is still testable — `TeardownTests` already destroys the
-manager and calls `SoundManager.Init()`, which bootstraps a fresh one that reads the setting.
-
-`Tests.asmdef` references `Unity.Localization` (needed for tier 0.6) and `UnityEngine.UI` (needed once
-tier 6 reached `SoundVolume`, which holds a `UnityEngine.UI.Slider` directly) — asmdef references are not
-transitive, so referencing `BroAudio` does not bring either into scope for the test assembly.
-
-Both test asmdefs reference the **optional** packages (`Unity.Addressables`, `Unity.ResourceManager`,
-`Unity.Localization`, `Unity.Addressables.Editor`) by GUID rather than by name, matching the shipped
-`BroAudio.asmdef`: an unresolved by-name reference makes Unity refuse to build the whole assembly, so with
-a package absent the suite would compile to nothing and every `#if PACKAGE_*` inside it would be moot. A
-GUID reference is dropped quietly instead, and the `versionDefines` do their job. Non-optional references
-(`BroAudio`, the test runners, `UnityEngine.UI`) stay by name — they always resolve.
+- `AudioEffectTests.cs`: the per-player Unity filter surface, the `GetOutputData` tap, and mixer-routed `BroAudio.SetEffect`.
+- `SoundSourceTests.cs`: the `SoundSource` component's three `PositionMode`s, its inspector toggles, and its guards without a live player.
+- `SoundVolumeTests.cs`: the `SoundVolume` component's apply/reset-on-enable/disable contract and its slider mapping.
+- `SpectrumAnalyzerTests.cs`: source acquisition, buffer sizing and per-band ballistics, mostly on a silent clip so the bands stay deterministic.
+- `TeardownTests.cs`: the facade with the manager destroyed (release verbs no-op, play verbs throw; `SetEffect` and handle-level release verbs also throw), and the manual-init contract.
+- `UpdateModeClockTests.cs`: `RuntimeSetting.UpdateMode` under `Time.timeScale == 0`.
+- `SpatialAndPriorityTests.cs`: spatial settings and `entity.Priority`, including what a pooled player carries into its next sound.
+- `OptionalPackageTests.cs` / `OptionalPackageEditorTests.cs`: the `PACKAGE_*` defines match what the run expects.
+- `AudioClockProbeTests.cs`: the DSP clock is realtime wherever `BROAUDIO_CI_EXPECTS_AUDIO` promises an audio device.
 
 ---
 
@@ -309,43 +191,9 @@ Established by probe or grep during ranking; they override anything in the secti
 
 ## Editor suite
 
-A separate EditMode assembly covering `BroAudioEditor` (`Ami.BroAudio.Editor.Tests`), distinct from the
-runtime tiers above — its own coverage ledger, its own tier vocabulary (E0-E4), defined in
-[TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md).
-
-This assembly also compiles the relocated `ClipSelectionTests.cs`, `AudioMathTests.cs` and
-`LocalizationClipStrategyTests.cs` (see the tier 0 note above). The two shipped-data gaps once
-deliberately left red — `SoundSource_PositionMode` had no shipped text, and a stale asset key pointed at
-a deleted enum member — have both since been fixed.
-
-Per-file test files, each verified passing in isolation: `IsolationContractTests`,
-`EditorUtilityPureTests`, `TransportSetValueTests`, `TransportHasDifferentPositionTests`,
-`RectSplitRatioTests`, `RectScopingTests`, `EditorReflectionNamingTests`, `ShippedDataTests`,
-`IssueReportMarkdownTests`, `SerializedPropertyResetTests`, `SerializedTransportTests`, `ClipEditingTests`,
-`AssetWritingTests`, `CoreDataAndUpdaterTests`, `FindingCoverageTests`, `OptionalPackageEditorTests`,
-plus the relocated `ClipSelectionTests`, `AudioMathTests`, `EaseCurveTests`, `LocalizationClipStrategyTests`
-(the last behind `PACKAGE_LOCALIZATION`). Two non-fixture files support them: `EditorReflected`, the one
-place every non-public editor member the assembly reaches by name is kept and looked up (failing with a
-`BroAudioException` that names the member), and `EditorRunIsolationGuard`, the assembly-wide
-`[SetUpFixture]` described below.
-
-The isolation contract lives in `BroEditorTestFixture`
-(`Assets/Tests/Editor/BroEditorTestFixture.cs`): JSON snapshot/restore of the on-disk `EditorSetting` and
-`RuntimeSetting` with each asset's dirty bit put back the way the test found it (not cleared, which would
-discard a developer's unsaved edit), restore of the `LastEditAudioAsset` EditorPrefs key — deleted again if
-the test created it — and of `EditorGUIUtility.systemCopyBuffer`, and an `Assets/EditorTestsScratch_Temp/`
-folder deleted in TearDown. Every TearDown step runs even when an earlier one throws, `OnTearDown`
-included, and the failures are rethrown together. `IsolationContractTests` guards the fixture itself
-(`E_SettingAssets_DirtyBitIsRestoredAfterAMutatingTest` for the dirty bit). The per-test restore works in
-memory, so `EditorRunIsolationGuard` checks the whole run from outside: the settings files' bytes on disk,
-BroAudio's EditorPrefs keys, the clipboard and the temp folder, before the first test and after the last.
-`git status` is clean after a run; nothing under `Assets/BroAudio/`, `ProjectSettings/` or `Packages/` is
-touched.
-
-`AssetWritingTests` needs its own containment mechanism on top of that, because new entities are not
-written beside the asset they belong to: `AudioAssetEditor` writes them to `EditorSetting.AssetOutputPath`.
-The fixture redirects that setting into the temp folder before creating anything and restores the
-developer's real path in TearDown.
+The EditMode tests of `BroAudioEditor` tooling (`Ami.BroAudio.Editor.Tests`), tiered E0–E4. The same
+assembly also compiles tier 0 below. `IsolationContractTests.cs` guards `BroEditorTestFixture`'s own
+restores.
 
 ### Coverage ledger (Editor tiers)
 
@@ -377,21 +225,12 @@ developer's real path in TearDown.
 | `FieldUsageFinder` | Scans every asset in the project — slow, and its result depends on project contents |
 | `BroUserDataGenerator.CheckAndGenerateUserData` | Writes into the shipped package's own Resources folders and completes on an async `ResourceRequest` callback, so it cannot be exercised without breaking the isolation contract. Dropped from E4. |
 
-### Assembly constraint
-
-`Tests.asmdef` is all-platform (`includePlatforms: []`) and therefore cannot reference the Editor-only
-`BroAudioEditor` — which is why `Assets/Tests/Editor/EditorTests.asmdef` exists as its own assembly,
-referencing `BroAudio`, `BroAudioEditor`, and `Tests` (reusing `TestAudioLibrary` from the runtime suite
-rather than writing a second clip builder).
-
 ---
 
 ## Tier 0 — EditMode units (phase 2, do first)
 
-Pure functions, no `SoundManager`, no Play Mode, no clocks. This is the cheapest confidence in the whole plan
-and it runs in milliseconds — literally: the three files below live in
-`Assets/Tests/Editor/` and compile into `EditorTests.asmdef`, so they run in the EditMode lane instead
-of riding along with the PlayMode suite.
+Pure functions, no `SoundManager`, no Play Mode, no clocks: the cheapest confidence in the plan. These
+files compile into `EditorTests.asmdef` and run in the EditMode lane.
 
 | # | Behavior | Where | Risk |
 |---|---|---|---|
@@ -401,11 +240,6 @@ of riding along with the PlayMode suite.
 | 0.4 | `Effect.CompareTo` / `IsMoreIntenseThan` — especially LowPass's deliberate sign inversion — plus `Effect.IsDefault()` and `IsValidFrequency` bounds | `Ami.BroAudio.Effect` | Medium — least obvious code path in the effects system |
 | 0.5 | `AudioEntity.GetRandomValue(baseValue, RandomFlag)` and the static range overload; `HasLoop`'s 4-arg overload (the 2-arg one needs a live `SoundManager`) | `Ami.BroAudio.Data.AudioEntity` | Low-medium |
 | 0.6 | `LocalizationClipStrategy.SelectClip` after `Inject()` with a lambda-supplied clip — sidesteps the missing AssetTable entirely | `Runtime/Utility/ClipSelection/` | Medium |
-
-`Utility.SliderToVolume` / `VolumeToSlider` / `BroVolumeToSlider` — runtime code behind `SoundVolume`, whose
-default slider is `SliderType.BroVolume` — are pinned against hand-derived literals for `Linear`,
-`Logarithmic` and `BroVolume`, with and without boost, by `AudioMathTests.VolumeToSlider_MatchesTheHandDerivedValue`
-and `SliderToVolume_MatchesTheHandDerivedValue`.
 
 ## Tier 1 — Core playback (phase 2)
 
@@ -426,7 +260,7 @@ High risk, low timing complexity. Everything here is frame-clock or immediate.
 
 ## Tier 2 — Time-dependent (phase 3)
 
-Everything here needs a clock decision per test. Hand writers `WaitDspSeconds` and `WaitUntilOrTimeout` by name.
+Everything here needs a clock decision per test.
 
 | # | Behavior | Clock | Risk |
 |---|---|---|---|
@@ -467,13 +301,6 @@ Real behaviors, deliberately not covered — cost far exceeds the confidence gai
 | Full `Play()` → `SoundManager` → localized clip resolution, and `LocalizedAudioChanged` handlers firing | Needs an `AssetTable` with audio entries, committed as a fixture the way the addressable tones are. The strategy itself is covered at 0.6; the subscription guards by `LocalizedAudioChangedSubscriptionTests`; load, release and play of an entity with no table by `LocalizationRuntimeGuardTests` |
 | Mid-playback `outputAudioMixerGroup` swap glitch behavior | Engine-level, flagged as unverified even in the engine notes |
 
-### A seamless loop whose transition outlasts its clip
-
-This case was once left untested for fear that `ScheduleNextPlayback`'s negative wait window would recurse
-without bound into an uncatchable `StackOverflowException`. It does not, and it is now pinned: the loop
-period stretches from the clip length to the `TransitionTime` while the player count stays bounded. The
-mechanism and the pinning test are recorded as [TEST_FINDINGS #59](TEST_FINDINGS.md).
-
 ## Out of scope
 
 | Behavior | Why |
@@ -509,12 +336,3 @@ All five were settled by close source reading plus the shipped `BroRuntimeSettin
    the gitignored `Assets/BroAudio/Resources/`, so it is local to each checkout. It also carried
    `PitchSetting: 1`; that field no longer exists on `RuntimeSetting`, so the stored value simply stops
    deserializing into anything and Unity drops it the next time it writes the asset.)
-
-One consequence worth carrying forward:
-
-- **`GlobalPlaybackGroup` being assigned does not affect code-built entities.** It is consulted only through
-  `AudioAsset.LinkPlaybackGroup` and `PlaybackGroup`'s parent fallback, and a code-built entity has no
-  `AudioAsset`. The plan's premise holds: voice-limit and comb-filtering tests on code-built entities must
-  wire a group explicitly. Every authored entity *does* play under the global group, so the fixture now sets
-  a factory global group for every test and `DefaultPlaybackGroupTests` plays `AudioAsset`-backed entities
-  under it — the configuration users ship.
