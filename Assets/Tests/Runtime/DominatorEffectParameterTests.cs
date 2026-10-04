@@ -136,7 +136,7 @@ namespace Ami.BroAudio.Tests
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
 
             // characterizes: this is NOT silent. AudioExtension.IsValidFrequency itself calls Debug.LogError
-            // (with the standard Utility.LogTitle prefix, per Docs/FIXED_ISSUES.md #15) before
+            // (with the standard Utility.LogTitle prefix) before
             // DominatorPlayer.LowPassOthers even reaches SetAllEffectExceptDominator. The log's TYPE and
             // BroAudio's own tag are the contract (Docs/GOAL.md anti-goal: "Asserting on log text"); the
             // parameter staying put is what actually proves the guard rejected the call.
@@ -166,7 +166,7 @@ namespace Ami.BroAudio.Tests
         // Main_Dominated, so everything else keeps playing at full volume.
         //
         // EffectAutomationHelper.SetEffectTrackParameter starts TweakTrackParameter, and with fadeTime 0 the
-        // whole coroutine drains synchronously inside StartCoroutine (Docs/FIXED_ISSUES.md #17): Tweak writes
+        // whole coroutine drains synchronously inside StartCoroutine: Tweak writes
         // the ducked level to Main_Dominated, and the coroutine's tail runs SwitchMainTrackMode(false).
         // SetEffectTrackParameter then runs SwitchMainTrackMode(true), whose ChangeChannel(Main ->
         // Main_Dominated, FullDecibelVolume) mutes Main and overwrites Main_Dominated with 0dB. The

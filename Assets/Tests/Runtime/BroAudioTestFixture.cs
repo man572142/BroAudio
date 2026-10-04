@@ -534,10 +534,12 @@ namespace Ami.BroAudio.Tests
         /// <para>
         /// Effect.ResetLowPass()/ResetHighPass() are *default-valued* effects, so SoundManager.SetEffect
         /// picks SetEffectMode.Remove, which is what clears that bit. Deliberately NOT
-        /// SetEffect(new Effect(EffectType.None)): it is not a reset-all, it only logs - an error from
-        /// Effect's Value setter as it is constructed, and another from ResetAllEffect for every tracked
-        /// effect, since the None effect has no mixer parameter. An unexpected error log fails the very
-        /// test being torn down, so a shared cleanup path cannot use it.
+        /// SetEffect(new Effect(EffectType.None)): that would reset every tracked effect in one call, but
+        /// `new Effect(EffectType.None)` logs an error from Effect's Value setter as it is constructed, and
+        /// ResetAllEffect logs another for every tracked effect whose parameter does not resolve - an
+        /// EffectType.Volume entry on a non-Dominator, which AudioEffectTests leaves registered for the
+        /// rest of the Editor session. An unexpected error log fails the very test being torn down, so a
+        /// shared cleanup path cannot use it.
         /// </para>
         /// <para>
         /// The dominator parameters (Main_LowPass / Main_HighPass / Main_Dominated) are not reset here:
@@ -547,7 +549,7 @@ namespace Ami.BroAudio.Tests
         /// </para>
         /// <para>
         /// The reset is then verified rather than waited out for a fixed number of frames. A zero-fade
-        /// Tweak drains its WaitableList synchronously inside StartCoroutine (Docs/FIXED_ISSUES.md #17), so
+        /// Tweak drains its WaitableList synchronously inside StartCoroutine, so
         /// the parameters are normally already back before the first read and this costs no frame at all;
         /// what a fixed wait would silently miss is the case that matters, a tweaker still working through
         /// a fade or a pending auto-reset waitable, which SetEffectTrackParameter queues behind rather than

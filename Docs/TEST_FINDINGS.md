@@ -2,8 +2,8 @@
 
 Behavior/doc conflicts and rough edges found while building the regression suite.
 
-Findings 1-7, 15-20, 28, 30 and 33 have since been fixed and moved to
-[FIXED_ISSUES.md](FIXED_ISSUES.md).
+Fixed findings move to [FIXED_ISSUES.md](FIXED_ISSUES.md), and leave it once the fix ships on `main`. A
+number in neither file is retired, not free: a new finding takes a number above every one ever used.
 
 Number 68 is withdrawn: it described Shuffle not playing each clip once per cycle, which the maintainer
 confirmed is not part of its contract.
@@ -465,7 +465,7 @@ Status: Open, characterized. Pinned by
 
 ## 34. The Editor assembly was never swept for the `[BroAudio]` log prefix
 
-Findings #15 and #33 each fixed a handful of unprefixed logs, but neither was a sweep of the Editor
+Earlier fixes each prefixed a handful of unprefixed logs, but neither was a sweep of the Editor
 assembly as a whole. Fifteen `Debug.Log*` calls in ten shipped files under `Assets/BroAudio/Editor/` still
 emit without `Utility.LogTitle`, so a package consumer who trips one sees a bare console message with
 nothing identifying BroAudio as the source:
@@ -480,7 +480,7 @@ nothing identifying BroAudio as the source:
 | `EntityPropertyDrawer/AudioEntityEditor.cs` | 1 |
 | `EntityPropertyDrawer/ReorderableClips.cs` | 1 |
 | `Extension/AttributeDrawer/ReadOnlyTextAreaAttributeDrawer.cs` | 1 |
-| `Extension/EditorScriptingExtension.cs` | 1 (the multi-float-field guard, not covered by #33) |
+| `Extension/EditorScriptingExtension.cs` | 1 (the multi-float-field guard, not covered by the earlier fix) |
 | `Extension/ReflectionExtension.cs` | 1 (`CreateNewObjectWithReflection`, in the `Ami.Extension` namespace) |
 
 Counted by grepping `Assets/BroAudio/Editor/` for `Debug.Log*` calls whose line does not reference
@@ -491,8 +491,8 @@ this finding listed those two and missed `ReflectionExtension.cs`; the total cam
 the DevOnly-gated pair too gives seventeen calls in eleven files.
 
 This is recorded rather than fixed because it is a mechanical sweep across ten files with no test
-pinning any of them, which is a different-shaped change from the three logs #33 fixed (those had to
-move, because tests asserted their exact text).
+pinning any of them, which is a different-shaped change from the three rect-split logs fixed earlier
+(those had to move, because tests asserted their exact text).
 
 Status: Open, characterized. Not pinned by a test.
 
@@ -817,8 +817,7 @@ requested level. Correct.
 With `fadeTime` 0 the loop body never executes and `Tweak` falls straight through to
 `_mixer.SafeSetFloat(paraName, to)`. The suite already documents that a zero-fade tween drains synchronously
 inside `StartCoroutine` — `AudioEffectTests.SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing`
-guards it, and the bug it came from is [FIXED_ISSUES.md](FIXED_ISSUES.md) #17, that file's numbering rather than
-this one's (this file has no #17; 15-20 were fixed and moved). If that holds here, the
+guards it. If that holds here, the
 ducked value is written *before* `SwitchMainTrackMode(true)` replaces it with `FullDecibelVolume`, and
 `QuietOthers(vol, 0f)` ends with `Main_Dominated` at 0dB: nothing is quieted, silently.
 

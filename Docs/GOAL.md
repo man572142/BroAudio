@@ -1,6 +1,6 @@
 # BroAudio Test Suite: Intent
 
-One-page summary of what the regression suite is for and the rules it is held to — the standard, not a report on the repository. Where the repository has departed from it, the departure is recorded in the plans' amendments and in [FIXED_ISSUES.md](FIXED_ISSUES.md). Full plans, which this page overrides where they disagree: [TESTING_PLAN.md](TESTING_PLAN.md) (runtime) and [TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md) (editor). Writing a new test: [ADDING_A_TEST.md](ADDING_A_TEST.md).
+One-page summary of what the regression suite is for and the rules it is held to — the standard, not a report on the repository. Where the repository has departed from it, the departure is recorded in the plans' amendments. Full plans, which this page overrides where they disagree: [TESTING_PLAN.md](TESTING_PLAN.md) (runtime) and [TESTING_PLAN_EDITOR.md](TESTING_PLAN_EDITOR.md) (editor). Writing a new test: [ADDING_A_TEST.md](ADDING_A_TEST.md).
 
 ## The goal
 

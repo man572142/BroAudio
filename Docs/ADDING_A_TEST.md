@@ -108,7 +108,8 @@ A committed fixture asset needs a reason Unity forces on it, as with the address
 
 - A test that pins an open finding carries `[Category("Finding_N")]`: an underscore, because NUnit rejects
   a category containing a hyphen and fails the test before it runs.
-- A new defect gets the next free number, shared by TEST_FINDINGS.md and FIXED_ISSUES.md: a row in the
+- A new defect gets a number above every one ever used in TEST_FINDINGS.md and FIXED_ISSUES.md (shipped
+  fixes leave both files, but their numbers stay retired): a row in the
   summary table and a section of its own, citing code by type and member, never by line number, ending in
   a `Status:` line that names the pinning test. If you leave it unpinned on purpose, write **Not pinned**
   and the reason on that `Status:` line, and "not pinned" in its table row.

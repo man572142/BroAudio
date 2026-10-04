@@ -74,10 +74,10 @@ project from it. The fixes below edited the committed copy.
    held the same number of entries; the counts cancelled and hid the gap. `BroInstructionHelper.GetText`
    returned `MissingText` — the literal string `??????????` — and the Sound Source position-mode tooltip
    only looked intact because `SoundSourceEditor` drew a hardcoded literal instead of going through the
-   instruction system at all. Recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md) #18.
+   instruction system at all.
 2. **Asset key `15` was stale** — a pitch-shifting tooltip whose enum member was deleted (the enum still
    carries a comment pinning the values around the hole). It deserialized to an undefined
-   `(Instruction)15` and was never read. Recorded in [FIXED_ISSUES.md](FIXED_ISSUES.md) #19.
+   `(Instruction)15` and was never read.
 
 **Do not carry the totals around as facts** — they grow with every new tooltip. Re-derive
 them: the enum members are the entries in `Assets/BroAudio/Editor/EditorSettings/Instruction.cs`, the
@@ -248,7 +248,7 @@ Milliseconds, zero setup, permanent value. Take all of it.
 | Target | What to protect |
 |---|---|
 | `BroEditorUtility.IsInvalidName` | The **error-code precedence**: empty → `StartWithNumber` → `ContainsInvalidWord` → `ContainsWhiteSpace`. Note the quirk: `IsValidWord` returns *true* for whitespace, so `"a b"` reports `ContainsWhiteSpace`, and a leading digit outranks everything. |
-| ~~`GetSerializedEnumIndex` ↔ `GetAudioTypeByIndex`~~ | **Gone — nothing left to protect.** The round-trip was already broken (the composite `All` produced `VoiceOver`'s index, and converting back gave `VoiceOver`) and nothing in the package called either helper, so both were deleted along with the three tests that pinned them. See [FIXED_ISSUES.md](FIXED_ISSUES.md) #20. |
+| ~~`GetSerializedEnumIndex` ↔ `GetAudioTypeByIndex`~~ | **Gone — nothing left to protect.** The round-trip was already broken (the composite `All` produced `VoiceOver`'s index, and converting back gave `VoiceOver`) and nothing in the package called either helper, so both were deleted along with the three tests that pinned them. |
 | `Transport.SetValue` | The budget rule in `GetLengthLimit`: each value clamps to `FullLength` minus the *other four*. Rounds to 3 digits, away-from-zero. `Delay` is only `Max(0)` — never length-clamped. Also `HasDifferentPosition`'s odd `Delay > StartPosition` term. |
 | `EditorScriptingExtension` rect math | `SplitRectHorizontal`/`Vertical` — both the ratio form and the `params float[] ratios` form: gap accounting, and what happens when ratios don't sum to 1. `Scoping`/`DeScope` round-trip. `GetBackingFieldName`/`GetFieldName`. |
 | `BroEditorUtility.Combine` | Naked `+ "/" +` concatenation — a trailing slash yields `//`. Characterize it. |
@@ -261,9 +261,9 @@ Cheapest real-bug detection in the plan. This is where the two shipped-data find
 these tests are what keeps them from coming back.
 
 - Every `Instruction` value resolves through `BroInstructionHelper.GetText` to a non-empty string that
-  is not `MissingText`. Guards FIXED_ISSUES #18.
+  is not `MissingText`.
 - No duplicate keys in the asset (see the `Add`-throws note above).
-- Every asset key maps to a defined enum member. Guards FIXED_ISSUES #19.
+- Every asset key maps to a defined enum member.
 - `EditorSetting.ResetToFactorySettings` yields an `AudioTypeSetting` for every concrete
   `BroAudioType`, and `GetAudioTypeColor` / `TryGetAudioTypeSetting` agree with it.
 - `GetSpectrumColor(index)` at 0, at `SpectrumBandColors.Count - 1`, and out of range.
@@ -301,12 +301,10 @@ Cover `Trim`, `AddSlient`, `AdjustVolume`, `Reverse`, `FadeIn`, `FadeOut`, `Conv
 Two further edges were characterized first and repaired later at the maintainer's request:
 
 - `FadeIn(0f)` used to compute `1f / 0` = ∞ with a loop body that never ran — no audio was harmed, but
-  the call still flagged the clip as edited and forced a pointless copy. See
-  [FIXED_ISSUES.md](FIXED_ISSUES.md) #28: a fade window that rounds to zero samples returns
-  immediately and reports no edit (`ClipEditingTests.FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit`).
+  the call still flagged the clip as edited and forced a pointless copy. Now a fade window that rounds
+  to zero samples returns immediately and reports no edit (`ClipEditingTests.FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit`).
 - `Trim` past the end of the clip used to wrap around and splice the clip's own opening onto its end —
-  `AudioClip.GetData` wraps rather than failing. See [FIXED_ISSUES.md](FIXED_ISSUES.md) #30: the
-  read clamps to the samples that actually remain
+  `AudioClip.GetData` wraps rather than failing. Now the read clamps to the samples that actually remain
   (`ClipEditingTests.Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround`).
 
 ### E4 — Asset-writing paths — ask first
@@ -349,11 +347,11 @@ convention costs a rewrite of the whole suite.*
 
 **Phase E1 — Pure functions and shipped data** (tiers E0 + E1). The bulk of the value. This is the phase
 that landed the two red shipped-data tests; they were logged as findings and shown to the user before
-anything continued, and were repaired later (FIXED_ISSUES #18, #19).
+anything continued, and were repaired later.
 
 *Delegation: 3 `general-purpose` (Sonnet 5) writers spawned in one message — (a) name validation +
 `Combine` + flag helpers (the enum-index round-trip that used to sit in this slice is gone with the
-helpers themselves, #20), (b) `Transport` clamping + rect math, (c) shipped-data integrity +
+helpers themselves), (b) `Transport` clamping + rect math, (c) shipped-data integrity +
 `IssueReportMarkdown`. Orchestrator compiles and runs once when all three return.*
 
 **Phase E2 — SerializedProperty and Transport writeback** (tier E2).
@@ -426,7 +424,7 @@ Requirements, verbatim into its prompt:
 - The audience is a Unity developer who was **not** in this session and does not read C#. Lead with
   what is protected now and what turned out to be broken — not with a list of test method names.
 - State the two shipped-data findings in plain language: what a user of the package saw before they were
-  repaired (#18, #19), and that the tests now hold that data correct.
+  repaired, and that the tests now hold that data correct.
 - Show the numbers that matter (tests per area, runtime, findings open vs. resolved). No walls of code;
   short snippets only where a snippet is the clearest explanation.
 - Say plainly what is **not** covered and why — the IMGUI wall, the deferred tiers.
@@ -445,8 +443,7 @@ Relay the artifact URL to the user; a subagent's final report is not shown to th
 - Total EditMode runtime stays under a second or two — flag it if not.
 - `Docs/TEST_INVENTORY.md` gains an Editor section marking each target covered / deferred / out of scope.
 - Every finding is written down exactly once: still-open ones in `Docs/TEST_FINDINGS.md`, repaired ones
-  moved to `Docs/FIXED_ISSUES.md` with their commit. The shipped-data pair (FIXED_ISSUES #18, #19) is
-  the worked example.
+  moved to `Docs/FIXED_ISSUES.md` with their commit until the fix ships on `main`.
 - `ShippedDataTests` is green because the shipped asset is correct, not because a test grew an exclusion
   list: every `Instruction` member resolves to real text, and every asset key is a defined member.
 - Every fixture the test sources declare appears in the results of its leg, and reaches a verdict. A
@@ -475,12 +472,8 @@ these entries explain why this plan's text differs from them.
   to [FIXED_ISSUES.md](FIXED_ISSUES.md) with their commit; open findings stay in
   [TEST_FINDINGS.md](TEST_FINDINGS.md). Characterization work still follows the original rule — find it,
   pin it, log it, and ask before fixing.
-- **Every production change is recorded, not only finding fixes**, as GOAL.md asks. FIXED_ISSUES.md also
-  holds changes that were never findings, including one to this assembly's import hook.
-- **Own-commit rule.** GOAL.md requires a production change to land in its own commit. Some fixes to this
-  assembly were folded into commits that also changed tests, before and after that rule was written down;
-  they are listed under *Departures from the own-commit rule* in [FIXED_ISSUES.md](FIXED_ISSUES.md), which
-  is where the commits themselves are named.
+- **Every production change is recorded, not only finding fixes**, as GOAL.md asks — including changes
+  that were never findings.
 - **Red-first shipped-data tests are not the rule.** The *Ground truth* section records that the two
   shipped-data tests landed red before the data was fixed. That was the maintainer's choice for those
   two; the default is GOAL.md's characterize-and-log.

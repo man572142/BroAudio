@@ -67,7 +67,6 @@ namespace Ami.BroAudio.Editor.Tests
         /// </summary>
         private const int MinimumFindings = 20;
         private const int MinimumPinnedFindings = 20;
-        private const int MinimumFixedIssues = 5;
 
         /// <summary>A section header, e.g. "## 14. The addressable unload setting ...", in either ledger.</summary>
         private static readonly Regex HeadingPattern = new Regex(@"^##[ \t]+(\d+)\.[ \t]*(.*)$");
@@ -714,10 +713,6 @@ namespace Ami.BroAudio.Editor.Tests
                 "The summary table at the top of " + FindingsDocRelativePath + " parsed to almost nothing. Rows " +
                 "are expected to read '| <number> | ... | <status> |'; if that shape changed, TableRowPattern has " +
                 "to change with it.");
-
-            Assert.GreaterOrEqual(ReadFixedNumbers().Count, MinimumFixedIssues,
-                "Almost nothing parsed out of " + FixedDocRelativePath + ", so the collision check against it " +
-                "would pass vacuously.");
 
             Assert.GreaterOrEqual(ReadSourcePins().Select(pin => pin.Number).Distinct().Count(), MinimumPinnedFindings,
                 "The source scan of " + TestSourcesRelativePath + " found almost no " + CategoryPrefix + "N " +

@@ -50,8 +50,7 @@ namespace Ami.BroAudio.Tests
             //
             // A non-zero fade is deliberate. With fadeTime 0 the tween drains synchronously inside
             // StartCoroutine - AudioEffectTests.SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing
-            // already pins that ("a zero fadeTime still applies the parameter right away"), and the bug it
-            // came from is Docs/FIXED_ISSUES.md #17 - that file's numbering, not TEST_FINDINGS'. A zero fade
+            // already pins that ("a zero fadeTime still applies the parameter right away"). A zero fade
             // would therefore land the ducked value *before* SetEffectTrackParameter's own
             // SwitchMainTrackMode(true) overwrites Main_Dominated with FullDecibelVolume - see
             // Docs/TEST_FINDINGS.md #43.

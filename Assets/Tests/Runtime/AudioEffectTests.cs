@@ -39,8 +39,9 @@ namespace Ami.BroAudio.Tests
         /// - state the base fixture's Setting/volume snapshot-restore does not know about, because it lives
         /// on a separate in-memory AudioTypePlaybackPreference, not on the RuntimeSetting asset. Handing
         /// SetEffect a *default-valued* Effect is what clears it, because SoundManager then picks
-        /// SetEffectMode.Remove. SetEffect(new Effect(EffectType.None)) is not a reset-all: it only logs, so
-        /// it stays out of every shared cleanup path.
+        /// SetEffectMode.Remove. SetEffect(new Effect(EffectType.None)) would clear every tracked effect in
+        /// one call, but it logs on construction and again for any unresolvable tracked entry, so it stays
+        /// out of every shared cleanup path.
         /// </para>
         /// <para>
         /// Correct under either slope: whether the second pole is written too is decided per call from
@@ -638,7 +639,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(highPassBefore, highPassAfter, FrequencyTolerance, "The unrelated HighPass parameter must be untouched.");
         }
 
-        // regression (FIXED_ISSUES #17): Effect.LowPass's fadeTime defaults to 0, so Tweak yields nothing and
+        // regression: Effect.LowPass's fadeTime defaults to 0, so Tweak yields nothing and
         // TweakTrackParameter drains its WaitableList synchronously inside StartCoroutine, before SetEffect
         // returns. The chained ForSeconds/Until/While must still work rather than index an empty WaitableList.
         [UnityTest]
@@ -795,26 +796,26 @@ namespace Ami.BroAudio.Tests
         }
 
         [UnityTest]
-        public IEnumerator SetEffect_None_IsNotAResetAll_LogsErrorsAndLeavesTheMixerParameterUntouched()
+        public IEnumerator SetEffect_None_ResetsEveryTrackedEffectParameterToItsDefault()
         {
             BroAudio.SetEffect(Effect.LowPass(800f));
             yield return WaitFrames(1);
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float moved));
             Assert.AreEqual(800f, moved, FrequencyTolerance, "Precondition: the LowPass parameter should have moved off its default.");
 
-            // characterizes: EffectType.None is not a supported reset-all. The effect carries no mixer
-            // parameter, so ResetAllEffect can't resolve one for any tracked effect: it logs and starts no
-            // fade, and a dedicated reset-all, if one is ever wanted, belongs in the public API instead.
-            // Constructing the effect logs as well (Effect's Value setter). The logs are only checked for
-            // TYPE and BroAudio's own tag, never their wording or count.
+            // Two unrelated warts make SetEffect(None) noisy, neither is what this test is about:
+            // new Effect(EffectType.None) logs from Effect's Value setter, and an earlier test in the same
+            // Editor session can leave a tweaker registered for an effect whose parameter never resolves
+            // (EffectType.Volume on a non-Dominator), which the reset loop then logs once per entry. Both are
+            // asserted BroAudio-tagged rather than blanket-swallowed, so a genuinely unrelated error would
+            // still fail this test.
             List<string> taggedErrors = new List<string>();
             yield return RunAndCollectBroAudioErrorLogs(() => BroAudio.SetEffect(new Effect(EffectType.None)), 2, taggedErrors);
 
-            Assert.IsNotEmpty(taggedErrors, "SetEffect(EffectType.None) should log an error for the tracked effect it cannot resolve.");
-            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float after));
-            Assert.AreEqual(800f, after, FrequencyTolerance,
-                "SetEffect(EffectType.None) must not reset a tracked effect's mixer parameter.");
-            // No ResetLowPassEffect() cleanup needed: the base fixture's teardown resets the mixer parameters.
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float reset));
+            Assert.AreEqual(AudioConstant.MaxFrequency, reset, FrequencyTolerance,
+                "SetEffect(EffectType.None) should reset every tracked effect's mixer parameter back to its default.");
+            // No ResetLowPassEffect() cleanup needed: the None path also overrides the per-type pref to None.
         }
     }
 #endif

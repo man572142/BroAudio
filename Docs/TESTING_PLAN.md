@@ -235,12 +235,8 @@ these entries explain why this plan's text differs from them.
   [TEST_FINDINGS.md](TEST_FINDINGS.md). Characterization work still follows the original rule — find it,
   pin it, log it, and ask before fixing.
 - **Every production change is recorded, not only finding fixes.** This plan originally asked for an entry
-  only when a commit fixed a finding. GOAL.md asks for one for every production change, and
-  FIXED_ISSUES.md now also holds changes that were never findings.
-- **Own-commit rule.** GOAL.md requires a production change to land in its own commit. Some fixes were
-  folded into commits that also changed tests, before and after that rule was written down; they are
-  listed under *Departures from the own-commit rule* in [FIXED_ISSUES.md](FIXED_ISSUES.md), which is where
-  the commits themselves are named.
+  only when a commit fixed a finding. GOAL.md asks for one for every production change, including
+  changes that were never findings.
 - **Log assertions.** "Asserting on log text" stays an anti-goal. Expecting a log by its `LogType` and
   BroAudio's `[BroAudio]` tag, without matching its sentence, is allowed, as GOAL.md spells out.
 - **Inventory split.** Phase 1's per-area sections moved out of `Docs/TEST_INVENTORY.md` into
