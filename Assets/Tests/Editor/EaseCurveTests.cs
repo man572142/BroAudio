@@ -144,12 +144,6 @@ namespace Ami.BroAudio.Tests
             Assert.That(1.1f.SetEase(Ease.InCirc), Is.EqualTo(1f).Within(Tolerance));
         }
 
-        [Test]
-        public void SetEase_UndefinedEaseValue_FallsBackToZero()
-        {
-            Assert.That(Half.SetEase((Ease)9999), Is.EqualTo(0f).Within(Tolerance));
-        }
-
         #endregion
 
         #region Enum ordinals

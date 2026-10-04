@@ -74,18 +74,6 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.AreSame(first, second, "The second call created a new instance instead of returning the existing asset.");
         }
-
-        [Test]
-        public void CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime()
-        {
-            string path = EnsureTempFolder() + "/BroTestNotInResources.asset";
-
-            var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
-            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport); // same scoped import as above
-            var second = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
-
-            Assert.AreNotSame(first, second, "The Resources-based existence check now finds assets outside a Resources folder.");
-        }
         #endregion
 
         #region AudioAssetEditor

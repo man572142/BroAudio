@@ -5,8 +5,8 @@ comments hold the detail behind each rule.
 
 ## 1. Characterize, don't fix
 
-Pin what the code does today, even where it looks wrong; the conflict goes into
-[TEST_FINDINGS.md](TEST_FINDINGS.md) (§6). Don't change production code to make a test pass or to make
+Pin what the code does today, even where it looks wrong; a conflict that clears the bar in §6 goes into
+[TEST_FINDINGS.md](TEST_FINDINGS.md). Don't change production code to make a test pass or to make
 something observable: propose the seam, stop, and ask the maintainer. A production change the maintainer
 does ask for goes in a commit of its own, never in a diff that adds or edits tests, and gets an entry in
 [FIXED_ISSUES.md](FIXED_ISSUES.md).
@@ -114,6 +114,8 @@ maintainer.
 
 ## 6. Findings
 
+- Before recording a finding, read its callers. Its section names the shipped path that reaches it and
+  what the user observes; if you can't name both, it isn't a finding ([GOAL.md](GOAL.md)).
 - A test that pins an open finding carries `[Category("Finding_N")]`, with an underscore: NUnit rejects a
   category containing a hyphen and fails the test before it runs.
 - A new defect gets a number above every one ever used in TEST_FINDINGS.md and FIXED_ISSUES.md (shipped

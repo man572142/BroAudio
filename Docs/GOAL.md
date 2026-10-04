@@ -12,6 +12,8 @@ Every test pins current behavior as-is, even where it contradicts the docs or th
 
 This separates two questions that usually get tangled: *what does it do* (the tests) and *what should it do* (the findings). The findings list is the actionable output; the tests are the safety net that makes acting on it safe.
 
+A quirk becomes a finding only when it is reachable through a plausible use of shipped code, contradicts a documented contract or an intent the code itself states, and has a consequence a user would notice: wrong or missing sound, an exception, a leak, lost or corrupted data. A latent trap no caller reaches, a cosmetic or sub-perceptual difference, or a style lapse is not a finding, and seldom earns a test of its own.
+
 ## What a good test looks like
 
 - **Highest reliable boundary**: observed through the public API or Unity's audio state, not internals.
