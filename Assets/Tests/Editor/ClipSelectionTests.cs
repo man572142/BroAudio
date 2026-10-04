@@ -9,29 +9,18 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Characterization tests for the clip selection strategies and their supporting
-    /// <see cref="AudioEntity"/> helpers. No SoundManager, no Play Mode: strategies and clip arrays
-    /// are constructed directly, so this lives in the EditMode assembly (<c>EditorTests.asmdef</c>)
-    /// and runs without entering Play Mode. It derives from the EditMode fixture (not the PlayMode
-    /// BroAudioTestFixture, which would force Play Mode setup) for the suite-wide isolation contract.
+    /// Characterizes the clip selection strategies and their <see cref="AudioEntity"/> helpers, built
+    /// directly with no SoundManager, so they run in EditMode.
     /// </summary>
     public class ClipSelectionTests : BroEditorTestFixture
     {
-        /// <summary>
-        /// Fixed so every probabilistic test below reproduces identically on a failure. Any int works -
-        /// nothing here depends on its value, only on it being the same seed every run.
-        /// </summary>
+        /// <summary>Any value works; it only has to be the same every run.</summary>
         private const int DeterministicSeed = 918273645;
         private Random.State _priorRandomState;
 
         /// <summary>
-        /// Seeds <see cref="Random"/> before every test in this file and restores whatever state the rest
-        /// of the Editor session was relying on afterward - this fixture shares the process-wide
-        /// <see cref="Random"/> generator with everything else EditMode runs, so leaking a reseeded state
-        /// would make other tests' own "varies across samples" assertions reproducible (or not) by
-        /// accident. Overrides <see cref="BroEditorTestFixture.OnSetUp"/> rather than adding a second
-        /// <c>[SetUp]</c>/<c>[TearDown]</c> pair, which is the extension point the base fixture already
-        /// wraps its own isolation snapshot/restore around.
+        /// Seeds <see cref="Random"/> and restores the prior state afterward: the generator is process-wide,
+        /// so a leaked seed would make other tests' randomness reproducible by accident.
         /// </summary>
         protected override void OnSetUp()
         {
@@ -103,8 +92,6 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithUnsetFirstClip_LogsErrorAndReturnsNull()
         {
-            // Single rejects an unset BroAudioClip (non-null, IsSet == false) the same way
-            // Sequence and Shuffle do, rather than deferring the failure to whatever plays it.
             var clips = new[] { UnsetClip() };
             var strategy = new SingleClipStrategy();
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
@@ -269,12 +256,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_10")]
         public void SelectClip_WhenFallbackScanRuns_OutIndexCanDisagreeWithTheReturnedClip()
         {
-            // Characterizes TEST_FINDINGS #10: in the fallback scan, the loop keeps advancing `index` while
-            // probing for an unused clip, then returns `result` — the clip found at the *earlier* index. So
-            // `clips[index]` is not necessarily the clip that was returned. Same class of defect as
-            // SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero in VelocityClipStrategy.
-            // Only the out-index overload is affected, and its only consumers are Editor preview/inspector
-            // code, so runtime playback picks the right clip regardless.
+            // Pins TEST_FINDINGS #10 (fallback-scan half).
             BroAudioClip[] clips = NewSetClips(4);
             var strategy = new ShuffleClipStrategy();
 
@@ -293,9 +275,6 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithSingleClip_AlwaysReturnsSameClipAcrossCalls()
         {
-            // characterizes: with only one clip, the fallback scan always lands back on the same
-            // index (there's nowhere else to go), so Shuffle degrades to "always the same clip"
-            // without erroring — this is real behavior, not an error path.
             BroAudioClip[] clips = NewSetClips(1);
             var strategy = new ShuffleClipStrategy();
 
@@ -310,13 +289,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_9")]
         public void SelectClip_CanRepeatTheImmediatelyPreviousClip_ContradictingDocumentedIntent()
         {
-            // Characterizes TEST_FINDINGS #9: MulticlipsPlayMode.Shuffle's doc comment promises "not repeating
-            // with the previous one", but ShuffleClipStrategy.Use() only ever rejects a pick that equals
-            // `_lastUsed`, and `_lastUsed` is only refreshed when the pool is exhausted (or via the
-            // fallback scan) — never after an ordinary in-cycle hit. So a direct Random.Range hit
-            // mid-cycle is never checked against the clip just returned, and two consecutive calls
-            // can return the same clip. This test proves the gap exists rather than asserting the
-            // (false) "never repeats" guarantee.
+            // Pins TEST_FINDINGS #9.
             BroAudioClip[] clips = NewSetClips(2);
             bool foundRepeat = false;
 
@@ -334,13 +307,8 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_OverManyDraws_ReturnsEveryClipAboutEquallyOften()
         {
-            // Everything in ShuffleClipStrategy is symmetric under rotating the clip array (a uniform draw, then a
-            // +1/-1 neighbour step chosen by a fair coin), so its long-run shares are uniform whatever the order
-            // of individual picks. Draws are not independent - a pick right after a cycle reset is steered off the
-            // previous clip - but that steering favours no slot over another. At N=4000 the i.i.d. std-dev for
-            // p=0.25 is ≈0.0068, so ±0.03 is over 4 of them, while a strategy stuck on one clip, or one that never
-            // reached a slot, misses the band by far. The returned clip is located with IndexOf rather than read
-            // from the out index, which TEST_FINDINGS #10 shows can disagree with it.
+            // Draws aren't independent, but the strategy is symmetric under rotating the array, so long-run
+            // shares are still uniform. Use IndexOf, not the out index: TEST_FINDINGS #10.
             const int ClipCount = 4;
             BroAudioClip[] clips = NewSetClips(ClipCount);
             var strategy = new ShuffleClipStrategy();
@@ -379,10 +347,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithAllWeightsZero_DrawsEveryClipAboutEquallyOften()
         {
-            // The all-zero branch is `index = Random.Range(0, clips.Length)`: a uniform pick, so over N=4000 seeded
-            // draws each of three clips should take about a third. Std-dev for p=1/3 is sqrt((1/3)(2/3)/4000) ≈ 0.0075,
-            // so ±0.03 is 4 of them - a pick collapsed onto one clip (or an off-by-one that never reaches the last
-            // slot, the classic Random.Range(int, int) exclusive-max slip) lands far outside.
+            // Also catches the Random.Range(int, int) exclusive-max slip that never reaches the last slot.
             BroAudioClip[] clips = NewSetClips(3);
             var strategy = new RandomClipStrategy();
 
@@ -429,23 +394,15 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        /// <summary>Draws large enough that a fixed seed's sampling noise is negligible next to the gap
-        /// between a correct weighted pick and a uniform or off-by-one one - see each test's own comment
-        /// for the exact arithmetic.</summary>
+        /// <summary>
+        /// At this N every tested share's binomial std-dev is under 0.008, so the ±0.03 bands are over 4σ: the
+        /// fixed seed can't miss by chance, while a uniform, swapped or off-by-one pick lands far outside.
+        /// </summary>
         private const int WeightedDrawCount = 4000;
 
         [Test]
         public void SelectClip_WithWeightsOneAndThree_ObservedShareMatchesWeightOverTotal()
         {
-            // clips[0].Weight=1, clips[1].Weight=3, total=4: RandomClipStrategy draws
-            // targetWeight = Random.Range(0, 4) (i.e. 0..3) and walks the cumulative sum [1, 4], returning
-            // the first index whose running sum exceeds targetWeight. targetWeight==0 hits index 0 (1 of 4
-            // values); targetWeight in {1,2,3} hits index 1 (3 of 4 values) - so the true shares are exactly
-            // 0.25 and 0.75.
-            // Binomial std-dev at N=4000 for p=0.25 (same for the complementary p=0.75) is
-            // sqrt(0.25*0.75/4000) ≈ 0.0068, so a ±0.03 band is >4 std devs - the fixed seed below cannot
-            // miss it by chance, while a uniform implementation (both shares ~0.5) or one that swapped the
-            // weight lookup (shares reversed to ~0.75/0.25) would land far outside it.
             BroAudioClip[] clips = NewSetClips(2);
             clips[0].Weight = 1;
             clips[1].Weight = 3;
@@ -465,10 +422,6 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithWeightsOneTwoAndFive_ObservedShareMatchesWeightOverTotal()
         {
-            // Same reasoning as the two-clip test above, with a third bucket: weights {1,2,5}, total=8, so
-            // the true shares are 1/8=0.125, 2/8=0.25 and 5/8=0.625. Worst-case std-dev among the three
-            // (p=0.625: sqrt(0.625*0.375/4000) ≈ 0.0076) is still comfortably under a ±0.03 band at N=4000,
-            // while a uniform implementation (~0.333 each) misses every one of the three bands.
             BroAudioClip[] clips = NewSetClips(3);
             clips[0].Weight = 1;
             clips[1].Weight = 2;
@@ -490,11 +443,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithAZeroWeightBetweenTwoNonzeroOnes_NeverSelectsItAndSharesStillMatchWeightOverTotal()
         {
-            // clips[1].Weight=0 sits strictly between two nonzero weights (1 and 3, total=4). Because the
-            // cumulative sum does not advance across a zero-weight entry, no draw of
-            // targetWeight = Random.Range(0, 4) can ever land in index 1's (empty) slice of the sum - the
-            // sum jumps straight from 1 (after index 0) to 4 (after index 2). So index 1 must never be
-            // picked, and indices 0/2 should still show the same 0.25/0.75 shares as the two-clip case above.
+            // The cumulative sum doesn't advance across a zero weight, so index 1's slice is empty.
             BroAudioClip[] clips = NewSetClips(3);
             clips[0].Weight = 1;
             clips[1].Weight = 0;
@@ -550,10 +499,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_10")]
         public void SelectClip_WithValueAboveEveryThreshold_ReturnsLastClipButLeavesIndexStaleAtZero()
         {
-            // Characterizes TEST_FINDINGS #10: when Value exceeds every threshold, the loop falls through to
-            // `return clips[clips.Length - 1]` without ever reassigning `index` — the out
-            // parameter stays at its initial 0 even though the returned clip is actually the last
-            // one. Callers that trust `index` here would disagree with the returned clip.
+            // Pins TEST_FINDINGS #10 (velocity half).
             BroAudioClip[] clips = NewSetClips(3);
             clips[0].Weight = 0;
             clips[1].Weight = 40;
@@ -569,9 +515,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithNonMonotonicWeights_DoesNotValidateAscendingOrder()
         {
-            // characterizes: VelocityClipStrategy is a naive linear scan with no ordering check.
-            // An out-of-order Weight array selects whatever the first threshold-exceeding entry
-            // happens to be, not the "intended" nearest threshold.
+            // characterizes: a linear scan with no ordering check; the first threshold exceeded wins.
             BroAudioClip[] clips = NewSetClips(3);
             clips[0].Weight = 80;
             clips[1].Weight = 0;
@@ -623,8 +567,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_AtNoneStage_FloorsToIndexZero()
         {
-            // characterizes: Math.Max(context.Value - 1, 0) floors PlaybackStage.None (0) to index 0
-            // too, the same as Start — there's no distinct "no stage" outcome.
+            // characterizes: None floors to the same index as Start; there is no distinct "no stage" outcome.
             BroAudioClip[] clips = NewSetClips(3);
             var strategy = new ChainedClipStrategy();
 
@@ -754,10 +697,6 @@ namespace Ami.BroAudio.Tests
         public void HasLoop_WithChainedModeAndNoFlags_FallsBackToProvidedDefaults()
         {
             AudioEntity entity = NewEntity();
-            // This file lives in the Editor assembly (moved from Runtime), so the UNITY_EDITOR-gated
-            // EditorPropertyName accessor is always available here - it makes a rename a compile error
-            // instead of a reflection-time failure, unlike the runtime-suite call sites that must stay
-            // string literals because they also compile in Player test builds.
             TestAudioLibrary.SetPrivateField(entity, AudioEntity.EditorPropertyName.MulticlipsPlayMode, MulticlipsPlayMode.Chained);
 
             bool hasLoop = entity.HasLoop(out LoopType loopType, out float transitionTime, LoopType.SeamlessLoop, 3f);

@@ -3,16 +3,11 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Pure-math coverage for <see cref="Transport"/>'s SetValue value-shaping rules: the length budget
-    /// each transport type clamps against, and the rounding SetValue applies on top of that clamp. No
-    /// IMGUI context is touched — every target here is plain float arithmetic that runs outside OnGUI.
+    /// <see cref="Transport"/>.SetValue's length-budget clamp and rounding; plain arithmetic, no IMGUI.
     /// </summary>
     public class TransportSetValueTests : BroEditorTestFixture
     {
         #region Length budget
-        // GetLengthLimit sums only Start+End+FadeIn+FadeOut (zeroing out whichever of those four is
-        // being modified) and subtracts that from FullLength. Delay never participates in this sum,
-        // in either direction: it doesn't consume budget, and its own limit isn't computed this way.
 
         [Test]
         public void SetValue_Start_ClampsToFullLengthMinusEndFadeInFadeOut_IgnoringDelay()
@@ -79,11 +74,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(500f, transport.Delay, 0.0001f, "Delay must ignore FullLength entirely.");
         }
 
-        // This is the sole pin of Transport.SetValue's Delay clamp rule (`Mathf.Max(newValue, 0f)`,
-        // Transport.cs) - the only production code that computes it. SerializedTransport inherits the rule
-        // unchanged rather than overriding it, and SerializedTransportTests already covers the separate
-        // concern of the write committing through to the serialized clip field, so pinning the clamp rule
-        // itself a second time there would only add indirection, not a second production code path.
+        // The one pin of the Delay clamp rule; SerializedTransport inherits it, so don't duplicate it there.
         [Test]
         public void SetValue_Delay_OnlyEverClampsToZero()
         {
@@ -103,8 +94,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             transport.SetValue(3.4567f, TransportType.Start);
 
-            // 4th decimal digit is 7, so this pins "rounds to 3 digits" independently of how a midpoint
-            // tie is broken. The tie rule has its own pin below.
+            // Not a tie, so independent of the midpoint rule pinned below.
             Assert.AreEqual(3.457f, transport.StartPosition, 0.0001f);
         }
 
@@ -113,10 +103,8 @@ namespace Ami.BroAudio.Editor.Tests
         {
             var transport = new Transport(1000f);
 
-            // A tie IS reachable at float precision when the value is a dyadic fraction: 0.0625f is exactly
-            // 1/16, it widens to the double 0.0625 exactly, and 0.0625 * 1000 is exactly 62.5. ClampAndRound
-            // uses MidpointRounding.AwayFromZero, so 62.5 -> 63 -> 0.063; banker's rounding (the Math.Round
-            // default) would give 62 -> 0.062. The tolerance is below half the 0.001 gap between the two.
+            // A dyadic fraction (1/16), so * 1000 is exactly 62.5: a real tie at float precision. Banker's
+            // rounding would give 0.062; the tolerance is under half the gap.
             transport.SetValue(0.0625f, TransportType.Start);
 
             Assert.AreEqual(0.063f, transport.StartPosition, 0.0001f,
@@ -130,7 +118,6 @@ namespace Ami.BroAudio.Editor.Tests
 
             transport.SetValue(3.456789f, TransportType.Delay);
 
-            // Delay's case in SetValue calls Mathf.Max only — it never routes through ClampAndRound.
             Assert.AreEqual(3.456789f, transport.Delay, 0.0000001f);
         }
         #endregion

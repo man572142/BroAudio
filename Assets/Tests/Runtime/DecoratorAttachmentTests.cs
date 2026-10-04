@@ -7,18 +7,15 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization: decorator attach semantics.
-    /// <see cref="AudioPlayerDecorator"/>-based modes (<see cref="MusicPlayer"/>, <see cref="DominatorPlayer"/>)
-    /// are attached, not inherited - <c>AsBGM()</c>/<c>AsDominator()</c> get or create a decorator instance
-    /// on the player's own list, and a repeated call must reuse it rather than stack a duplicate.
+    /// <c>AsBGM()</c>/<c>AsDominator()</c> get or create an <see cref="AudioPlayerDecorator"/> on the player's own
+    /// list; a repeated call reuses it rather than stacking a duplicate.
     /// </summary>
     public class DecoratorAttachmentTests : BroAudioTestFixture
     {
         [UnityTest]
         public IEnumerator AsBGM_CalledTwice_ReturnsTheSameMusicPlayerDecoratorInstance()
         {
-            // SFX, not Music: avoids RuntimeSetting.AlwaysPlayMusicAsBGM's implicit auto-attach interfering
-            // with this explicit-attach characterization (see selection-policy.md's decorator section).
+            // SFX, not Music: RuntimeSetting.AlwaysPlayMusicAsBGM would auto-attach.
             SoundID id = NewSound("DecoratorSfx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
 
@@ -31,8 +28,6 @@ namespace Ami.BroAudio.Tests
             player.AsBGM();
             List<AudioPlayerDecorator> afterSecond = GetDecorators(player);
 
-            // characterizes: Utility.GetOrCreateDecorator is idempotent per type — a second AsBGM() on the
-            // same player reuses the existing MusicPlayer decorator rather than stacking a duplicate.
             Assert.AreEqual(1, afterSecond.Count, "A second AsBGM() must not stack a duplicate decorator.");
             Assert.AreSame(firstInstance, afterSecond[0], "The second AsBGM() must reuse the same decorator instance.");
 

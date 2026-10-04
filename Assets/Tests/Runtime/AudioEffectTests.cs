@@ -14,11 +14,8 @@ namespace Ami.BroAudio.Tests
 {
 #if !UNITY_WEBGL
     /// <summary>
-    /// Covers the two unrelated effect mechanisms: per-player Unity filter components added through
-    /// AddChorusEffect/AddLowPassEffect/etc. (attach/duplicate/remove guards, recycle cleanup, the
-    /// audio-thread OnAudioFilterRead callback and GetOutputData tap), and the mixer-routed BroAudio.SetEffect automation
-    /// (exposed parameter writes, the Dominator-only EffectType.Volume guard, ForSeconds auto-reset,
-    /// and the FourPole secondary parameter).
+    /// Covers two unrelated effect mechanisms: per-player filter components (Add*Effect, OnAudioFilterRead,
+    /// GetOutputData) and the mixer-routed BroAudio.SetEffect automation.
     /// </summary>
     public class AudioEffectTests : BroAudioTestFixture
     {
@@ -28,26 +25,9 @@ namespace Ami.BroAudio.Tests
         private volatile int _capturedBufferLength = -1;
 
         /// <summary>
-        /// Resets the mixer-routed LowPass in the middle of a test, for the one test that has to observe
-        /// the reset itself. Cleaning up afterwards is no longer this fixture's job, and it declares no
-        /// [UnityTearDown] of its own: BroAudioTestFixture's TearDown resets Effect_LowPass and
-        /// Effect_HighPass (plus their FourPole second poles) after every PlayMode test, unconditionally,
-        /// and waits for the parameters to actually read their defaults instead of a fixed frame count.
-        /// <para>
-        /// SetEffect's Add/Override modes for a non-default value permanently flip a bit in the SFX-type's
-        /// stored EffectType pref (read by every future Play() via AudioPlayer.Playback.cs's SetTrackEffect)
-        /// - state the base fixture's Setting/volume snapshot-restore does not know about, because it lives
-        /// on a separate in-memory AudioTypePlaybackPreference, not on the RuntimeSetting asset. Handing
-        /// SetEffect a *default-valued* Effect is what clears it, because SoundManager then picks
-        /// SetEffectMode.Remove. SetEffect(new Effect(EffectType.None)) would clear every tracked effect in
-        /// one call, but it logs on construction and again for any unresolvable tracked entry, so it stays
-        /// out of every shared cleanup path.
-        /// </para>
-        /// <para>
-        /// Correct under either slope: whether the second pole is written too is decided per call from
-        /// Setting.AudioFilterSlope, and that field lives on the RuntimeSetting object the base fixture's
-        /// JSON snapshot restores after the effect reset, never before it.
-        /// </para>
+        /// Resets the mixer-routed LowPass mid-test; end-of-test cleanup is the base fixture's TearDown.
+        /// A default-valued Effect is what clears the type's routing bit (SetEffectMode.Remove). Don't use
+        /// SetEffect(new Effect(EffectType.None)) here: it logs on construction and per unresolvable entry.
         /// </summary>
         private static IEnumerator ResetLowPassEffect()
         {
@@ -56,23 +36,13 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Runs <paramref name="action"/> and waits <paramref name="waitFrames"/> frames while collecting
-        /// every Error-type log it produces into <paramref name="taggedErrors"/>, instead of quoting a
-        /// specific sentence with LogAssert.Expect. Two callers need this rather than a single Expect: the
-        /// EffectAutomationHelper guards this exercises (GetEffectParameterName / ResetAllEffect's unresolved
-        /// entries) can log more than once per call - an implementation detail (the exact count, through an
-        /// internal tween coroutine) this suite does not pin down.
+        /// Runs <paramref name="action"/> for <paramref name="waitFrames"/> frames, collecting its Error logs
+        /// into <paramref name="taggedErrors"/>. Used instead of LogAssert.Expect because the guards exercised
+        /// log an unpinned number of times per call.
         /// <para>
-        /// LogAssert.ignoreFailingMessages is scoped to just this call so it never leaks into the rest of the
-        /// test, and it never silently hides an unrelated bug: the assertions on what was captured run after the
-        /// collection loop, on the main thread, rather than from inside the logMessageReceived callback - Unity's
-        /// log dispatch does not expect a handler to throw. An Error that does not carry
-        /// <see cref="Utility.LogTitle"/> is a genuinely unrelated failure and fails the test.
-        /// </para>
-        /// <para>
-        /// So does every Exception and Assert log in the window, tagged or not. ignoreFailingMessages silences
-        /// those types too, and none of the guards this exercises throws or asserts - they log an Error and
-        /// return - so anything of either type is a real failure the flag would otherwise have swallowed.
+        /// Assert after collecting, never inside the log callback: Unity's log dispatch doesn't expect a
+        /// handler to throw. An untagged Error, or any Exception/Assert, still fails the test, since
+        /// ignoreFailingMessages would otherwise swallow it.
         /// </para>
         /// </summary>
         private static IEnumerator RunAndCollectBroAudioErrorLogs(Action action, int waitFrames, List<string> taggedErrors)
@@ -96,8 +66,7 @@ namespace Ami.BroAudio.Tests
             bool previousIgnore = LogAssert.ignoreFailingMessages;
             LogAssert.ignoreFailingMessages = true;
 
-            // try/finally, not a plain pair of statements: ignoreFailingMessages is static, so an action that
-            // throws would otherwise leave every later test in the run unable to fail on an unexpected log.
+            // ignoreFailingMessages is static: restore it in finally, or a throwing action leaks it into later tests.
             try
             {
                 action();
@@ -229,9 +198,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(concrete.GetComponent<AudioChorusFilter>(), "Recycle should destroy every added effect component.");
             Assert.IsFalse(concrete.GetComponent<AudioFilterReader>(), "Recycle should destroy the AudioFilterReader.");
 
-            // The player pool (ObjectPool<T>) is a plain List<T> where both Extract() and Recycle() operate
-            // on the last index - i.e. LIFO. This test is the only thing borrowing/returning a player, so the
-            // very next Play() must hand this exact instance back.
+            // The player pool is LIFO and nothing else borrows a player here, so the next Play() reuses this instance.
             SoundID id2 = NewSound("RecycleFx2", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player2 = BroAudio.Play(id2);
             yield return WaitForPlaybackStart(player2, "second playback to start");
@@ -255,9 +222,8 @@ namespace Ami.BroAudio.Tests
             yield return WaitForRecycle(concrete, "the player to recycle after Stop");
             yield return WaitFrames(1);
 
-            // Go through the recycled concrete AudioPlayer directly, not the AudioPlayerInstanceWrapper that
-            // BroAudio.Play() returned - the wrapper's own IsAvailable() would short-circuit into a different
-            // "this audio player has been recycled" warning instead of AudioPlayer's own !IsActive guard.
+            // Call the concrete player, not the wrapper: the wrapper's IsAvailable() would short-circuit with
+            // its own warning before AudioPlayer's !IsActive guard is reached.
             IAudioPlayer inactivePlayer = concrete;
 
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
@@ -271,32 +237,9 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(concrete.GetComponent<AudioLowPassFilter>(), "RemoveLowPassEffect on an inactive player must not attach or leave anything behind either.");
         }
 
-        // Characterizes TEST_FINDINGS #45: at every loop seam, AudioPlayerInstanceWrapper.UpdateInstance runs
-        // TransferAddedEffectComponents once for each decorator and then once more for itself.
-        // AudioPlayerDecorator *is* an AudioPlayerInstanceWrapper, so the caller's wrapper's
-        // `decorator.UpdateInstance(newInstance)` re-enters the same override while the decorator's own Instance
-        // still points at the outgoing player. With N decorators the outgoing player's added-effect list is
-        // copied N+1 times.
-        // <para>
-        // Unity allows one AudioLowPassFilter per GameObject, so only the first AddComponent succeeds: the voice
-        // keeps a single filter, and every other attempt returns null and logs Unity's own untagged refusal.
-        // SetAddedEffectComponents appends an entry for every attempt anyway (TransferValueTo ignores the null
-        // target), so the incoming list holds N+1 entries per outgoing entry, and the next seam iterates all of
-        // them. With 2 decorators and one added filter the list is 3 long after the first seam and 9 after the
-        // second, and the seams log 2 and then 8 refusals: the log output grows threefold per iteration for as
-        // long as the loop runs.
-        // </para>
-        // <para>
-        // The list is private and nothing public exposes it, so it is read by reflection; the filter count and
-        // the number of untagged logs are the external half. The refusals are counted, not matched by text.
-        // Unity logs them as LogType.Log, which cannot fail a test, so no log handling has to be relaxed.
-        // </para>
-        // <para>
-        // A seam's refusals all name the same component on the same incoming GameObject, so they are one
-        // message repeated. Counting only the largest group of identical untagged LogType.Log messages in the
-        // seam's window keeps an unrelated untagged log - Unity's own notices, another package's - from
-        // shifting the count, without the test ever reading what the message says.
-        // </para>
+        // Pins TEST_FINDINGS #45. Unity's refusals are untagged LogType.Log, which can't fail a test, so no
+        // log handling is relaxed. A seam's refusals are one message repeated: counting only the largest
+        // identical group keeps unrelated untagged logs from shifting the count.
         [UnityTest]
         [Category("Finding_45")]
         public IEnumerator Loop_WithAnAddedEffectAndTwoDecorators_MultipliesTheEffectListAtEachSeamWhileUnityKeepsOneFilter()
@@ -310,8 +253,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(IdOf(entity));
             yield return WaitForPlaybackStart(player, "the looping sound to start playing");
 
-            // Well inside the first iteration: the first seam is a warm-up time plus one clip away, and the
-            // transfer reads the outgoing player's list at the seam, not when the next player is requested.
+            // Must happen before the first seam: the transfer reads the outgoing list at the seam itself.
             player.AsBGM();
             player.AsDominator();
             player.AddLowPassEffect(proxy => proxy.cutoffFrequency = CutoffFrequency);
@@ -329,9 +271,6 @@ namespace Ami.BroAudio.Tests
             int entriesAfterFirstSeam = copiesPerSeam;
             int entriesAfterSecondSeam = entriesAfterFirstSeam * copiesPerSeam;
 
-            // Every untagged log goes into the failure message; only the untagged LogType.Log ones are candidates
-            // for a refusal, and of those a seam's count is its largest group of identical messages (see
-            // LargestIdenticalGroup).
             List<string> untaggedLogs = new List<string>();
             List<string> untaggedPlainLogs = new List<string>();
             void OnLog(string message, string stackTrace, LogType type)
@@ -357,8 +296,8 @@ namespace Ami.BroAudio.Tests
             string secondCutoffs = string.Empty;
             try
             {
-                // UpdateInstance runs the transfers and re-points the handle in the same call, so the log count
-                // read on the frame the handle moves covers exactly that seam.
+                // The transfers and the handle re-point happen in one call, so reading logs when the handle
+                // moves covers exactly that seam.
                 yield return WaitUntilOrTimeout(() =>
                 {
                     AudioPlayer current = InstanceOf(player);
@@ -415,20 +354,14 @@ namespace Ami.BroAudio.Tests
                 $"characterizes: and so do Unity's refusals - all but one of the second seam's attempts are rejected. {observed}");
         }
 
-        /// <summary>
-        /// Length of the player's private added-effect list, the one the next seam's transfer iterates.
-        /// Read as a non-generic IList because its element type is a private struct.
-        /// </summary>
+        /// <summary>Non-generic IList: the element type is a private struct.</summary>
         private static int AddedEffectCount(AudioPlayer player)
         {
             IList list = TestAudioLibrary.GetPrivateField<IList>(player, TestAudioLibrary.Reflected.AudioPlayer.AddedEffects);
             return list == null ? 0 : list.Count;
         }
 
-        /// <summary>
-        /// The size of the largest group of identical messages in <paramref name="logs"/>[start, end). Compares
-        /// messages only with each other, never against expected text.
-        /// </summary>
+        /// <summary>Size of the largest group of identical messages in <paramref name="logs"/>[start, end).</summary>
         private static int LargestIdenticalGroup(List<string> logs, int start, int end)
         {
             Dictionary<string, int> counts = new Dictionary<string, int>();
@@ -465,8 +398,7 @@ namespace Ami.BroAudio.Tests
 
             player.OnAudioFilterRead((data, channels) =>
             {
-                // OnAudioFilterRead fires on the audio thread - never call NUnit.Assert here. Stash into
-                // volatile fields and assert from the test body once control is back on the main thread.
+                // Audio thread: never Assert here; stash into volatile fields for the main thread.
                 _capturedChannels = channels;
                 _capturedBufferLength = data.Length;
             });
@@ -486,8 +418,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // The fixture's clip is a 0.25-amplitude sine, so any live window holds samples well above 0.01;
-            // a no-op or misrouted call leaves the buffer all zeros.
+            // The test clip is a 0.25-amplitude sine, so any live window holds samples well above 0.01.
             float[] samples = new float[1024];
             yield return WaitUntilOrTimeout(() =>
             {
@@ -505,11 +436,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float freq));
             Assert.AreEqual(800f, freq, FrequencyTolerance, "SetEffect(Effect.LowPass) should move the exposed mixer parameter to the requested frequency.");
 
-            // SetEffect does two things: it updates the per-type pref that's read when a NEW player
-            // starts (AudioPlayer.Playback.cs: SetTrackEffect(audioTypePref.EffectType, Add)), and
-            // SoundManager.SetPlayerEffect re-routes every player of the target type that is already
-            // playing. This test pins the future-player half; the live re-route and the type scoping
-            // are covered by SetEffect_ScopedToMusic_ReroutesLivePlayerOfThatTypeOnly below.
+            // Pins the future-player half; SetEffect_ScopedToMusic_ReroutesLivePlayerOfThatTypeOnly pins live players.
             SoundID id = NewSound("EffectSendFx", BroAudioType.SFX, NewClip(2f));
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
@@ -518,17 +445,14 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(concrete.IsUsingTrackEffect, "A player started after SetEffect(LowPass) should route through the effect send channel.");
             Assert.AreNotEqual(EffectType.None, concrete.CurrentActiveTrackEffects & EffectType.LowPass, "LowPass should be part of the player's active track effects.");
 
-            // The flags above are the player's own bookkeeping; the mixer is what is heard. A full-volume
-            // player routed through the send carries its level on <Track>_Effect and mutes <Track>, so a
-            // player left on both (doubled) or on neither (silent) fails here even with the flags right.
+            // The flags are bookkeeping; the mixer is what is heard. Catches a player left on both (doubled) or
+            // neither (silent) even with the flags right.
             ReadTrackAndSend(concrete, out string trackName, out float trackDb, out float sendDb);
             Assert.AreEqual(AudioConstant.FullDecibelVolume, sendDb, DecibelTolerance,
                 $"A player routed through the effect send should carry its level on {trackName}{BroName.EffectParaNameSuffix}.");
             Assert.AreEqual(AudioConstant.MinDecibelVolume, trackDb, DecibelTolerance,
                 $"A player routed through the effect send should leave its dry track {trackName} muted, or it is heard twice.");
 
-            // And back. The reset removes LowPass from every live player through the automation helper's
-            // onReset callback, and SetTrackEffect's ChangeChannel moves the level from the send to the track.
             yield return ResetLowPassEffect();
             yield return WaitUntilOrTimeout(() => !concrete.IsUsingTrackEffect,
                 "the reset to take the live player off the effect send", DefaultPlaybackWaitSeconds);
@@ -557,10 +481,6 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(music.IsUsingTrackEffect, "Precondition: the Music player should start on its plain track.");
             Assert.IsFalse(sfx.IsUsingTrackEffect, "Precondition: the SFX player should start on its plain track.");
 
-            // characterizes: SoundManager.SetPlayerEffect walks GetCurrentAudioPlayers() and calls
-            // player.SetTrackEffect(effectType, mode) on every active non-Dominator player whose audio
-            // type the target type contains - so a player that was ALREADY playing gets re-routed too,
-            // and a player of any other type is left alone.
             BroAudio.SetEffect(Effect.LowPass(800f), BroAudioType.Music);
             yield return WaitUntilOrTimeout(() => music.IsUsingTrackEffect,
                 "the already-playing Music player to be re-routed through the effect send", DefaultPlaybackWaitSeconds);
@@ -570,8 +490,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(EffectType.None, sfx.CurrentActiveTrackEffects,
                 "An effect scoped to Music must not re-route a live SFX player.");
 
-            // The same split read off the mixer, which is what is heard: the Music level moved onto its send
-            // and its dry track was muted, while the SFX level stayed on its dry track with its send silent.
             ReadTrackAndSend(music, out string musicTrack, out float musicTrackDb, out float musicSendDb);
             ReadTrackAndSend(sfx, out string sfxTrack, out float sfxTrackDb, out float sfxSendDb);
             Assert.AreEqual(AudioConstant.FullDecibelVolume, musicSendDb, DecibelTolerance,
@@ -583,10 +501,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(AudioConstant.MinDecibelVolume, sfxSendDb, DecibelTolerance,
                 $"The SFX player's send {sfxTrack}{BroName.EffectParaNameSuffix} should stay silent.");
 
-            // The facade has no Reset* verb of its own (BroAudio.cs exposes only the two SetEffect
-            // overloads) - resetting means handing SetEffect a default-valued Effect. Effect.ResetLowPass()
-            // is default, so SoundManager picks SetEffectMode.Remove, and that mode defers SetPlayerEffect
-            // to the automation helper's onReset callback rather than running it inline; hence the poll.
+            // Poll: the Remove path defers re-routing to the automation helper's onReset callback.
             yield return ResetLowPassEffect();
             yield return WaitUntilOrTimeout(() => !music.IsUsingTrackEffect,
                 "the reset to remove the Music player's track effect", DefaultPlaybackWaitSeconds);
@@ -602,10 +517,8 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Reads the two mixer parameters that can carry a generic track's level: the track's own volume,
-        /// exposed under its AudioMixerGroup's name, and its effect send, that name plus
-        /// <see cref="BroName.EffectParaNameSuffix"/>. AudioPlayer.SetTrackEffect moves the level between
-        /// them with AudioExtension.ChangeChannel, which mutes the side it leaves.
+        /// Reads the two mixer parameters that can carry a track's level: the dry track (its group's name) and
+        /// its effect send (that name plus <see cref="BroName.EffectParaNameSuffix"/>).
         /// </summary>
         private static void ReadTrackAndSend(AudioPlayer player, out string trackName, out float trackDb, out float sendDb)
         {
@@ -624,10 +537,8 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float lowPassBefore));
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.HighPassParaName, out float highPassBefore));
 
-            // characterizes: EffectType.Volume is only meaningful on a Dominator. A plain SetEffect(Volume)
-            // call still runs the whole automation pipeline and logs from inside it (GetEffectParameterName),
-            // rather than rejecting the call up front. The state below (mixer untouched) is the real
-            // contract; the log is only checked for TYPE and BroAudio's own tag, never its wording.
+            // characterizes: the Dominator-only guard logs from inside the automation pipeline rather than
+            // rejecting up front. The untouched mixer is the contract; the log is checked by type and tag only.
             List<string> taggedErrors = new List<string>();
             yield return RunAndCollectBroAudioErrorLogs(() => BroAudio.SetEffect(new Effect(EffectType.Volume)), 2, taggedErrors);
 
@@ -673,11 +584,8 @@ namespace Ami.BroAudio.Tests
                 return Mathf.Abs(v - 700f) <= FrequencyTolerance;
             }, "the LowPass fade to reach 700Hz", DefaultPlaybackWaitSeconds);
 
-            // The hold is checked on the waitable's own clock: TweakAndWaitSeconds ends at Time.time + seconds,
-            // taken at the ForSeconds call, and Time.time is constant within a frame. So on every frame that
-            // reads earlier than holdEnd the reset cannot have started, and a reset that fires early (or a
-            // value that drifts off during the hold) is caught on the frame it happens. A 1.5s hold keeps the
-            // window wide enough that a slow frame cannot leave it unsampled.
+            // holdEnd uses the waitable's own clock (Time.time at the ForSeconds call, constant within a frame),
+            // so no frame before it may see a reset. Keep the hold at 1s or more so a slow frame can't leave it unsampled.
             const float HoldSeconds = 1.5f;
             float holdEnd = Time.time + HoldSeconds;
             waitable.ForSeconds(HoldSeconds);
@@ -700,8 +608,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(700f, highestHeld, FrequencyTolerance,
                 $"ForSeconds should hold the requested value for the whole duration (read {lowestHeld:F0}-{highestHeld:F0}Hz over {heldSamples} frames).");
 
-            // Effect.LowPass's reset fade is zero, so the parameter snaps back on the first frame the waitable
-            // reports finished; the budget only has to outlast that frame.
             yield return WaitUntilOrTimeout(() =>
             {
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float v);
@@ -709,20 +615,8 @@ namespace Ami.BroAudio.Tests
             }, "ForSeconds to auto-reset Effect_LowPass to its default once the duration elapses", DefaultPlaybackWaitSeconds);
         }
 
-        // The auto-reset above restores only half of what SetEffect changed. For a non-default, non-dominator
-        // effect SoundManager.SetEffect picks SetEffectMode.Add, calls SetPlayerEffect inline - which sets the
-        // per-type EffectType bit and re-routes live players through the effect send - and hands the automation
-        // helper a null onReset. TweakTrackParameter then tweaks the mixer parameter back to its default when the
-        // waitable finishes and invokes that null callback, so nothing takes the bit off the type or the live
-        // players off the send. Only the Remove path (a default-valued Effect) wires onReset to SetPlayerEffect.
-        // So once the timed effect is over, the player that was live through it stays on the send, and every
-        // player of that type started afterwards is routed through it too, with the filter at its default.
-        // <para>
-        // Characterizes TEST_FINDINGS #71. The explicit reset at the end is both the contrast (a default-valued
-        // SetEffect is what clears the routing) and this test's own cleanup, so the base fixture's
-        // VerifyGlobalStateRestored judges only real leaks - though its ResetTrackEffects would clear the bit
-        // the same way if an assertion here failed first.
-        // </para>
+        // Pins TEST_FINDINGS #71. The explicit reset at the end is both the contrast and this test's cleanup,
+        // so VerifyGlobalStateRestored judges only real leaks.
         [UnityTest]
         [Category("Finding_71")]
         public IEnumerator SetEffect_LowPass_ForSeconds_ResetsTheParameterButLeavesTheTypeRoutedThroughTheEffectSend()
@@ -756,14 +650,12 @@ namespace Ami.BroAudio.Tests
             AudioPlayer later = InstanceOf(laterPlayer);
             Assert.AreNotEqual(EffectType.None, later.CurrentActiveTrackEffects & EffectType.LowPass,
                 "characterizes: a player started after the effect reset still takes LowPass from the type preference.");
-            // What is heard: the level rides the effect send with the dry track muted, as for a live effect.
             ReadTrackAndSend(later, out string trackName, out float trackDb, out float sendDb);
             Assert.AreEqual(AudioConstant.FullDecibelVolume, sendDb, DecibelTolerance,
                 $"characterizes: the later player's level is carried on {trackName}{BroName.EffectParaNameSuffix}.");
             Assert.AreEqual(AudioConstant.MinDecibelVolume, trackDb, DecibelTolerance,
                 $"characterizes: the later player's dry track {trackName} is muted.");
 
-            // Contrast and cleanup: the Remove path does take both players off the send and clears the bit.
             yield return ResetLowPassEffect();
             yield return WaitUntilOrTimeout(() => !live.IsUsingTrackEffect && !later.IsUsingTrackEffect,
                 "an explicit default-valued SetEffect to take both players off the effect send", DefaultPlaybackWaitSeconds);
@@ -803,12 +695,8 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float moved));
             Assert.AreEqual(800f, moved, FrequencyTolerance, "Precondition: the LowPass parameter should have moved off its default.");
 
-            // Two unrelated warts make SetEffect(None) noisy, neither is what this test is about:
-            // new Effect(EffectType.None) logs from Effect's Value setter, and an earlier test in the same
-            // Editor session can leave a tweaker registered for an effect whose parameter never resolves
-            // (EffectType.Volume on a non-Dominator), which the reset loop then logs once per entry. Both are
-            // asserted BroAudio-tagged rather than blanket-swallowed, so a genuinely unrelated error would
-            // still fail this test.
+            // SetEffect(None) logs from Effect's constructor, and once per unresolvable tweaker an earlier test
+            // may have left registered; neither is under test.
             List<string> taggedErrors = new List<string>();
             yield return RunAndCollectBroAudioErrorLogs(() => BroAudio.SetEffect(new Effect(EffectType.None)), 2, taggedErrors);
 

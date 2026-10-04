@@ -11,20 +11,12 @@ using Object = UnityEngine.Object;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Base fixture for every EditMode test.
+    /// Base fixture for every EditMode test. It isolates the project on disk: the settings assets,
+    /// EditorPrefs, the system clipboard and temp assets.
     /// <para>
-    /// The runtime suite's isolation problem is a singleton; this suite's is <b>the project on disk</b>.
-    /// EditorSetting and RuntimeSetting are real assets, EditorPrefs and the system clipboard are real
-    /// user state, and a leaked temp asset dirties the repo. All of that is solved here, once.
-    /// </para>
-    /// <para>
-    /// Every TearDown step runs even when an earlier one throws - <see cref="OnTearDown"/> included - and the
-    /// failures are rethrown together at the end. A skipped restore would otherwise become every later
-    /// test's baseline, since the snapshot is per test. <see cref="EditorRunIsolationGuard"/> checks the whole
-    /// run from outside, at the level this per-test restore cannot see: the settings files' bytes on disk.
-    /// </para>
-    /// <para>
-    /// Nothing in this fixture may trigger a domain reload — a reload mid-run kills the whole suite.
+    /// Every TearDown step runs even when an earlier one throws, or a skipped restore becomes every later
+    /// test's baseline. <see cref="EditorRunIsolationGuard"/> checks the settings files' bytes on disk across
+    /// the whole run. Nothing here may trigger a domain reload: a reload mid-run kills the suite.
     /// </para>
     /// </summary>
     public abstract class BroEditorTestFixture
@@ -33,12 +25,8 @@ namespace Ami.BroAudio.Editor.Tests
         protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
         /// <summary>The only folder a test may write into. Never write into Assets/BroAudio/ — that subtree is the shipped package.</summary>
-        // Must not contain "BroAudio", "Bro_Audio", or "com.ami.broaudio": AssetPostprocessorEditor.
-        // OnPostprocessAllAssets (Assets/BroAudio/Editor/UnityCalls/AssetPostprocessorEditor.cs) matches
-        // every imported asset path against those substrings to decide whether to run BroUserDataGenerator
-        // against the shipped package's own Resources folders. A temp folder whose name matches would fire
-        // that generator for every asset this fixture creates here, guarded only by a static bool latch -
-        // do not rename this back to something containing the package name.
+        // Must not contain "BroAudio", "Bro_Audio" or "com.ami.broaudio": AssetPostprocessorEditor matches
+        // those substrings and would run BroUserDataGenerator for every asset created here.
         protected internal const string TempFolder = "Assets/EditorTestsScratch_Temp";
         private const string TempFolderName = "EditorTestsScratch_Temp";
 
@@ -52,9 +40,8 @@ namespace Ami.BroAudio.Editor.Tests
         private bool _tempFolderCreated;
 
         /// <summary>
-        /// The EditorPrefs key behind <see cref="EditorSetting.LastEditAudioAsset"/>, built the way production builds
-        /// it (a private prefix plus the project's GUID). Snapshotting the raw key rather than the property lets a
-        /// key that did not exist be deleted again, instead of being left behind holding an empty string.
+        /// The EditorPrefs key behind <see cref="EditorSetting.LastEditAudioAsset"/>. Snapshot the raw key, not
+        /// the property, so a key that did not exist is deleted again rather than left holding "".
         /// </summary>
         internal static string LastEditAudioAssetPrefsKey =>
             EditorReflected.StringConstant(typeof(EditorSetting), EditorReflected.EditorSetting.LastEditAudioAssetPrefsKey)
@@ -158,9 +145,8 @@ namespace Ami.BroAudio.Editor.Tests
             {
                 steps.Add(() =>
                 {
-                    // An object a test turned into an asset (AssetDatabase.CreateAsset) cannot be DestroyImmediate'd
-                    // without allowDestroyingAssets - which would delete it from disk. It lives in the temp folder,
-                    // whose deletion below removes it.
+                    // Don't DestroyImmediate an asset (needs allowDestroyingAssets, deletes from disk);
+                    // DeleteTempFolder removes it.
                     if (obj && !AssetDatabase.Contains(obj))
                     {
                         Object.DestroyImmediate(obj);
@@ -195,10 +181,7 @@ namespace Ami.BroAudio.Editor.Tests
             return TempFolder;
         }
 
-        /// <summary>
-        /// An in-memory ScriptableObject wrapped in a SerializedObject — the standard way to exercise
-        /// SerializedProperty code without touching disk. Destroyed in TearDown.
-        /// </summary>
+        /// <summary>Exercises SerializedProperty code without touching disk. Destroyed in TearDown.</summary>
         protected SerializedObject NewSerializedObject<T>() where T : ScriptableObject
             => new SerializedObject(NewScriptableObject<T>());
 
@@ -214,10 +197,7 @@ namespace Ami.BroAudio.Editor.Tests
         #endregion
     }
 
-    /// <summary>
-    /// One EditorPrefs string key, captured with whether it existed, so a restore can delete a key a test
-    /// created instead of leaving it behind with a value.
-    /// </summary>
+    /// <summary>Captures whether the key existed, so a restore deletes a key a test created.</summary>
     internal readonly struct EditorPrefsSnapshot : IEquatable<EditorPrefsSnapshot>
     {
         public readonly string Key;

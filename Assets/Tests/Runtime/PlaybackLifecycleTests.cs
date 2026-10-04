@@ -10,30 +10,23 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The Play/Stop/Pause lifecycle, the queued-vs-playing window, the stale-handle contract after
-    /// recycle, the rejected-Play null-object path, and the OnStart/OnUpdate/OnPause/OnEnd callback
-    /// contract. See Docs/inventory/lifecycle.md.
+    /// Play/Stop/Pause lifecycle, the queued-vs-playing window, stale handles after recycle, the
+    /// rejected-Play null object, and the callback contract.
     /// </summary>
     public class PlaybackLifecycleTests : BroAudioTestFixture
     {
-        /// <summary>Forces SoundManager.IsPlayable to reject every Play call, without needing a real PlaybackGroup asset.</summary>
+        /// <summary>Rejects every Play without needing a real PlaybackGroup asset.</summary>
         private class RejectingValidator : IPlayableValidator
         {
             public bool IsPlayable(SoundID id, Vector3 position) => false;
             public void OnGetPlayer(IAudioPlayer player) { }
         }
 
-        // The single most important test in this file: a caller that keeps a completed
-        // IAudioPlayer reference around (a very common real-world pattern) must never crash. Stale-handle-
-        // after-recycle is a lifecycle concern regardless of which RuntimeSetting toggle produced the log.
+        // Keeping a finished handle around is common; it must never crash.
         [UnityTest]
         public IEnumerator StaleHandle_AfterRecycle_IsInertNotFatal()
         {
-            // LogAccessRecycledPlayerWarning changes nothing but whether a warning is emitted, and
-            // asserting on log text is an anti-goal here — so AudioSource is checked with the warning both
-            // on and off to pin that it resolves to null whichever way the flag is set. The warning is
-            // matched by LogType and BroAudio's tag only: LogAssert.Expect fails the test if it is never
-            // logged, so its presence is pinned, but its wording is not.
+            // Checked with the warning on and off; the warning's presence is pinned, its wording is not.
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = true;
 
             SoundID id = NewSound("StaleHandleSfx", BroAudioType.SFX, NewClip(0.2f));
@@ -73,30 +66,21 @@ namespace Ami.BroAudio.Tests
             Assert.IsNotNull(afterBGM, "AsBGM on a stale handle must still return a usable object, not null.");
         }
 
-        /// <summary>
-        /// Long enough that no player in the Stop tests below can end on its own inside anything they
-        /// wait for, so only the Stop call can explain a player going inactive.
-        /// </summary>
+        /// <summary>So only the Stop call can explain a player going inactive.</summary>
         private const float LongerThanAnyWaitClipSeconds = 10f;
 
         /// <summary>
-        /// DSP time a pause/resume test lets play before pausing. The pause pins below compare playheads,
-        /// so the one they capture has to be clearly off the start sample: a playhead of 0 would make
-        /// "resumed at or after the paused position" true of a restart from 0 as well. Half a second is
-        /// many audio buffers (one is ~21 ms), so the playhead cannot still be sitting at 0.
+        /// Gets the playhead clearly off 0, where "resumed at or after the paused position" would also be
+        /// true of a restart.
         /// </summary>
         private const double PrePauseDspSeconds = 0.5;
 
         /// <summary>
-        /// DSP time a paused source is watched for movement. Measured on the DSP clock, which is what
-        /// moves the playhead: a handful of frames can fit inside one audio buffer and prove nothing.
+        /// On the DSP clock: a handful of frames can fit inside one audio buffer and prove nothing.
         /// </summary>
         private const double FrozenPlayheadDspSeconds = 0.5;
 
-        // The suite's own teardown isolation depends on Stop(All, 0f) reliably clearing every type.
-        // A zero-fade Stop recycles inside the call - TryGetFadeOut reports no fade, so StopControl reaches
-        // EndPlaying before StartCoroutine returns - which is what lets this assert with no wait at all. The
-        // clips outlast the whole test, so a Stop that did nothing cannot be rescued by playback ending.
+        // The fixture's teardown isolation depends on this. A zero-fade Stop recycles inside the call, so no wait.
         [UnityTest]
         public IEnumerator Stop_WithAllFlag_DeactivatesEveryConcreteType()
         {
@@ -147,20 +131,16 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(musicPlayer.IsPlaying, "Stopping SFX must not stop a Music player.");
         }
 
-        // BroAudio.Stop(SoundID) forwards to SoundManager.StopPlayer, which matches live players by exact id:
-        // every instance of that id stops, and a different id - of the same BroAudioType, so a match by type
-        // would catch it - plays on. The clips carry no FadeOut, so the clip setting Stop(id) falls back to
-        // resolves to no fade and each matching player recycles inside the call.
+        // The other id shares the BroAudioType, so a match by type would wrongly catch it. The clips have no
+        // FadeOut, so each matching player recycles inside the call.
         [UnityTest]
         public IEnumerator Stop_BySoundID_StopsEveryInstanceOfThatIdAndLeavesOtherIdsPlaying()
         {
             SoundID targetId = NewSound("IdStopTargetSfx", BroAudioType.SFX, NewClip(LongerThanAnyWaitClipSeconds));
             SoundID otherId = NewSound("IdStopOtherSfx", BroAudioType.SFX, NewClip(LongerThanAnyWaitClipSeconds));
 
-            // The second instance is positioned while the first plays globally. Under the fixture's factory
-            // settings no playback group applies at all; were a default one configured, its comb-filtering
-            // rule would reject a same-frame replay of one id, but it lets through a pair where only one is
-            // played globally - so this stays two live instances either way.
+            // One global, one positioned: comb-filtering in a playback group would reject a same-frame replay
+            // of one id, but not this pair.
             IAudioPlayer targetGlobal = BroAudio.Play(targetId);
             IAudioPlayer targetPositioned = BroAudio.Play(targetId, Vector3.zero);
             IAudioPlayer other = BroAudio.Play(otherId);
@@ -183,8 +163,6 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Pause_ThenUnPause_FreezesAndResumesFromSamePosition()
         {
-            // The playhead comparisons below run on the DSP clock; one frame of a decoupled clock could carry the
-            // clip to its end before the pause lands.
             yield return RequireRealtimeAudioClock();
 
             int onStartCount = 0;
@@ -297,8 +275,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(2, onPauseCount, "OnPause should fire again on a second, independent pause transition.");
         }
 
-        // OnEnd fires once, and its SoundID argument still equals the original ID even though
-        // Recycle() (which clears ID to Invalid) runs immediately after, from the same call site.
+        // Trap: Recycle() clears ID to Invalid right after OnEnd, from the same call site.
         [UnityTest]
         public IEnumerator OnEnd_WhenPlaybackFinishes_FiresOnceWithOriginalID()
         {
@@ -320,8 +297,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(id, receivedID, "OnEnd's SoundID argument should equal the original ID despite the immediate recycle.");
         }
 
-        // TryGetEntityInfo: a valid id resolves to the entity's real read-only data; an unassigned
-        // SoundID (default) fails and leaves the out-param null.
         [UnityTest]
         public IEnumerator TryGetEntityInfo_ForValidAndInvalidIds_ReturnsMatchingResult()
         {
@@ -342,13 +317,9 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // Facade broadcast: BroAudio.Pause(BroAudioType)/UnPause(BroAudioType) forward to
-        // SoundManager.Pause(BroAudioType, ...), which matches every live player by type flags. Only the
-        // matching type must freeze/resume.
         [UnityTest]
         public IEnumerator Pause_ByBroAudioType_AffectsOnlyThatTypeAndUnPauseResumesFromSamePosition()
         {
-            // Playhead comparisons on the DSP clock, as in Pause_ThenUnPause_FreezesAndResumesFromSamePosition.
             yield return RequireRealtimeAudioClock();
 
             SoundID sfxId = NewSound("TypePauseSfx", BroAudioType.SFX, NewClip(3f));
@@ -378,9 +349,7 @@ namespace Ami.BroAudio.Tests
                 "UnPause(type) must resume from the paused position, not restart from 0.");
         }
 
-        // Facade broadcast: BroAudio.Pause(SoundID)/UnPause(SoundID) forward to
-        // SoundManager.Pause(SoundID, ...), matching live players by exact id rather than by type - a
-        // second player of the same type but a different SoundID must be left untouched.
+        // Same type, different id, so a match by type would wrongly catch the other player.
         [UnityTest]
         public IEnumerator Pause_BySoundID_AffectsOnlyThatIdNotOtherPlayersOfTheSameType()
         {
@@ -401,9 +370,6 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(targetPlayer, "the targeted id's player to resume after UnPause(id)");
         }
 
-        // Facade broadcast, fade overloads: BroAudio.Pause(type, fadeTime)/UnPause(type, fadeTime) feed
-        // fadeTime through to AudioPlayer.Pause/UnPause's own fade-out/fade-in. Fade progress uses
-        // capped Time.deltaTime, so the fade window is kept wide (>=1s) to stay CI-safe.
         [UnityTest]
         public IEnumerator Pause_ByTypeWithFadeTime_CompletesOnlyAfterTheFadeElapses()
         {
@@ -417,9 +383,7 @@ namespace Ami.BroAudio.Tests
 
             BroAudio.Pause(BroAudioType.SFX, fadeTime);
 
-            // Shortly after issuing the fade-out pause, the source must still be audibly playing -
-            // AudioSource.Pause() is only called once the fade-out completes (AudioPlayer.Playback.cs
-            // StopControl's fade region runs before the StopMode.Pause switch case).
+            // AudioSource.Pause() only runs once the fade-out completes.
             yield return new WaitForSeconds(0.35f);
             Assert.IsTrue(player.IsPlaying, "A 1s fade-out pause must not have paused the AudioSource yet at 0.35s in.");
 
@@ -430,12 +394,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player, "UnPause(type, fadeTime) to resume the AudioSource");
         }
 
-        // Characterizes TEST_FINDINGS #41: Stop(onFinished) - "fade the music out, then load the next scene"
-        // - and the one handle shape that breaks that promise. StopControl invokes onFinished at its very tail,
-        // after the fade-out has run to completion and after EndPlaying() has already recycled the
-        // player; only the no-fade early-out fires it synchronously. Per the BroAudioTestFixture timing rule,
-        // the fade is kept wide (2s) and the "not yet" half polls across a whole second rather than sampling
-        // at one instant.
+        // Pins TEST_FINDINGS #41. The "not yet" half polls across a whole second rather than sampling one instant.
         [UnityTest]
         [Category("Finding_41")]
         public IEnumerator Stop_WithOnFinishedCallback_FiresAfterTheFadeButIsDroppedByARecycledHandle()
@@ -466,19 +425,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(player.IsActive,
                 "EndPlaying() runs before onFinished, so the player is already recycled by the time the callback fires.");
 
-            // Characterizes TEST_FINDINGS #41: the same call on a handle whose player has already been recycled
-            // drops the callback silently. AudioPlayerInstanceWrapper.Stop forwards it as `Instance?.Stop(onFinished)`,
-            // and InstanceWrapper.Instance resolves to null once
-            // Recycle() has cleared the backing field, so the null-conditional swallows the entire call -
-            // onFinished is never stored anywhere and never runs. Empty.AudioPlayer's Stop(Action)
-            // is an empty body and drops it the same way, so a rejected Play behaves
-            // identically. This is the defect being pinned, not the contract we want: "fade out, then load
-            // the next scene" never loads the scene.
-            //
-            // Reading Instance on a recycled wrapper logs through LogInstanceIsNull (gated by
-            // Setting.LogAccessRecycledPlayerWarning), so the warning is silenced exactly as
-            // StaleHandle_AfterRecycle_IsInertNotFatal does - log suppression, not the behavior under test.
-            // The fixture restores RuntimeSetting in TearDown.
+            // The #41 defect half. Silences the recycled-handle warning, which is not under test here.
             SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning = false;
 
             bool firedOnRecycled = false;
@@ -496,9 +443,7 @@ namespace Ami.BroAudio.Tests
                 "characterizes: Stop(onFinished) on a recycled handle is a silent no-op - the callback is dropped, never invoked.");
         }
 
-        // A resume re-enters PlayControl, whose SetupClipVolume and TryGetFadeIn run on the resume path too:
-        // UnPause() with the clip setting restarts the clip's fade-in from silence, while UnPause(0f)
-        // overrides it and resumes at full volume.
+        // A resume re-enters PlayControl, so the clip's fade-in setting applies to it too.
         [UnityTest]
         public IEnumerator UnPause_OnClipWithFadeIn_RestartsTheFadeInFromSilenceUnlessOverridden()
         {

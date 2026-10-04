@@ -7,23 +7,18 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// <c>RuntimeSetting.AlwaysPlayMusicAsBGM</c> (default true) - a Music-typed Play() is auto-wrapped with
-    /// AsBGM()+SetTransition even when the caller never calls AsBGM() themselves. See
-    /// Docs/inventory/time-dependent.md.
+    /// <c>RuntimeSetting.AlwaysPlayMusicAsBGM</c>: a Music Play() is auto-wrapped with AsBGM()+SetTransition.
+    /// See Docs/inventory/time-dependent.md.
     /// </summary>
     public class AlwaysPlayMusicAsBGMTests : BroAudioTestFixture
     {
         [UnityTest]
         public IEnumerator AlwaysPlayMusicAsBGM_Enabled_AutoTransitionsUnrelatedMusicPlaysWithoutExplicitAsBGM()
         {
-            // fixture restores RuntimeSetting in TearDown - Immediate keeps this deterministic and fast.
             SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = true;
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
-            // The first clip's length is load-bearing: its natural end has to sit far outside the recycle
-            // wait below, so only the auto-transition can explain the first player deactivating. A clip
-            // short enough to end on its own within that wait would satisfy the assertion even with the
-            // auto-BGM feature deleted - the two causes would be indistinguishable.
+            // Must outlast the recycle wait, or the clip's natural end would pass with the feature deleted.
             const float FirstClipSeconds = 9f;
             SoundID firstId = NewSound("AutoBgmA", BroAudioType.Music, NewClip(FirstClipSeconds));
             SoundID secondId = NewSound("AutoBgmB", BroAudioType.Music, NewClip(2f));
@@ -33,9 +28,7 @@ namespace Ami.BroAudio.Tests
 
             IAudioPlayer second = BroAudio.Play(secondId); // also never calls AsBGM() explicitly
 
-            // Derived from the clip rather than from a shared budget: the bound is only decisive while it
-            // stays well under FirstClipSeconds, so it has to move with the clip. The transition itself is
-            // Immediate, so a third of the clip is a generous CI margin, not a tight bound on the transition.
+            // Derived from the clip: the bound is only decisive while well under FirstClipSeconds.
             yield return WaitForRecycle(first,
                 "the first Music player to be auto-transitioned off by SoundManager's implicit AsBGM()+SetTransition",
                 FirstClipSeconds / 3f);
@@ -45,19 +38,11 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator AlwaysPlayMusicAsBGM_Disabled_MusicPlaysOverlapFreelyWithoutTransition()
         {
-            // fixture restores RuntimeSetting in TearDown. Pinning the transition is what makes the
-            // negative assertion decisive, and it is the mirror image of the Enabled twin's reason for
-            // doing the same: left at the factory default of a 2s CrossFade, the auto-BGM path stops the
-            // outgoing player by fading it out, and a fade-out keeps AudioSource.isPlaying - hence
-            // IAudioPlayer.IsPlaying - true for those 2s. Deleting the Setting.AlwaysPlayMusicAsBGM guard
-            // in SoundManager.PlayerToPlay would then be indistinguishable from the feature working.
-            // With Immediate, that same mutation ends the first player within a frame or two of the
-            // second starting (Transition.Immediate forces fadeOut to 0 in MusicPlayer.StopCurrentPlayer).
+            // Immediate is load-bearing: the default CrossFade keeps a fading-out player IsPlaying for 2s,
+            // so a deleted guard would pass the window below.
             SoundManager.Instance.Setting.AlwaysPlayMusicAsBGM = false;
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
-            // 9s clips, as in the Enabled twin: the observation window has to sit far inside both clips'
-            // natural length, or a clip simply reaching its own end could stand in for the auto-transition.
             SoundID firstId = NewSound("NoBgmA", BroAudioType.Music, NewClip(9f));
             SoundID secondId = NewSound("NoBgmB", BroAudioType.Music, NewClip(9f));
 
@@ -67,9 +52,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer second = BroAudio.Play(secondId);
             yield return WaitForPlaybackStart(second, "second Music play to start");
 
-            // Watch continuously instead of sampling once: every frame of a 1.5s window must show both
-            // players audible. That is a full second wider than the couple of frames an auto-transition
-            // needs to end the first player, and still ~7s short of either clip's natural end.
+            // Every frame of the window, not one sample; the window must stay well inside both clips' length.
             float deadline = Time.realtimeSinceStartup + 1.5f;
             while (Time.realtimeSinceStartup < deadline)
             {

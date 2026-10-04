@@ -9,40 +9,20 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The per-sound volume a designer authors in the Library Manager - the product of
-    /// <see cref="BroAudioClip.Volume"/> and <see cref="AudioEntity.MasterVolume"/> computed in
-    /// AudioPlayer.Playback.cs's <c>SetupClipVolume</c> (<c>_clip.Volume * _pref.Entity.GetMasterVolume()</c>)
-    /// - needs a dedicated fixture: every entity built by <see cref="TestAudioLibrary.CreateEntity"/> defaults
-    /// both factors to 1, so nothing elsewhere in the suite would notice if that multiplication were deleted
-    /// entirely. These tests use <see cref="TestAudioLibrary.CreateEntityWithVolume"/> to move both factors
-    /// off 1 at once, in a fixture chosen so the three ways SetupClipVolume could break (drop the clip factor,
-    /// drop the master factor, drop the whole expression) each read back as a different, wrong number.
+    /// Pins the authored clip-volume * MasterVolume product from <c>SetupClipVolume</c>, which entities
+    /// elsewhere in the suite leave at 1 * 1.
     /// <para>
-    /// Observable: <c>player.GetVolume()</c> (<c>_clipVolume.Current * _trackVolume.Current *
-    /// _audioTypeVolume.Current</c>, AudioPlayer.Volume.cs), the same linear-product bookkeeping
-    /// VolumePitchMixerTests and SoundVolumeTests read. Not <c>AudioSource.volume</c>: these plays acquire a
-    /// pooled mixer track, so <c>UpdateVolume</c> (AudioPlayer.Volume.cs) writes the composed volume to the
-    /// mixer's dB parameter via <c>TrySetMixerDecibelVolume</c> and never touches <c>AudioSource.volume</c> at
-    /// all - asserting on it would silently pass no matter what SetupClipVolume computed.
+    /// Don't assert on <c>AudioSource.volume</c>: with a pooled mixer track the volume goes to the mixer's
+    /// dB parameter and AudioSource.volume is never written, so it would pass whatever was computed.
     /// </para>
     /// </summary>
     public class AuthoredVolumeTests : BroAudioTestFixture
     {
-        // Uses the fixture's shared LinearTolerance/DecibelTolerance. Every dropped-factor value computed
-        // in the comments below misses its assertion's expected value by several times LinearTolerance
-        // (worst case 0.056, in SetVolume_.../after both extra layers are applied) - tight enough to fail
-        // loudly rather than slip through a loose band.
 
         [UnityTest]
         public IEnumerator Play_WithAuthoredClipAndMasterVolume_AppliesTheirProductNotEitherFactorAlone()
         {
-            // 0.5 * 0.5 = 0.25. Equal factors, as suggested: dropping *either* single factor from SetupClipVolume
-            // reads back as 0.5 (the other factor alone), and dropping the whole expression - defaulting to
-            // AudioConstant.FullVolume/DefaultTrackVolume like every other volume test's "freshly played
-            // default entity" - reads back as 1. So the three ways this line can break collapse to two wrong
-            // numbers {0.5, 1}, both clearly distinguishable from the correct 0.25 at a 0.01 tolerance; using
-            // unequal factors would separate the two single-factor-dropped cases too, but isn't needed to
-            // catch the defect this file exists for.
+            // Dropping either factor reads 0.5, dropping both reads 1; both are far from 0.25.
             const float ClipVolume = 0.5f;
             const float MasterVolume = 0.5f;
             const float ExpectedProduct = ClipVolume * MasterVolume; // 0.25
@@ -54,14 +34,9 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // Would this pass if `* _pref.Entity.GetMasterVolume()` were deleted from SetupClipVolume? No - the
-            // player would read 0.5 (ClipVolume alone), not 0.25. That is the whole point of this test.
             Assert.AreEqual(ExpectedProduct, player.GetVolume(), LinearTolerance,
                 "A freshly played entity with a non-default authored clip volume and MasterVolume should read their product, not either factor alone or full volume.");
 
-            // Prove the product reaches the actual mixer output too, not just AudioPlayer's own linear
-            // bookkeeping - the same mixer read SetVolume_ComposesMultiplicativelyWithTheAuthoredClipAndMasterVolume
-            // below performs after composing per-id and per-type volume on top of this product.
             Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must hold a pooled track for its volume parameter to be exposed.");
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
             Assert.AreEqual(ExpectedProduct.ToDecibel(), db, DecibelTolerance,
@@ -71,8 +46,6 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator SetVolume_ComposesMultiplicativelyWithTheAuthoredClipAndMasterVolume()
         {
-            // Different factors here (0.6 * 0.5 = 0.3) so this test's own baseline assertion is distinguishable
-            // from the companion test above by inspection, while still exercising the same product.
             const float ClipVolume = 0.6f;
             const float MasterVolume = 0.5f;
             const float AuthoredProduct = ClipVolume * MasterVolume; // 0.3
@@ -84,29 +57,19 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // Baseline, before any layer above it is touched: would this pass if SetupClipVolume dropped either
-            // factor? No - it would read 0.6 or 0.5 instead of 0.3.
             Assert.AreEqual(AuthoredProduct, player.GetVolume(), LinearTolerance,
                 "The authored product must already be in the linear product before any SetVolume call.");
 
-            // Per-SoundID volume (_trackVolume) must multiply the authored product, not replace it - if
-            // SetVolume(id, ...) overwrote rather than multiplied, this would read 0.4 instead of 0.12.
             BroAudio.SetVolume(id, 0.4f, 0f);
             yield return WaitFrames(1);
             Assert.AreEqual(AuthoredProduct * 0.4f, player.GetVolume(), LinearTolerance,
                 "Per-SoundID volume must multiply the authored clip*master product, not replace it.");
 
-            // Per-BroAudioType volume (_audioTypeVolume) stacks on top of both of the above - if either the
-            // authored product or the per-id factor had been dropped anywhere upstream, this final number
-            // (0.3 * 0.4 * 0.7 = 0.084) would not match.
             BroAudio.SetVolume(BroAudioType.SFX, 0.7f, 0f);
             yield return WaitFrames(1);
             Assert.AreEqual(AuthoredProduct * 0.4f * 0.7f, player.GetVolume(), LinearTolerance,
                 "Per-BroAudioType volume must further multiply the same running product, authored volume included.");
 
-            // Prove the fully composed product reaches the actual mixer output too, not just AudioPlayer's own
-            // linear bookkeeping - mirrors Play_WithAuthoredClipAndMasterVolume_AppliesTheirProductNotEitherFactorAlone
-            // above.
             Assert.IsNotNull(player.AudioSource.outputAudioMixerGroup, "The player must still hold a pooled track for its volume parameter to be exposed.");
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(player.AudioSource.outputAudioMixerGroup.name, out float db));
             Assert.AreEqual((AuthoredProduct * 0.4f * 0.7f).ToDecibel(), db, DecibelTolerance,

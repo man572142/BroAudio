@@ -8,23 +8,19 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Whole-run isolation check for the EditMode assembly, from outside the per-test fixture.
+/// Whole-run isolation check: the settings assets' bytes on disk, BroAudio's EditorPrefs keys, the clipboard and
+/// the temp folder, before the first EditMode test and after the last.
 /// <para>
-/// <see cref="BroEditorTestFixture"/> restores the settings assets in MEMORY after each test and resets their
-/// dirty bits, so a production path that SAVES one mid-test (the <c>AssetOutputPath</c> getter on a blank path,
-/// <c>WriteAssetOutputPathToSetting</c>) would reach disk unseen: the in-memory values come back and the dirty
-/// flag is put back, while the file has already changed. Both files are gitignored, so no <c>git status</c>
-/// would show it either. This compares their bytes on disk - plus the EditorPrefs keys BroAudio writes, the
-/// system clipboard and the temp folder - before the first test and after the last.
+/// <see cref="BroEditorTestFixture"/> restores settings only in memory, so a production path that SAVES one
+/// mid-test reaches the gitignored file unseen; only a byte compare catches it.
 /// </para>
 /// <para>
-/// Declared outside any namespace on purpose: NUnit applies a namespace-less <see cref="SetUpFixtureAttribute"/>
-/// to every fixture in the assembly, and this assembly's fixtures span <c>Ami.BroAudio.Tests</c> and
-/// <c>Ami.BroAudio.Editor.Tests</c>. A failure here is reported against the run's teardown rather than a test.
+/// Namespace-less on purpose: NUnit then applies it to every fixture across both test namespaces. Failures report
+/// against the run's teardown.
 /// </para>
 /// <para>
-/// Known false positive: a developer's UNSAVED edit to a settings asset, flushed to disk by any
-/// <c>AssetDatabase.SaveAssets()</c> during the run, changes the bytes too. Save before running.
+/// False positive: an UNSAVED settings edit flushed by any <c>AssetDatabase.SaveAssets()</c> during the run.
+/// Save before running.
 /// </para>
 /// </summary>
 [SetUpFixture]

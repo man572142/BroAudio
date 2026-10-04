@@ -10,13 +10,9 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Inventory 0.6 (Docs/inventory/selection-policy.md): <see cref="LocalizationClipStrategy"/> in isolation.
-    /// <para>
-    /// The project has three Locale assets but no AssetTable, so the full
-    /// Play() -> SoundManager -> resolved clip path is untestable as authored. <c>Inject()</c> sidesteps that
-    /// entirely: setting the table references to plain strings makes them non-empty without any table existing,
-    /// and supplying a cached clip means <c>LoadAssetAsync</c> is never reached.
-    /// </para>
+    /// <see cref="LocalizationClipStrategy"/> in isolation (Docs/inventory/selection-policy.md). With no AssetTable
+    /// the Play() path is untestable; <c>Inject()</c> with string table references and a cached clip never reaches
+    /// <c>LoadAssetAsync</c>.
     /// </summary>
     public class LocalizationClipStrategyTests : BroEditorTestFixture
     {
@@ -69,10 +65,8 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WithCachedClipAndNoMatchingRow_WrapsTheResolvedClipAtIndexZero()
         {
-            // characterizes: with no BroAudioClip row for the active locale, the strategy still succeeds —
-            // it warns, reports index 0, and returns a wrapper carrying the resolved clip with default
-            // playback properties. Passing clips: null skips the per-row locale scan, so this is
-            // deterministic regardless of which locale the project happens to have selected.
+            // characterizes: no row for the active locale still succeeds, with a warning. clips: null skips the
+            // per-row locale scan, so the selected locale doesn't matter.
             LocalizationClipStrategy strategy = CreateStrategy(NewLocalizedAudio(), _clip);
 
             IBroAudioClip result = strategy.SelectClip(null, new ClipSelectionContext(0), out int index);
@@ -86,9 +80,8 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SelectClip_WhenTheCachedClipIsAlreadyResolved_DoesNotTouchTheAddressablesLoadPath()
         {
-            // The cached-clip lambda is the only thing standing between this test and a synchronous
-            // Addressables load against a table that does not exist. If a refactor stops consulting it,
-            // this test hangs or errors rather than passing quietly.
+            // The cache is all that stands between this test and a synchronous Addressables load of a missing
+            // table: a refactor that bypasses it hangs or errors here.
             int cacheHits = 0;
             var strategy = new LocalizationClipStrategy();
             strategy.Inject(NewLocalizedAudio(), "TestEntity", () =>

@@ -7,10 +7,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Pure-math coverage for the <see cref="EditorScriptingExtension"/> rect-splitting helpers:
-    /// <c>SplitRectHorizontal</c>/<c>SplitRectVertical</c>'s dedicated 2-way ratio overload and their
-    /// <c>params float[] ratios</c> overload. No IMGUI context is touched — every target here is plain
-    /// Rect arithmetic that runs outside OnGUI.
+    /// <see cref="EditorScriptingExtension"/> rect-splitting overloads; plain Rect math, no IMGUI context.
     /// </summary>
     public class RectSplitRatioTests : BroEditorTestFixture
     {
@@ -22,8 +19,7 @@ namespace Ami.BroAudio.Editor.Tests
 
             EditorScriptingExtension.SplitRectHorizontal(origin, 0.5f, 6f, out Rect rect1, out Rect rect2);
 
-            // halfGap is subtracted from BOTH rects' widths but the full gap is added back once between
-            // them, so the two halfGap deductions net out against the one gap addition exactly.
+            // Two halfGap deductions net out against the one gap between them.
             Assert.AreEqual(60f - 3f, rect1.width, 0.0001f);
             Assert.AreEqual(rect1.xMax + 6f, rect2.x, 0.0001f);
             Assert.AreEqual(origin.xMax, rect2.xMax, 0.0001f);
@@ -57,10 +53,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(new Rect(30f, 0f, 27f, 40f), rects[1]);
             Assert.AreEqual(new Rect(63f, 0f, 54f, 40f), rects[2]);
 
-            // Characterizes TEST_FINDINGS #21: with 3 segments the accounting falls short of origin.xMax by half
-            // a gap (117 vs 120) — unlike the dedicated 2-way ratio overload above, this form does not land
-            // exactly on the origin's far edge except at specific segment counts (N=4 lands exactly; N=2 and
-            // N=3 fall short; N>=5 would overshoot past origin.xMax by this same formula).
+            // Pins TEST_FINDINGS #21: half a gap short of origin.xMax.
             Assert.AreEqual(117f, rects[2].xMax, 0.0001f);
         }
 
@@ -68,16 +61,13 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_21")]
         public void SplitRectHorizontal_RatiosArrayForm_TwoWay_FallsShortOfOriginXMax_UnlikeTheDedicatedOverload()
         {
-            // Characterizes TEST_FINDINGS #21: the same origin/gap/50-50 split as
-            // SplitRectHorizontal_RatioForm_..., but through the params-ratios overload instead of the
-            // dedicated (out, out) 2-way overload.
+            // Pins TEST_FINDINGS #21: same inputs as SplitRectHorizontal_RatioForm_..., other overload.
             var origin = new Rect(0f, 0f, 120f, 40f);
             var rects = new Rect[2];
 
             EditorScriptingExtension.SplitRectHorizontal(origin, 6f, rects, 0.5f, 0.5f);
 
-            // Both segments are index 0 and index (length-1) simultaneously when there are only two,
-            // so BOTH take the full-gap offset instead of a halfGap each — the two overloads disagree.
+            // With two segments each is both first and last, so both take the full-gap offset.
             Assert.AreEqual(114f, rects[1].xMax, 0.0001f, "Expected the params-ratios 2-way split to fall short of origin.xMax by a full gap.");
             Assert.AreNotEqual(origin.xMax, rects[1].xMax, "This overload does not match the (out,out) 2-way overload's exact-edge behavior for the same inputs.");
         }
@@ -97,9 +87,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void SplitRectHorizontal_CountForm_NullArray_LogsTheNullGuardsError()
         {
-            // The count overload has no ratio-sum check, so the one tagged error it logs on a null array can only
-            // come from the shared SplitHorizontal helper's null guard. The ratios-form test below logs the same
-            // single error through that same guard.
+            // No ratio-sum check here, so the error can only be the shared SplitHorizontal null guard's.
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectHorizontal(new Rect(0f, 0f, 100f, 50f), 2, 4f, null));
@@ -109,9 +97,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void SplitRectHorizontal_RatiosArrayForm_NullArray_LogsItsOwnErrorAndReturns()
         {
-            // Ratios sum to 1 here, so the ratio-sum guard passes and returns nothing; the single tagged error
-            // is the shared SplitHorizontal helper's null guard (isolated in the count-form test above). Exactly
-            // one error: NoUnexpectedReceived fails on a second one, e.g. from both guards firing.
+            // Ratios sum to 1, so the one error is the null guard's; NoUnexpectedReceived fails if both guards fire.
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectHorizontal(new Rect(0f, 0f, 100f, 50f), 4f, null, 0.5f, 0.5f));
@@ -122,9 +108,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_21")]
         public void SplitRectVertical_RatiosArrayForm_ThreeWay_MatchesPerSegmentOffsetRule()
         {
-            // Characterizes TEST_FINDINGS #21: the vertical twin of the horizontal three-way split above -
-            // the same per-segment offset rule, so the last segment's yMax lands on 117 (63 + 54) rather
-            // than the origin's 120.
+            // Pins TEST_FINDINGS #21, vertical twin of the three-way split above.
             var origin = new Rect(0f, 0f, 40f, 120f);
             var rects = new Rect[3];
 
@@ -151,19 +135,13 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_22")]
         public void SplitRectVertical_RatiosArrayForm_NullArray_SilentlyNoOps_UnlikeHorizontal()
         {
-            // Characterizes TEST_FINDINGS #22: unlike SplitRectHorizontal's params-ratios overload, this one does
-            // `resultRects ??= new Rect[ratios.Length]` instead of logging+returning on null. That
-            // reassignment is local to the method (arrays pass by reference-value, no `ref` here), so
-            // the caller's own null reference is completely unaffected — the call computes into a
-            // throwaway array and is, from the caller's side, an expensive no-op. No exception, no log.
+            // Pins TEST_FINDINGS #22.
             Rect[] rects = null;
 
-            // Only the no-throw is load-bearing: no implementation without a `ref` parameter could make
-            // the caller's local non-null, so asserting that would test C#, not this method.
+            // Don't assert the caller's local stays null: without `ref` that tests C#, not this method.
             Assert.DoesNotThrow(() =>
                 EditorScriptingExtension.SplitRectVertical(new Rect(0f, 0f, 100f, 50f), 4f, rects, 0.5f, 0.5f));
-            // The "no log" half of #22, made explicit rather than left to the runner's unexpected-error check
-            // (which ignores warnings and plain logs).
+            // Explicit: the runner's own unexpected-log check ignores warnings and plain logs.
             LogAssert.NoUnexpectedReceived();
         }
         #endregion

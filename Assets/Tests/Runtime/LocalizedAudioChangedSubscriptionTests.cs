@@ -11,12 +11,9 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The guards in front of <see cref="SoundManager.SubscribeLocalizedAudioChanged"/>: an entity that cannot
-    /// resolve a localized clip must warn and register nothing. The subscribed path itself needs a real
-    /// AssetTable behind <c>LocalizedAsset.AssetChanged</c>, which this project does not have. Also covers
-    /// <see cref="BroAudio.PlayOnLocalizedAudioChanged"/>, the cached <c>Action&lt;SoundID&gt;</c> adapter meant
-    /// to be hooked onto <see cref="SoundID.LocalizedAudioChanged"/> directly - it needs no AssetTable at all,
-    /// since it is just <c>id => Play(id)</c>.
+    /// The guards in front of <see cref="SoundManager.SubscribeLocalizedAudioChanged"/>, and the
+    /// <see cref="BroAudio.PlayOnLocalizedAudioChanged"/> adapter. The subscribed path itself is untested:
+    /// it needs a real AssetTable behind <c>LocalizedAsset.AssetChanged</c>.
     /// </summary>
     public class LocalizedAudioChangedSubscriptionTests : BroAudioTestFixture
     {
@@ -31,8 +28,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Subscribe_ForAnEntityNotInLocalizationMode_WarnsAndRegistersNothing()
         {
-            // Valid-looking table references, so only the Localization-mode check can stop the subscription
-            // before it hooks AssetChanged and starts loading a table that does not exist.
+            // Valid-looking table references, so only the Localization-mode check can stop the subscription.
             AudioEntity entity = NewEntity("NotLocalizedSfx", BroAudioType.SFX, NewClip(1f));
             TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.LocalizedAudio,
                 new LocalizedAudioClip { TableReference = "TestTable", TableEntryReference = "TestEntry" });
@@ -66,10 +62,6 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator PlayOnLocalizedAudioChanged_IsCachedAndPlaysTheGivenSoundIdWhenInvoked()
         {
-            // The property is `_playOnLocalizedAudioChanged ??= (id => Play(id))` - a lazily-built adapter
-            // meant for `id.LocalizedAudioChanged += BroAudio.PlayOnLocalizedAudioChanged;`, whose caller
-            // later has to unsubscribe with `-=` on that exact same delegate instance. Two reads must
-            // therefore be reference-equal, not merely equivalent delegates.
             Action<SoundID> first = BroAudio.PlayOnLocalizedAudioChanged;
             Action<SoundID> second = BroAudio.PlayOnLocalizedAudioChanged;
             Assert.IsNotNull(first, "PlayOnLocalizedAudioChanged should never read as null.");
@@ -80,8 +72,6 @@ namespace Ami.BroAudio.Tests
 
             first.Invoke(id);
 
-            // BroAudio.Play only enqueues - SoundManager.LateUpdate starts the voice - so this has to poll
-            // rather than assert in the same frame.
             yield return WaitUntilOrTimeout(() => BroAudio.HasAnyPlayingInstances(id),
                 "PlayOnLocalizedAudioChanged to start playback of the SoundID it was invoked with");
             Assert.IsTrue(BroAudio.HasAnyPlayingInstances(id),

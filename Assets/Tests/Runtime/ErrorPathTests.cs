@@ -12,19 +12,14 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Misuse and error paths of the public API that nothing else in the suite drives: a clip slot with no
-    /// AudioClip, a null follow target, UnPause on a player that is not paused (or is on its way out), and
-    /// the per-type SetVolume/SetPitch overloads with the two flag values that are not a concrete type -
-    /// <see cref="BroAudioType.None"/> and Unity's "Everything" (-1), which is what an inspector mask field
-    /// hands over when every box is ticked.
+    /// Public-API misuse: empty clip slots, a null follow target, UnPause on a non-paused player, and
+    /// SetVolume/SetPitch with <see cref="BroAudioType.None"/> or Unity's "Everything" (-1) mask value.
     /// </summary>
     public class ErrorPathTests : BroAudioTestFixture
     {
         /// <summary>
-        /// A clip array whose slots are all non-null <see cref="BroAudioClip"/>s with no AudioClip (and no
-        /// addressable key) behind them - what a designer leaves when they add a row and never drag a clip in.
-        /// TestAudioLibrary.CreateEntity only generates a clip for an empty *array*, so an array of nulls is
-        /// passed straight through to CreateBroClip(null).
+        /// Non-null <see cref="BroAudioClip"/>s with no AudioClip behind them. Must be an array of nulls,
+        /// not an empty array: CreateEntity fills an empty array with a generated clip.
         /// </summary>
         private static AudioClip[] EmptySlots(int count) => new AudioClip[count];
 
@@ -39,10 +34,7 @@ namespace Ami.BroAudio.Tests
         }
 
         #region Clip slot with no AudioClip
-        // Single mode: SingleClipStrategy rejects an unset slot itself (it checks IsSet), logs, and returns null;
-        // PlayControl then sees `_clip == null` and ends the player. The Play call is still accepted - nothing
-        // before the queue drains looks at the clips - so the caller gets a live handle that dies on the next
-        // LateUpdate without ever reaching AudioSource.Play.
+        // Single mode: the strategy itself rejects the unset slot.
         [UnityTest]
         public IEnumerator Play_SingleModeEntityWhoseSlotHasNoAudioClip_IsAcceptedThenLogsOneErrorAndRecyclesSilently()
         {
@@ -58,10 +50,8 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(everPlayed[0], "A slot with no AudioClip must never reach AudioSource.Play.");
         }
 
-        // Random mode takes the other branch to the same end: RandomClipStrategy does not check IsSet, so with
-        // all weights zero it returns the empty slot as if it were playable, and it is PlayControl's own
-        // `audioClip != null` validation that logs and ends the player. Every slot is empty so the outcome
-        // does not depend on which one the draw lands on.
+        // Random mode doesn't check IsSet, so PlayControl's own validation is what rejects the slot. Every
+        // slot is empty so the outcome doesn't depend on the draw.
         [UnityTest]
         public IEnumerator Play_RandomModeEntityWhoseSlotsHaveNoAudioClip_SelectsAnEmptySlotThenLogsOneErrorAndRecycles()
         {
@@ -80,14 +70,7 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Null follow target
-        // Characterizes TEST_FINDINGS #60: SoundManager.Play(SoundID, Transform, ...) passes
-        // `followTarget.position` as an argument to IsPlayable, so a null Transform is dereferenced before the
-        // SoundID, the entity or the playback group is looked at. The caller gets a raw NullReferenceException
-        // out of the facade - not the logged error and inert Empty player that every other invalid-input path
-        // produces (compare the SoundID.Invalid contrast at the end), and not a BroAudioException either.
-        // Nothing is checked out of the pool first, so the throw leaks no player.
-        // Distinct from TeardownTests.Play_OnBroAudioFacade_WithManagerDestroyed_ThrowsBroAudioException, which
-        // passes the same null Transform with the manager gone: there SoundManager.Instance throws first.
+        // Pins TEST_FINDINGS #60.
         [UnityTest]
         [Category("Finding_60")]
         public IEnumerator Play_WithANullFollowTarget_ThrowsNullReferenceExceptionBeforeAnyValidation()
@@ -99,15 +82,13 @@ namespace Ami.BroAudio.Tests
             Assert.Throws<NullReferenceException>(() => BroAudio.Play(id, (Transform)null, 0.5f),
                 "characterizes: the fade-in overload shares the same unguarded dereference.");
 
-            // No LogAssert.Expect here: the unassigned SoundID would log an error if validation ran first, and
-            // an unexpected error log fails the test - so this also proves the dereference comes before it.
+            // Don't add LogAssert.Expect: the absence of the validation log is what proves the dereference runs first.
             Assert.Throws<NullReferenceException>(() => BroAudio.Play(SoundID.Invalid, (Transform)null),
                 "characterizes: even an unassigned SoundID reaches the null dereference before its own validation.");
 
             yield return WaitFrames(2);
             Assert.IsFalse(BroAudio.HasAnyPlayingInstances(id), "None of the throwing calls may have started a voice.");
 
-            // The contrast: the same unassigned SoundID through an overload with no Transform is logged and rejected.
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             IAudioPlayer rejected = BroAudio.Play(SoundID.Invalid);
             Assert.IsFalse(rejected.IsActive, "Every other overload logs and returns the inert Empty player instead of throwing.");
@@ -115,9 +96,6 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region UnPause misuse
-        // AudioPlayer's UnPause guard is `_stopMode != StopMode.Pause` -> warn and return, so on a player that is
-        // simply playing it touches nothing: no restart (a re-Play would rewind the playhead to 0), no fade-in.
-        // The facade reaches the same guard once per matching player.
         [UnityTest]
         public IEnumerator UnPause_OnAPlayerThatIsNotPaused_WarnsAndLeavesPlaybackUntouched()
         {
@@ -144,9 +122,7 @@ namespace Ami.BroAudio.Tests
             Assert.Greater(player.AudioSource.timeSamples, playheadBefore, "Playback carries on as if UnPause had never been called.");
         }
 
-        // A faded Stop sets _stopMode to Stop for the whole fade, so UnPause hits the same not-paused guard: it
-        // warns and cannot rescue the player, which still fades out and recycles on schedule. The clip is far
-        // longer than the recycle budget, so a stop that UnPause had cancelled would time the wait out.
+        // The clip outlasts the recycle budget, so a stop that UnPause cancelled would time the wait out.
         [UnityTest]
         public IEnumerator UnPause_WhileAFadedStopIsInProgress_WarnsAndTheStopStillCompletes()
         {
@@ -169,15 +145,7 @@ namespace Ami.BroAudio.Tests
                 StopFadeSeconds + DefaultPlaybackWaitSeconds);
         }
 
-        // Unlike a Stop, a Pause fade-out sets _stopMode to Pause the moment it starts, so UnPause passes its
-        // guard and goes through PlayInternal - whose RestartCoroutine(PlayControl, ref _playbackControlCoroutine)
-        // kills the StopControl coroutine running the pause. The resume itself works (SetupClipVolume snaps the
-        // clip fader back to full), but StopControl's closing `IsStopping = false` never runs. With IsStopping
-        // stuck true, Stop()'s own guard (`IsStopping && fade != Immediate` -> return) discards every later
-        // Stop with a fade - including the clip-setting default of BroAudio.Stop(id) - so the sound plays on.
-        // Only a zero-fade Stop still gets through, which is what the fixture's teardown uses.
-        // Characterizes TEST_FINDINGS #65: the stuck flag is pinned as-is, not endorsed. A fix that resets
-        // IsStopping when PlayInternal replaces a running StopControl turns the two "characterizes" asserts red.
+        // Pins TEST_FINDINGS #65; a fix turns the "characterizes" asserts red.
         [UnityTest]
         [Category("Finding_65")]
         public IEnumerator UnPause_DuringAPauseFadeOut_ResumesButLeavesIsStoppingSet_SoALaterFadedStopIsIgnored()
@@ -215,8 +183,6 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region SetVolume / SetPitch with non-concrete flags
-        // SoundManager.SetVolume/SetPitch both short-circuit on BroAudioType.None with a warning, before any
-        // per-type pref or live player is touched - and before the master branch, so Master is untouched too.
         [UnityTest]
         public IEnumerator SetVolumeAndSetPitch_WithBroAudioTypeNone_WarnAndChangeNothing()
         {
@@ -245,10 +211,7 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        // ConvertEverythingFlag maps Unity's Everything (-1) onto BroAudioType.All before the All check, so
-        // SetVolume with it is the master volume: it writes the Master parameter and nothing per type. Without
-        // the conversion, -1 would miss the All branch and Contains() every type instead - a per-type write the
-        // assertions below would catch.
+        // Without ConvertEverythingFlag, -1 would miss the All branch and write every type instead.
         [UnityTest]
         public IEnumerator SetVolume_WithUnitysEverythingFlag_IsTreatedAsAllAndWritesOnlyTheMasterVolume()
         {
@@ -271,9 +234,8 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        // SetPitch has no master branch (TEST_FINDINGS #56), so Everything -> All writes every concrete type's
-        // pref and every live player. Here the conversion is not observable on its own - (BroAudioType)(-1)
-        // Contains() every type as well - so this pins the outcome a mask field's "Everything" produces.
+        // SetPitch has no master branch (TEST_FINDINGS #56), so the conversion isn't observable here; this
+        // pins the outcome only.
         [UnityTest]
         public IEnumerator SetPitch_WithUnitysEverythingFlag_ReachesLivePlayersAndEveryConcreteTypePref()
         {

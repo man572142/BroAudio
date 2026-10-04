@@ -10,18 +10,12 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The Localization-mode runtime paths that can be reached without a real AssetTable: a Localization entity
-    /// whose LocalizedAudio names no table or entry. Loading, releasing and playing such an entity are all
-    /// guarded before anything asks LocalizationSettings for a table, so none of them needs one.
-    /// <para>
-    /// Everything past those guards - a resolved locale clip, the preload cache, a locale switch - needs an
-    /// AssetTable fixture this project does not have, and stays deferred until one exists. The subscription
-    /// guards are in <see cref="LocalizedAudioChangedSubscriptionTests"/>.
-    /// </para>
+    /// Localization-mode guards reachable without an AssetTable: load, release and play of an entity whose
+    /// LocalizedAudio names no table. Anything past the guards needs an AssetTable fixture.
     /// </summary>
     public class LocalizationRuntimeGuardTests : BroAudioTestFixture
     {
-        /// <summary>A Localization-mode entity that still carries an ordinary clip, so only the missing table can matter.</summary>
+        /// <summary>Still carries an ordinary clip, so only the missing table can matter.</summary>
         private SoundID NewLocalizationSoundWithoutTable(string name)
         {
             AudioEntity entity = NewEntity(name, BroAudioType.SFX, NewClip(1f));
@@ -29,9 +23,6 @@ namespace Ami.BroAudio.Tests
             return IdOf(entity);
         }
 
-        // SoundManager.LoadLocalizedAssetAsync checks HasValidLocalizationReferences first: it warns and returns
-        // `default`, an invalid handle, and never creates a cache entry - so the entity reads as not loaded.
-        // LoadAllAssetsAsync wraps the same call and passes the invalid handle through.
         [UnityTest]
         public IEnumerator LoadAssetAsync_ForALocalizationEntityWithoutATable_WarnsAndReturnsAnInvalidHandle()
         {
@@ -50,9 +41,7 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // ReleaseLocalizationClipInternal returns early when there is no cache entry with a valid preload handle,
-        // before it reaches LocalizationSettings - so releasing something never loaded is a silent no-op
-        // (no log: an unexpected error would fail this test).
+        // "Silent" is enforced by the runner: an unexpected error log fails the test.
         [UnityTest]
         public IEnumerator ReleaseVerbs_ForALocalizationEntityThatWasNeverLoaded_AreSilentNoOps()
         {
@@ -65,9 +54,6 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // Play is accepted (nothing inspects the clip until the queue drains), then LocalizationClipStrategy
-        // rejects the missing table with an error and returns no clip, and PlayControl ends the player. The
-        // entity's ordinary clip is never used as a fallback.
         [UnityTest]
         public IEnumerator Play_ForALocalizationEntityWithoutATable_LogsOneErrorAndRecyclesWithoutSounding()
         {

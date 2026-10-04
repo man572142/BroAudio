@@ -3,13 +3,9 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The EditMode half of <see cref="OptionalPackageTests"/>. Defines are per-assembly, so the runtime probe
-    /// says nothing about what <c>EditorTests</c> compiled — and an EditMode suite such as
-    /// <c>LocalizationClipStrategyTests</c> can compile out silently the same way and still report green.
-    /// <para>
-    /// It honors the same switch, <see cref="OptionalPackageTests.ExpectsNoOptionalPackages"/>: on the run that
-    /// removes both packages on purpose it asserts they are gone instead.
-    /// </para>
+    /// The EditMode half of <see cref="OptionalPackageTests"/>: defines are per-assembly, so the runtime probe
+    /// says nothing about what <c>EditorTests</c> compiled. Honors
+    /// <see cref="OptionalPackageTests.ExpectsNoOptionalPackages"/>.
     /// </summary>
     public class OptionalPackageEditorTests
     {

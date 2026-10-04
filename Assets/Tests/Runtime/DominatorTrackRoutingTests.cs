@@ -11,19 +11,13 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization: which mixer track a dominator actually lands on.
-    /// AudioPlayer.SetupAudioTrack is the only place TrackType becomes Dominator, and it reads IsDominator -
-    /// i.e. whether a DominatorPlayer decorator is already attached - at play time, when
-    /// SoundManager.LateUpdate drains the queue. That single read-once moment decides routing for the rest
-    /// of the player's life, including across a looping handover seam and past the Dominator pool's capacity.
+    /// Which mixer track a dominator lands on. AudioPlayer.SetupAudioTrack reads IsDominator (decorator already
+    /// attached?) once, when SoundManager.LateUpdate drains the queue, and that read fixes routing for the
+    /// player's life.
     /// </summary>
     public class DominatorTrackRoutingTests : BroAudioTestFixture
     {
-        // Characterizes TEST_FINDINGS #42: the correct-routing half. AsDominator() must be chained in the
-        // same frame as Play() to reach the dominator track at all - every dominator test in
-        // DominatorEffectParameterTests decorates *after* WaitForPlaybackStart, so none of them exercises
-        // this routing; see Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack below for what
-        // those tests actually run.
+        // Pins TEST_FINDINGS #42, correct-routing half: AsDominator() chained in Play()'s frame.
         [UnityTest]
         [Category("Finding_42")]
         public IEnumerator Play_AsDominatorInTheSameFrame_RoutesToADominatorTrackAndDucksTheMainTrack()
@@ -40,20 +34,8 @@ namespace Ami.BroAudio.Tests
                 "A player decorated as a dominator before the queue drained must be routed to a pooled Dominator track, " +
                 "not to a generic Track* group under Main - otherwise it is filtered by its own QuietOthers/LowPassOthers.");
 
-            // QuietOthers writes through EffectAutomationHelper, whose GetEffectParameterName maps a
-            // dominator Volume effect to Main_Dominated - never to Main. Main is muted outright:
-            // SwitchMainTrackMode(true) does ChangeChannel(Main -> Main_Dominated), and ChangeChannel
-            // sets the "from" parameter to MinDecibelVolume and the "to"
-            // parameter to the passed target. So the ducked level lands on Main_Dominated, and it is
-            // Effect.Value that converts it: for EffectType.Volume the setter stores value.ToDecibel(),
-            // so 0.2 becomes ~-13.98dB.
-            //
-            // A non-zero fade is deliberate. With fadeTime 0 the tween drains synchronously inside
-            // StartCoroutine - AudioEffectTests.SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing
-            // already pins that ("a zero fadeTime still applies the parameter right away"). A zero fade
-            // would therefore land the ducked value *before* SetEffectTrackParameter's own
-            // SwitchMainTrackMode(true) overwrites Main_Dominated with FullDecibelVolume - see
-            // Docs/TEST_FINDINGS.md #43.
+            // Non-zero fade on purpose: a zero fade applies synchronously, before SwitchMainTrackMode(true)
+            // overwrites Main_Dominated with FullDecibelVolume (TEST_FINDINGS #43).
             dominator.QuietOthers(othersVolume, 0.1f);
 
             yield return WaitUntilOrTimeout(() =>
@@ -67,9 +49,8 @@ namespace Ami.BroAudio.Tests
                 "While a dominator is active the plain Main channel is muted outright and everything audible is " +
                 "routed through Main_Dominated, which carries the ducked level.");
 
-            // The restore is not teardown's job: TweakTrackParameter calls SwitchMainTrackMode(false) once its
-            // .While(PlayerIsPlaying) waitable finishes, which is what returns Main to full volume. Asserting it
-            // here also keeps this test from leaving a muted Main behind for every later test in the run.
+            // Stop ends TweakTrackParameter's .While(), which restores Main; teardown doesn't, and a muted Main
+            // would silence every later test.
             dominatorPlayer.Stop(0f);
             yield return WaitUntilOrTimeout(() =>
             {
@@ -78,12 +59,7 @@ namespace Ami.BroAudio.Tests
             }, "Main to return to full volume once the dominator stops", RampConvergenceWaitSeconds);
         }
 
-        // Characterizes TEST_FINDINGS #42: AsDominator() after playback has started attaches the decorator but
-        // cannot move the player - SetupAudioTrack already ran and already took a generic track from the pool.
-        // The player stays under Main, which means it filters and ducks *itself* along with everything else.
-        // This is the configuration DominatorEffectParameterTests' LowPass/HighPass tests actually run: they
-        // pass in both configurations because they only watch the Main_LowPass/Main_HighPass parameter move and
-        // revert, which is true either way.
+        // Pins TEST_FINDINGS #42.
         [UnityTest]
         [Category("Finding_42")]
         public IEnumerator Play_ThenAsDominatorAfterPlaybackStarted_StaysOnAGenericTrack()
@@ -103,9 +79,7 @@ namespace Ami.BroAudio.Tests
                 "consulted by SetupAudioTrack, which has already run. Nothing re-routes it.");
         }
 
-        // Characterizes TEST_FINDINGS #44: a dominator that loops. Decorators reach the incoming
-        // player at BeginHandover, after its SetupAudioTrack already took a generic track, so ducking persists
-        // across the seam but the dominator ducks itself.
+        // Pins TEST_FINDINGS #44.
         [UnityTest]
         [Category("Finding_44")]
         public IEnumerator Play_LoopingDominator_KeepsDuckingAcrossASeamButTheIncomingPlayerTakesAGenericTrack()
@@ -118,8 +92,7 @@ namespace Ami.BroAudio.Tests
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.Loop), true);
             SoundID id = IdOf(entity);
 
-            // Chained in the same frame as Play, as in Play_AsDominatorInTheSameFrame_* above - the only way
-            // even the first player reaches a Dominator track.
+            // Same-frame chain: the only way even the first player reaches a Dominator track.
             IAudioPlayer player = BroAudio.Play(id);
             IPlayerEffect dominator = player.AsDominator();
             yield return WaitForPlaybackStart(player, "the looping dominator to start playing");
@@ -129,7 +102,7 @@ namespace Ami.BroAudio.Tests
             StringAssert.StartsWith(BroName.DominatorTrackName, player.AudioSource.outputAudioMixerGroup.name,
                 "Precondition: the first player of a same-frame dominator is routed to a pooled Dominator track.");
 
-            // Non-zero fade, for the ordering reason spelled out in the same-frame test above (finding #43).
+            // Non-zero fade: TEST_FINDINGS #43.
             dominator.QuietOthers(OthersVolume, 0.1f);
             yield return WaitUntilOrTimeout(() =>
             {
@@ -137,9 +110,7 @@ namespace Ami.BroAudio.Tests
                 return Mathf.Abs(v - OthersVolume.ToDecibel()) < DecibelTolerance;
             }, "Main_Dominated to reach the requested others-volume in decibels, well before the first seam", DefaultPlaybackWaitSeconds);
 
-            // The seam itself. UpdateInstance re-points the caller's wrapper at the incoming player, so the
-            // handle resolving to a *different* AudioPlayer is the handover - no dsp arithmetic needed to
-            // spot it, unlike the clock-derived seams in LoopHandoverTests.
+            // UpdateInstance re-points the handle, so resolving to a different AudioPlayer is the seam.
             yield return WaitUntilOrTimeout(() =>
             {
                 AudioPlayer current = InstanceOf(player);
@@ -151,26 +122,18 @@ namespace Ami.BroAudio.Tests
             // and the next seam is only one clip away.
             Assert.IsTrue(player.IsPlaying, "The looping sound must still be audible on the incoming player.");
 
-            // characterizes: AudioPlayer.TransferDecorators/SetDecorators, driven by
-            // AudioPlayerInstanceWrapper.UpdateInstance. The list is moved off the outgoing player
-            // first, so its Recycle() no longer sees it and never recycles
-            // the decorator out from under the incoming one.
+            // The list moves off the outgoing player first, so its Recycle() can't recycle the decorator.
             List<AudioPlayerDecorator> decorators = GetDecorators(player);
             Assert.IsNotNull(decorators, "The decorator list must have been transferred to the incoming player.");
             Assert.IsTrue(decorators.Exists(d => d is DominatorPlayer),
                 "The DominatorPlayer decorator must survive the handover - it is the caller's only dominator handle.");
 
-            // characterizes: and yet the routing does not follow the decorator. SetupAudioTrack already ran
-            // on this player, one warm-up time before the decorator arrived, and read IsDominator == false.
             StringAssert.StartsWith(BroName.GenericTrackName, player.AudioSource.outputAudioMixerGroup.name,
                 "A looping dominator's incoming player takes a generic track: the decorator is transferred at " +
                 "BeginHandover, which runs after that player's SetupAudioTrack has already chosen a track.");
 
-            // characterizes: the duck itself is untouched by the seam. DominatorPlayer.PlayerIsPlaying
-            // is the decorator's own IsActive,
-            // and the decorator is re-pointed at the incoming player before the outgoing one is recycled, so
-            // the .While() waitable in TweakTrackParameter never observes
-            // a false and never runs its auto-reset. Main stays muted - and now mutes the dominator too.
+            // The decorator is re-pointed before the outgoing player recycles, so TweakTrackParameter's .While()
+            // never sees false and the duck survives the seam.
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MainTrackName, out float mainAfterSeam));
             Assert.AreEqual(AudioConstant.MinDecibelVolume, mainAfterSeam, DecibelTolerance,
                 "The dominator's own duck must still be in effect after the seam.");
@@ -178,8 +141,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(OthersVolume.ToDecibel(), dominatedAfterSeam, DecibelTolerance,
                 "Main_Dominated must still carry the ducked level - which is now the level the loop plays at.");
 
-            // Same restore-and-assert tail as the same-frame test: Stop is what ends the .While() waitable,
-            // and leaving Main at MinDecibelVolume would mute every later test in the run.
+            // Restore Main, as in the same-frame test.
             player.Stop(0f);
             yield return WaitUntilOrTimeout(() =>
             {
@@ -188,9 +150,7 @@ namespace Ami.BroAudio.Tests
             }, "Main to return to full volume once the looping dominator stops", RampConvergenceWaitSeconds);
         }
 
-        // AudioTrackObjectPool.CreateObject returns null once every Dominator group is checked out, so the
-        // player past the pool's capacity plays with no mixer group at all rather than falling back to a
-        // generic track. Pool capacity is the mixer's Dominator group count, read here rather than assumed.
+        // Capacity is the mixer's Dominator group count, read rather than assumed.
         [UnityTest]
         public IEnumerator AsDominator_BeyondThePoolCapacity_PlaysUnroutedAndWarns()
         {

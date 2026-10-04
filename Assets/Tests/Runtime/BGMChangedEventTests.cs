@@ -6,8 +6,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// <c>BroAudio.OnBGMChanged</c> fires exactly once per actual
-    /// <c>CurrentBGMPlayer</c> change. See Docs/inventory/time-dependent.md.
+    /// <c>BroAudio.OnBGMChanged</c> across a <c>CurrentBGMPlayer</c> change. See Docs/inventory/time-dependent.md.
     /// </summary>
     public class BGMChangedEventTests : BroAudioTestFixture
     {
@@ -15,11 +14,8 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_11")]
         public IEnumerator OnBGMChanged_WhenANewBGMReplacesTheCurrentOne_ReportsTheNewPlayer()
         {
-            // Characterizes TEST_FINDINGS #11: replacing a BGM raises OnBGMChanged *twice*, and both in the
-            // same frame — first with null as the outgoing player clears itself in Recycle(), then with the
-            // incoming player. A subscriber that dereferences the argument without a null check will throw.
-            // Poll for the meaningful arrival rather than an exact count: an == comparison on the count
-            // is never satisfiable, because it skips straight past 2 within a single frame.
+            // Pins TEST_FINDINGS #11. Poll for the arrival, not an exact count: both events land in one frame,
+            // so an == on the count is never observed.
             List<IAudioPlayer> received = new List<IAudioPlayer>();
             SubscribeBgmChanged(p => received.Add(p));
 

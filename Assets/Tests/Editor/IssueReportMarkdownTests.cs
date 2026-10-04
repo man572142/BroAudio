@@ -5,13 +5,8 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Pure string-composition tests for IssueReportMarkdown - no ScriptableObjects, no disk I/O, no GUI.
-    /// No fixture behavior is exercised here, but every test still derives from BroEditorTestFixture per the
-    /// suite's contract (see EditorUtilityPureTests).
-    /// <para>
-    /// IssueReportMarkdown is <c>internal static</c> and this assembly has no InternalsVisibleTo, so its
-    /// public static methods are invoked through <see cref="EditorReflected"/> rather than by direct reference.
-    /// </para>
+    /// IssueReportMarkdown is internal with no InternalsVisibleTo, so it is invoked through
+    /// <see cref="EditorReflected"/>.
     /// </summary>
     public class IssueReportMarkdownTests : BroEditorTestFixture
     {
@@ -59,9 +54,8 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.IsFalse(encodedTitle.Contains(" "), $"Encoded title still contains a literal space, which would break the URL: {encodedTitle}");
             Assert.IsFalse(encodedTitle.Contains("#"), $"Encoded title still contains a literal '#', which would truncate the URL at a fragment: {encodedTitle}");
             Assert.IsFalse(encodedTitle.Contains("&"), $"Encoded title still contains a literal '&', which would corrupt the query string: {encodedTitle}");
-            // Decoded the way the receiving end reads a query string (form encoding: '+' is a space, then
-            // percent-decoding), with the BCL rather than UnityWebRequest.UnEscapeURL - the inverse of the very
-            // encoder production calls would share its mistakes and round-trip them away.
+            // Decode with the BCL, not UnityWebRequest.UnEscapeURL: the production encoder's own inverse would
+            // round-trip its mistakes away.
             string decoded = Uri.UnescapeDataString(encodedTitle.Replace('+', ' '));
             Assert.AreEqual(RawTitle, decoded, $"The escaped title does not decode back to the original. Encoded: {encodedTitle}");
         }

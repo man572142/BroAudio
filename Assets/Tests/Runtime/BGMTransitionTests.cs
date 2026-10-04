@@ -8,16 +8,16 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// <see cref="IMusicPlayer.SetTransition(Transition, float)"/> and its
-    /// <see cref="StopMode"/> overload - the sequencing/overlap rule per <see cref="Transition"/> mode, and
-    /// how a caller-supplied StopMode changes what happens to the outgoing BGM. See
-    /// Docs/inventory/time-dependent.md.
+    /// Pins <see cref="IMusicPlayer.SetTransition(Transition, float)"/> and its <see cref="StopMode"/>
+    /// overload: sequencing vs overlap per <see cref="Transition"/> mode, and what happens to the outgoing BGM.
+    /// <para>
+    /// Tests that set DefaultBGMTransition to Immediate do so because the implicit auto-BGM transition is a
+    /// CrossFade by factory default and could produce an overlap or fade on its own. It is applied
+    /// synchronously inside Play(), so the explicit SetTransition overwrites it either way.
+    /// </para>
     /// </summary>
     public class BGMTransitionTests : BroAudioTestFixture
     {
-        // Default/OnlyFadeOut transitions are sequential: PlayControl explicitly waits on
-        // musicPlayer.IsWaitingForTransition before starting the new BGM, so the two must never
-        // both report IsPlaying at once.
         [UnityTest]
         public IEnumerator SetTransition_Default_OutgoingAndIncomingBGMNeverOverlap()
         {
@@ -46,17 +46,9 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(bothPlayingAtOnce, "Transition.Default must be sequential - outgoing and incoming BGM must never both report IsPlaying.");
         }
 
-        // CrossFade is the opposite: BeginHandover/DoTransition does not gate the new player on
-        // IsWaitingForTransition, so both BGMs are deliberately audible together during the crossfade.
         [UnityTest]
         public IEnumerator SetTransition_CrossFade_OutgoingAndIncomingBGMOverlap()
         {
-            // The implicit AlwaysPlayMusicAsBGM transition is itself a CrossFade by factory default, so
-            // this test would report an overlap even if the explicit SetTransition below did nothing at
-            // all. Pinning the implicit one to Immediate (the fixture restores RuntimeSetting in TearDown)
-            // leaves the explicit call as the only thing that can produce an overlap, and costs nothing in
-            // timing: SoundManager applies its implicit SetTransition synchronously inside Play(), so the
-            // explicit call overwrites transition *and* fade time either way.
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
             SoundID firstId = NewSound("CrossfadeBgmA", BroAudioType.Music, NewClip(2f));
@@ -73,11 +65,6 @@ namespace Ami.BroAudio.Tests
                 "both the outgoing and incoming BGM to be audible at once during a CrossFade transition", DefaultPlaybackWaitSeconds);
         }
 
-        // SetTransition(Transition, StopMode) overload: MusicPlayer.DoTransition's StopCurrentPlayer
-        // calls the outgoing BGM's Stop(fadeOut, stopMode, onFinished) with the caller's StopMode instead
-        // of the default Stop. With StopMode.Pause the outgoing player is paused in place (AudioPlayer.
-        // Playback.cs StopControl's switch case) rather than ended: it stays IsActive, its AudioSource
-        // playhead freezes, and it resumes exactly like a manual Pause()/UnPause() would.
         [UnityTest]
         public IEnumerator SetTransition_WithStopModePause_PausesOutgoingBGMInPlaceAndItResumesOnUnPause()
         {
@@ -91,8 +78,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer first = BroAudio.Play(firstId);
             first.AsBGM().SetTransition(Transition.Immediate); // first BGM - no prior player to transition off
             yield return WaitForPlaybackStart(first, "first BGM to start");
-            // Half a second of DSP time is many audio buffers, so the playhead is clearly off its start sample
-            // and "resumed at or after the paused position" cannot also be true of a restart from 0.
+            // Moves the playhead clearly off its start, so a resume cannot be mistaken for a restart from 0.
             yield return WaitDspSeconds(0.5);
 
             IAudioPlayer second = BroAudio.Play(secondId);
@@ -115,10 +101,6 @@ namespace Ami.BroAudio.Tests
                 "Resuming the StopMode.Pause'd BGM must continue from where it was paused, not restart from 0.");
         }
 
-        // StopMode.Mute is the "keep playing silently" mode: StopControl's switch case for Mute only
-        // calls SetVolume(0f) - it never calls AudioSource.Pause()/Stop() - so the outgoing BGM keeps
-        // AudioSource.isPlaying true and its playhead keeps advancing in the background; only its linear
-        // volume drops to (near) zero.
         [UnityTest]
         public IEnumerator SetTransition_WithStopModeMute_MutesOutgoingBGMButLeavesItAudiblyPlaying()
         {
@@ -147,20 +129,15 @@ namespace Ami.BroAudio.Tests
         private const float TransitionBgmClipLength = 9f;
 
         /// <summary>
-        /// Wide enough that a 1s-in sample sits ≥1s clear of both ends of the fade. The volume bands the tests
-        /// read there are derived from the factory eases the base fixture pins before every test (fade-out
-        /// OutSine: 0.5 a third of the way in; fade-in InCubic: under 0.04), not from any ease whatever.
+        /// A 1s-in sample sits ≥1s clear of both fade ends. Bands there derive from the factory eases (fade-out
+        /// OutSine: 0.5 a third of the way in; fade-in InCubic: under 0.04).
         /// </summary>
         private const float TransitionFadeSeconds = 3f;
 
-        // OnlyFadeOut is sequential like Default (MusicPlayer.HandleCurrentBGM waits on it), but
-        // HandleNewBGM hands the incoming player a zero fade-in, so it starts at full volume.
         [UnityTest]
         public IEnumerator SetTransition_OnlyFadeOut_OutgoingFadesWhileIncomingStartsAtFullVolume()
         {
             yield return RequireRealtimeAudioClock();
-            // The implicit auto-BGM transition is overwritten by the explicit calls below; pinning it keeps
-            // the explicit transition the only one that can produce a fade.
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
             SoundID firstId = NewSound("OnlyFadeOutBgmA", BroAudioType.Music, NewClip(TransitionBgmClipLength));
@@ -196,8 +173,6 @@ namespace Ami.BroAudio.Tests
                 "OnlyFadeOut gives the incoming BGM no fade-in: it must be at full volume on its first playing frame.");
         }
 
-        // OnlyFadeIn is the mirror: MusicPlayer.StopCurrentPlayer stops the outgoing BGM with no
-        // fade, and HandleCurrentBGM does not wait, so the incoming BGM fades in from silence right away.
         [UnityTest]
         public IEnumerator SetTransition_OnlyFadeIn_OutgoingCutsWhileIncomingFadesInFromSilence()
         {
@@ -228,17 +203,11 @@ namespace Ami.BroAudio.Tests
                 "The fade-in should take roughly its stated time, not complete almost at once.");
         }
 
-        // The other half of CrossFade, which SetTransition_CrossFade_OutgoingAndIncomingBGMOverlap stops short
-        // of: the overlap has to end. HandleCurrentBGM does not wait on a CrossFade, but StopCurrentPlayer still
-        // stops the outgoing BGM with the transition's fade, so it fades out alongside the incoming fade-in and
-        // is then ended for good. The clips outlast the whole test, so only the transition can end the outgoing
-        // one inside the window below.
+        // The other half of the CrossFade overlap test: the overlap has to end.
         [UnityTest]
         public IEnumerator SetTransition_CrossFade_EndsOutgoingBGMOnceItsFadeOutCompletes()
         {
             yield return RequireRealtimeAudioClock();
-            // As in SetTransition_CrossFade_OutgoingAndIncomingBGMOverlap: the implicit auto-BGM transition is a
-            // CrossFade by factory default, so it is pinned away to leave the explicit one as the only source.
             SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
 
             SoundID firstId = NewSound("CrossfadeEndBgmA", BroAudioType.Music, NewClip(TransitionBgmClipLength));

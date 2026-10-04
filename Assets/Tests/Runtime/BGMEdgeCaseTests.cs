@@ -9,18 +9,13 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Two BGM behaviors the transition and event tests leave unpinned: the loop-seam exception to
-    /// <see cref="BroAudio.OnBGMChanged"/> (a handover re-points the current BGM without raising the event),
-    /// and what <see cref="StopMode.Mute"/>'s "until it's played (unmuted) again" amounts to in practice.
+    /// The loop-seam exception to <see cref="BroAudio.OnBGMChanged"/>, and what <see cref="StopMode.Mute"/>'s
+    /// "until it's played (unmuted) again" amounts to in practice.
     /// </summary>
     public class BGMEdgeCaseTests : BroAudioTestFixture
     {
-        // MusicPlayer.UpdateInstance writes the _currentBGMPlayer backing field, not the CurrentBGMPlayer
-        // property, when a loop hands the BGM over to its next player - the logical BGM has not changed, so the
-        // event must not fire. The decorator moves to the incoming player (TransferDecorators), so the outgoing
-        // player's Recycle has no MusicPlayer left to clear CurrentBGMPlayer with a null raise either
-        // (compare TEST_FINDINGS #11, the null raise on a real swap). CurrentBGMPlayer itself does follow the
-        // handover, which is what lets a later transition stop the iteration that is actually playing.
+        // A handover is not a BGM change, so no event; CurrentBGMPlayer must still follow it, or a later
+        // transition would stop the wrong iteration.
         [UnityTest]
         public IEnumerator OnBGMChanged_AcrossALoopingBGMsHandoverSeam_DoesNotFire_ButCurrentBGMPlayerFollowsTheHandover()
         {
@@ -55,12 +50,7 @@ namespace Ami.BroAudio.Tests
                 "CurrentBGMPlayer follows the handover to the iteration that is now playing.");
         }
 
-        // StopMode.Mute's doc says the muted playback "will keep playing in the background until it's played
-        // (Unmuted) again", and AudioPlayer.StartPlaying has a `StopMode.Mute when AudioSource.isPlaying` case
-        // for exactly that re-play. But no public path re-plays that player instance: Play(id) always takes a
-        // fresh player from the pool, and UnPause's guard (`_stopMode != StopMode.Pause`) warns and returns. So
-        // "playing it again" leaves the muted voice running silently beside a new one until its clip runs out;
-        // only an explicit SetVolume on the old handle would bring it back. Characterizes TEST_FINDINGS #67.
+        // Pins TEST_FINDINGS #67 (the replay half).
         [UnityTest]
         [Category("Finding_67")]
         public IEnumerator StopModeMute_PlayingTheSameSoundAgainStartsANewPlayerAndLeavesTheMutedOneRunningSilently()
@@ -96,14 +86,8 @@ namespace Ami.BroAudio.Tests
             Assert.Less(first.GetVolume(), MutedThreshold, "characterizes: UnPause only resumes a Pause, so it cannot unmute either.");
         }
 
-        // The mute is applied by StopControl, which AudioPlayer.Stop starts with
-        // RestartCoroutine(..., ref _playbackControlCoroutine) - the same slot PlayControl runs in - so muting
-        // kills the PlayControl that would have ended the player at the clip's end. Pause relies on that (the
-        // resume starts a new PlayControl), but nothing ever resumes a muted player: once its clip runs out the
-        // source stops, yet EndPlaying never runs, so the player stays checked out of the pool (IsActive, not
-        // playing) until something stops it explicitly. The explicit Stop at the end is what frees it.
-        // Characterizes TEST_FINDINGS #67 (the leak half); a fix that ends a muted player at its clip's end
-        // turns the IsActive assert red.
+        // Pins TEST_FINDINGS #67 (the leak half); a fix that ends a muted player at its clip's end turns the
+        // IsActive assert red. The closing explicit Stop frees the stranded player.
         [UnityTest]
         [Category("Finding_67")]
         public IEnumerator StopModeMute_TheMutedPlayerIsNeverRecycledWhenItsClipEnds_OnlyAnExplicitStopFreesIt()

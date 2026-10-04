@@ -10,36 +10,15 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Plain looping, seamless (crossfaded) looping, Chained multi-clip playback, and pausing mid-handover -
-    /// all implemented via player handover rather than AudioSource.loop. See
-    /// Docs/inventory/time-dependent.md, sections "Plain looping", "Seamless looping", "Chained playback",
-    /// "Pause across a handover seam".
-    /// <para>
-    /// This file takes it as contract that the IAudioPlayer handle a caller kept keeps driving the sound
-    /// across a handover seam. AudioPlayerInstanceWrapper.UpdateInstance
-    /// exists for no other reason - it re-points the wrapper at the incoming player and carries the
-    /// registered callbacks, decorators and added effect components over - and looping BGM, the default use
-    /// of this library, leaves its owner with no handle other than the one Play returned. So the survival of
-    /// that handle is public API, not an internal detail:
-    /// Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams pins it directly, driving SetVolume,
-    /// OnEnd and Stop on the original handle after two handovers. The other tests here still track a
-    /// handed-over sound through BroAudio.HasAnyPlayingInstances and through the GetActivePlayers reflection
-    /// helper below (a thin window onto SoundManager's private player pool), because what they are about is
-    /// which players exist and what each one is playing, not what the caller's handle points at.
-    /// </para>
-    /// <para>
-    /// A SeamlessLoop whose TransitionTime exceeds the clip is covered by
-    /// SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount, which
-    /// characterizes the stretched loop period logged as TEST_FINDINGS #59.
-    /// </para>
+    /// Plain, seamless and Chained looping, and pausing mid-handover - all via player handover, never
+    /// AudioSource.loop. The handle Play returned surviving every seam is public API (a looping BGM's owner
+    /// has no other handle). Tests about which players exist inspect the pool via GetActivePlayers instead.
     /// </summary>
     [Category("Slow")]
     public class LoopHandoverTests : BroAudioTestFixture
     {
         /// <summary>
-        /// All active, audibly-playing AudioPlayer instances for a SoundID - mirrors the filter behind the
-        /// public BroAudio.HasAnyPlayingInstances, but returns the players themselves so a test can inspect
-        /// clip identity or count distinct instances (e.g. two players crossfading at once).
+        /// The players behind BroAudio.HasAnyPlayingInstances(id), returned so a test can inspect or count them.
         /// </summary>
         private static List<AudioPlayer> GetActivePlayers(SoundID id)
         {
@@ -58,32 +37,18 @@ namespace Ami.BroAudio.Tests
         private static AudioClip ClipOf(AudioPlayer player) => ((IAudioPlayer)player).AudioSource.clip;
 
         /// <summary>
-        /// The player's live playhead, in samples. A player that has only been PlayScheduled-armed reports
-        /// AudioSource.isPlaying true while this still sits at the clip's start sample, so this is what
-        /// separates a player that is genuinely being heard from one that is merely queued.
+        /// Trap: a PlayScheduled-armed player already reports isPlaying, so only an advancing playhead
+        /// separates a heard player from a queued one.
         /// </summary>
         private static int PlayheadOf(AudioPlayer player) => ((IAudioPlayer)player).AudioSource.timeSamples;
 
         /// <summary>
-        /// The player's current level - AudioPlayer.Volume.cs's _clipVolume.Current * _trackVolume.Current *
-        /// _audioTypeVolume.Current. Nothing here touches the latter two, so it reads back _clipVolume alone,
-        /// which is the fader a seamless loop's crossfade drives.
+        /// Reads back the crossfade's _clipVolume alone, as long as the test leaves track and type volume at 1.
         /// </summary>
         private static float VolumeOf(AudioPlayer player) => ((IAudioPlayer)player).GetVolume();
 
-        // Handle continuity - the other half of the same handover: what the caller is left holding.
-        // ScheduleNextPlayback bakes the outgoing player's _trackVolume.Target into
-        // PlaybackHandoverData.TrackVolume and ReceiveHandover completes the
-        // incoming player's fader on it, while UpdateInstance moves the registered onEnd
-        // delegates to the incoming player and leaves the outgoing player's _onEnd null
-        // (via AudioPlayer.TransferOnEnds) -
-        // so EndPlaying's _onEnd?.Invoke is a no-op at a seam and fires once,
-        // at the real end. None of that is observable except through the handle the caller kept.
-        // A plain loop rather than a seamless one on purpose: with no crossfade, _clipVolume sits completed
-        // at its target the whole time, so GetVolume() reads back the track volume alone.
-        // Also covers 2.2's other half: a looping entity never sets AudioSource.loop, instead handing a
-        // fresh player over at (or near) the natural end of each iteration - checked on this same first
-        // player before the first handover, alongside the handle continuity this test is really about.
+        // Volume, OnEnd and Stop on the caller's original handle after two seams. A plain loop on purpose:
+        // with no crossfade _clipVolume stays at 1, so GetVolume() reads back the track volume alone.
         [UnityTest]
         public IEnumerator Play_WithPlainLoop_HandleKeepsDrivingTheSoundAcrossTwoSeams()
         {
@@ -106,9 +71,6 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(player.AudioSource.loop,
                 "characterizes: BroAudio implements looping via player handover, never via AudioSource.loop.");
 
-            // Both are registered on the first player, well before the first seam. GetVolume() is
-            // _clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current;
-            // the latter two are 1 here, so it reads back exactly what SetVolume put on the track fader.
             player.OnEnd(_ => onEndCount++);
             player.SetVolume(TargetVolume);
             Assert.AreEqual(TargetVolume, player.GetVolume(), LinearTolerance,
@@ -118,8 +80,6 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= secondSeamDsp + 0.2,
                 "the dsp clock to pass two loop seams", HandoverWaitSeconds);
 
-            // If the handle had been left behind on the first player, the wrapper would have been recycled
-            // with it (via AudioPlayer.Recycle()) and IsActive would read false.
             Assert.IsTrue(player.IsActive,
                 "The caller's IAudioPlayer must still be live after two handovers - UpdateInstance re-points " +
                 "it at the incoming player, and the owner of a looping sound has no other handle to hold.");
@@ -130,8 +90,7 @@ namespace Ami.BroAudio.Tests
                 "characterizes: OnEnd is an end-of-sound callback, not a per-iteration one - BeginHandover " +
                 "transfers the delegate away before the outgoing player's EndPlaying could invoke it.");
 
-            // The real proof that the handle still commands the sound: a handle stranded on the recycled
-            // first player would make this a no-op and the loop would keep running.
+            // A handle stranded on the recycled first player would make this a no-op.
             player.Stop(0f);
             yield return WaitFrames(3);
 
@@ -142,9 +101,7 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Records every seam at which a caller's handle is re-pointed at a new player (what
-        /// AudioPlayerInstanceWrapper.UpdateInstance does at BeginHandover), as the DSP time it was first seen.
-        /// Polled once per frame, so each entry is at most a frame late.
+        /// DSP time of each seam at which the handle is re-pointed. Polled per frame, so up to a frame late.
         /// </summary>
         private sealed class HandoverRecorder
         {
@@ -172,15 +129,9 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        // The rest of what ReceiveHandover carries besides the finished volume the test above pins: a pitch set
-        // mid-play (PlaybackHandoverData.Pitch, applied before the incoming player resolves its own end time) and
-        // the follow target (inside the handed-over PlaybackPreference). A pitch below 1 is the case that can
-        // truncate: the seam player has to both keep the pitch and derive its end from it, or each iteration is
-        // cut to the unpitched clip length. So the pitch is read back on the handle after two seams, and the
-        // period between those two seams - both whole iterations played at the new pitch - is measured on the
-        // DSP clock: ClipSeconds / Pitch (2.5s) if the seam player honours it, ClipSeconds (1s) if it does not.
-        // The tolerance puts the acceptance edge at the midpoint between the two, 0.75s - more than two slow
-        // frames - from either outcome.
+        // Pitch below 1 is the case that can truncate: the seam player must derive its end from the carried
+        // pitch, or each iteration is cut to the unpitched length. The DSP period between two seams is 2.5s if
+        // honoured, 1s if not; the tolerance puts the edge at their midpoint, 0.75s from either.
         [UnityTest]
         public IEnumerator Play_WithPlainLoop_PitchBelowOneAndFollowTargetRideAcrossTwoSeams()
         {
@@ -220,8 +171,7 @@ namespace Ami.BroAudio.Tests
                 $"The seam player must play the whole clip at the carried pitch: one iteration lasts ClipSeconds / Pitch " +
                 $"({PitchedPeriodSeconds}s), not the unpitched {ClipSeconds}s - measured {period:F3}s.");
 
-            // The follow target rides in the handed-over PlaybackPreference; AudioPlayer.Update re-reads it every
-            // frame, so a player that lost it would stay wherever it was spawned.
+            // A seam player that lost the follow target would stay wherever it was spawned.
             AudioPlayer current = InstanceOf(player);
             Assert.AreEqual(AudioConstant.SpatialBlend_3D, player.AudioSource.spatialBlend, 0.001f,
                 "A follow-target play is forced to 3D, and the seam player must be as well.");
@@ -232,13 +182,8 @@ namespace Ami.BroAudio.Tests
                 "The seam player must keep following the target the sound was played with.");
         }
 
-        // An in-flight SetVolume fade, a per-type SetEffect and a fixed Play position, each carried across the
-        // seams of a plain loop. ScheduleNextPlayback bakes the fading track volume's current value, target,
-        // remaining time and ease into the handover, and ReceiveHandover resumes the fade from there; the handed-
-        // over PlaybackPreference keeps the position; ReceiveHandover overrides the incoming player's track effects
-        // with the outgoing player's. The fade is 3s against 0.5s iterations, so it spans several seams. Halfway
-        // through, a fade that snapped to its target at a seam reads 0.2 and one that was dropped reads 1; the
-        // factory fade-out ease (OutSine) puts a correctly carried fade near 0.45, well inside the band below.
+        // The 3s fade spans several 0.5s iterations. Halfway, a fade a seam snapped to its target reads 0.2, a
+        // dropped one reads 1; the factory OutSine ease puts a carried fade near 0.45, inside the band below.
         [UnityTest]
         public IEnumerator Play_WithPlainLoop_InFlightFadeTrackEffectAndPositionRideAcrossSeams()
         {
@@ -256,7 +201,6 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
 #if !UNITY_WEBGL
-            // Per-type, so the first player routes through the effect send; the fixture resets it in TearDown.
             BroAudio.SetEffect(Effect.LowPass(800f), BroAudioType.SFX);
 #endif
 
@@ -307,41 +251,21 @@ namespace Ami.BroAudio.Tests
 #endif
         }
 
-        // A seamless loop's transition time is applied as both the outgoing player's fade-out and the
-        // incoming player's fade-in, and BeginHandover runs before the fade-out starts - so for the whole
-        // transition window, two distinct players are simultaneously active and audible (a real crossfade).
-        // <para>
-        // Two live players is not by itself evidence of that. A *plain* loop has two as well, for
-        // ScheduledPlaybackWarmUpTime (at least AudioConstant.MixerWarmUpTime, 0.1s) before every seam:
-        // ScheduleNextPlayback spawns the next player that far ahead of the seam, and AudioSource.PlayScheduled
-        // makes isPlaying report true from the call onwards even though that player's playhead has not moved
-        // yet. So waiting for a count of 2 passes on a plain loop too - and neither player's clip volume moves
-        // at all there, because with no fade SetupClipVolume completes both straight onto their target. What
-        // only a crossfade produces is an overlap that stays open for a large fraction of the transition time,
-        // with the incoming playhead already advancing and the two clip volumes travelling in opposite
-        // directions - which is what this measures.
-        // </para>
+        // Trap: two live players is not proof of a crossfade - a plain loop has two for the ~0.1s warm-up before
+        // every seam, both reporting isPlaying with flat volumes. Only a crossfade gives a long overlap with an
+        // advancing incoming playhead and the two clip volumes moving in opposite directions.
         [UnityTest]
         public IEnumerator Play_WithSeamlessLoop_CrossfadesTwoPlayersAcrossTheSeam()
         {
             yield return RequireRealtimeAudioClock();
 
-            // ClipSeconds has to hold the whole transition window AND still leave a stretch after the seam
-            // where the handed-over player is alone, for the tail assertion. Each player's own crossfade
-            // opens TransitionSeconds before its own end, so at ClipSeconds == TransitionSeconds * 2 the
-            // crossfades abut and two players are live forever - the tail would then never come true.
+            // Must exceed TransitionSeconds * 2: at that length the crossfades abut, two players stay live
+            // forever and the single-player tail wait never comes true.
             const float ClipSeconds = 5f;
             const float TransitionSeconds = 2f;
-            // Half the transition. The scan below accumulates the overlap instead of sampling chosen instants,
-            // so a slow frame at either edge only trims the measurement - and it would have to swallow a full
-            // second before this became unreachable, while a plain loop's ~0.1s warm-up overlap can never reach
-            // it at all.
+            // A slow frame would have to eat a full second to miss this; the plain-loop ~0.1s overlap never reaches it.
             const double MinOverlapSeconds = TransitionSeconds / 2d;
-            // Both clip volumes traverse the full 0..1 range across the window, and the overlap the scan measures
-            // spans most of it, so requiring a quarter of that travel is unmistakable under the factory seamless
-            // eases the base fixture pins (OutCubic in, OutSine out) while staying far from the float tolerances.
-            // It is not a claim about every ease: a steep enough curve can move less than a quarter across a
-            // partial window.
+            // Safe under the factory eases (OutCubic in, OutSine out); a steep enough curve could travel less.
             const float MinVolumeTravel = 0.25f;
             AudioEntity entity = NewEntity("SeamlessLoopSfx", BroAudioType.SFX, NewClip(ClipSeconds));
             TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
@@ -360,9 +284,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
                 "the dsp clock to reach the start of the crossfade window", HandoverWaitSeconds * 2);
 
-            // Scan every frame of the window rather than sampling two chosen dsp instants: each frame that
-            // sees both players extends the measured overlap, so an overshoot at either edge shortens the
-            // measurement slightly instead of missing a sample point outright.
+            // Accumulate the overlap every frame, don't sample chosen instants: an overshoot then only trims it.
             double firstOverlapDsp = -1d;
             double lastOverlapDsp = -1d;
             float outgoingVolumeFirst = 0f;
@@ -382,8 +304,7 @@ namespace Ami.BroAudio.Tests
                 List<AudioPlayer> active = GetActivePlayers(id);
                 if (active.Count == 2)
                 {
-                    // The outgoing player is the one further into its clip - the incoming one only started
-                    // at the top of this window.
+                    // The outgoing player is the one further into its clip.
                     bool isFirstOutgoing = PlayheadOf(active[0]) > PlayheadOf(active[1]);
                     AudioPlayer outgoing = isFirstOutgoing ? active[0] : active[1];
                     AudioPlayer incoming = isFirstOutgoing ? active[1] : active[0];
@@ -419,26 +340,17 @@ namespace Ami.BroAudio.Tests
                 "The incoming player must be fading in across the same window - the other half of the crossfade, " +
                 "carried over on the handed-over pref.");
 
-            // Past the seam the outgoing player's scheduled end has fired and its fade-out has run out, so the
-            // handed-over player is alone until its own crossfade opens ClipSeconds - TransitionSeconds later.
             yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
                 "the crossfade to finish, leaving only the handed-over player active", HandoverWaitSeconds);
         }
 
-        // Chained mode plays clip[Start] once, hands over to clip[Loop] repeatedly (seamless, per
-        // RuntimeSetting's chained-mode default), and on Stop() hands over one more time to clip[End].
-        // Unlike every other handover in this file, the outro handover fires synchronously inside
-        // StopControl - there is no DSP wait gate before it, so it is already in effect the instant the
-        // Stop() call returns, with no frame yielded in between.
+        // Unlike every other handover here, the outro handover has no DSP gate: it is in effect when Stop() returns.
         [UnityTest]
         public IEnumerator ChainedPlayMode_HandsOverIntroToLoopToOutro_OutroHandoverFiresSynchronouslyOnStop()
         {
             yield return RequireRealtimeAudioClock();
 
-            // The intro is long because the "only the intro player" check below has to sit well clear of the
-            // moment the loop player is pre-spawned - its warm-up plus the chained transition before the intro's
-            // end - per the fixture's rule that a decisive window is at least a second wide. The loop and outro
-            // stay short so the stages keep cycling quickly.
+            // Long intro keeps the "only the intro player" check over a second clear of the loop player's pre-spawn.
             const float IntroSeconds = 2f;
             const float ClipSeconds = 0.3f;
             AudioClip introClip = NewClip(IntroSeconds, "Intro");
@@ -463,8 +375,6 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Exists(p => ClipOf(p) == loopClip),
                 "the intro clip to hand over to the loop clip", HandoverWaitSeconds);
 
-            // Wait past a second loop-stage seam to confirm the loop stage keeps re-chaining to itself,
-            // rather than the earlier handover having been a one-off.
             double keepLoopingUntilDsp = startDsp.Value + IntroSeconds + (ClipSeconds * 2);
             yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= keepLoopingUntilDsp,
                 "the dsp clock to pass a second loop-stage seam", HandoverWaitSeconds);
@@ -481,28 +391,15 @@ namespace Ami.BroAudio.Tests
                 "the outro clip to finish and playback to end for good (no further handover past the End stage)", HandoverWaitSeconds);
         }
 
-        // THE highest-risk behavior in this file: pausing right inside a seamless-loop handover seam
-        // (project memory: looping-via-handover.md names this a live NRE source). Landed deterministically
-        // via the dsp clock rather than a fixed real-time delay, using a wide crossfade window so the pause
-        // reliably lands after BeginHandover has already run (it fires at the start of the crossfade
-        // window, before the fade-out itself begins).
-        // <para>
-        // Pause(0f), not Pause(): ApplySeamlessFade leaves TransitionTime standing as the player's fade-out
-        // base, so the no-argument overload resolves to a transition-long fade and StopControl would not reach
-        // AudioSource.Pause() until well past the seam - the opposite of pausing *inside* it. The 0f override
-        // is consumed by TryGetFadeOut, which then reports no fade, and the source is paused synchronously
-        // within the call, inside the window.
-        // </para>
+        // Pausing inside a seamless-loop seam, after BeginHandover has run, is a known NRE source.
+        // Pause(0f), not Pause(): the no-arg overload resolves to a TransitionTime-long fade, so the source
+        // would not actually pause until well past the seam.
         [UnityTest]
         public IEnumerator Pause_DuringSeamlessLoopHandoverSeam_DoesNotThrowAndResumes()
         {
-            // The seam is a dsp-clock position; without a realtime clock the wait below can cross the whole
-            // clip in one frame and the pause lands anywhere but the seam.
             yield return RequireRealtimeAudioClock();
 
-            // A 2s crossfade window leaves 1s of slack either side of its midpoint, and ClipSeconds keeps the
-            // *next* crossfade (and the warm-up player it spawns) another second clear of it, so the
-            // two-players-exactly precondition below is not sitting on a boundary in either direction.
+            // 1s of slack either side of the crossfade midpoint, and the next crossfade a further second clear.
             const float ClipSeconds = 5f;
             const float TransitionSeconds = 2f;
             AudioEntity entity = NewEntity("PauseSeamSfx", BroAudioType.SFX, NewClip(ClipSeconds));
@@ -547,7 +444,7 @@ namespace Ami.BroAudio.Tests
                 "at the top of the crossfade window, which leaves the one still playing - the outgoing player - " +
                 "a whole TransitionTime further into its clip.");
 
-            // The playhead advances on the dsp clock, so measure the freeze against that clock.
+            // The playhead advances on the dsp clock, so measure the freeze on it.
             yield return WaitDspSeconds(0.5);
             Assert.AreEqual(pausedPlayhead, player.AudioSource.timeSamples,
                 "A paused AudioSource must not advance its playhead, not even one paused mid-handover.");
@@ -565,8 +462,7 @@ namespace Ami.BroAudio.Tests
                 "The resumed sound must be audible again through the public surface, not merely un-paused internally.");
         }
 
-        // ChangeClipPerLoop makes ScheduleNextPlayback hand over no clip, so every iteration re-picks through
-        // the entity's strategy. Sequence mode makes each pick a distinct, predictable clip.
+        // Sequence mode makes each re-pick a distinct, predictable clip.
         [UnityTest]
         public IEnumerator Loop_WithChangeClipPerLoopAndSequence_AdvancesClipAtEachSeam()
         {
@@ -582,8 +478,7 @@ namespace Ami.BroAudio.Tests
 
             BroAudio.Play(id);
 
-            // Record each clip in the order a player first takes it on. A pooled player re-used for a later
-            // iteration counts again because its clip changes.
+            // Keyed on clip change, so a pooled player reused for a later iteration still counts.
             var picked = new List<AudioClip>();
             var lastClipOf = new Dictionary<AudioPlayer, AudioClip>();
             float deadline = Time.realtimeSinceStartup + (ClipSeconds * 4f) + 3f;
@@ -607,10 +502,7 @@ namespace Ami.BroAudio.Tests
                 "Each loop iteration should re-pick through the Sequence strategy - a reused clip means ChangeClipPerLoop was ignored.");
         }
 
-        // SoundManager.Stop(type, fade) calls Stop(fade) on every live player of that type. For a loop,
-        // StopControl cancels the pending handover and discards any pre-spawned next player, so the sound
-        // never comes back - but it also goes silent at the current iteration's end, while its handle stays
-        // active for the rest of the fade (TEST_FINDINGS #58).
+        // Pins TEST_FINDINGS #58.
         [UnityTest]
         [Category("Finding_58")]
         public IEnumerator Stop_ByTypeWithFade_FadesOneShotsButALoopFallsSilentAtItsCurrentIterationEnd()
@@ -662,8 +554,7 @@ namespace Ami.BroAudio.Tests
 
         }
 
-        // Every live player of this sound, whether or not its voice is still audible - GetActivePlayers above
-        // filters on IsPlaying, which a player fading out past its clip's end no longer reports.
+        // Unlike GetActivePlayers, includes a player fading out past its clip's end, which no longer reports IsPlaying.
         private static List<AudioPlayer> GetCheckedOutPlayers(SoundID id)
         {
             var all = CurrentAudioPlayers();
@@ -678,23 +569,9 @@ namespace Ami.BroAudio.Tests
             return matches;
         }
 
-        // A TransitionTime longer than the clip makes ScheduleNextPlayback's wait window negative, so it schedules
-        // the next player at once, from inside the call that started the current one. That does not recurse: the
-        // incoming player's PlayControl parks on `while (_clipVolume.IsFading)` for its TransitionTime-long fade-in
-        // before it reaches ScheduleNextPlayback itself, and Fader.Fade starts that fade synchronously, so each
-        // player spawns exactly one successor per TransitionTime. The loop's period therefore stretches from the
-        // clip length to the TransitionTime.
-        // <para>
-        // The window is three transitions long. A loop spawning once per TransitionTime shows 4 or 5 starts in it
-        // (two at the very start - the first player hands over before its own fade could open - then one per
-        // transition). A loop spawning once per clip would show about 9, and unbounded recursion would never
-        // return from Play. The bounds sit a full start clear of both.
-        // </para>
-        // <para>
-        // Characterizes TEST_FINDINGS #59: the stretched period is pinned as-is, not endorsed - a 0.5s clip
-        // that sounds once per 1.5s is not what a seamless loop promises. A fix that restores the clip-length
-        // period turns the MaxStarts assertion red, which is the intended, deliberate update point.
-        // </para>
+        // Pins TEST_FINDINGS #59; fixing it turns the MaxStarts assertion red, the intended update point.
+        // Over three transitions, once-per-TransitionTime shows 4-5 starts, once-per-clip ~9, and unbounded
+        // recursion never returns from Play; the bounds sit a full start clear of each.
         [UnityTest]
         [Category("Finding_59")]
         public IEnumerator SeamlessLoop_WithTransitionLongerThanTheClip_LoopsOncePerTransitionWithABoundedPlayerCount()
@@ -715,8 +592,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player);
 
-            // A pooled player can come back for a later iteration, so a start is an inactive-to-active edge,
-            // not a new instance.
+            // A start is an inactive-to-active edge, not a new instance: pooled players come back.
             int starts = 0;
             int maxConcurrent = 0;
             var activeLastFrame = new HashSet<AudioPlayer>();
@@ -747,8 +623,7 @@ namespace Ami.BroAudio.Tests
                 $"characterizes: the loop's period is the {TransitionSeconds}s transition, not the {ClipSeconds}s clip ({observed}).");
             Assert.IsTrue(player.IsActive, $"The caller's handle must still drive the loop after {WindowSeconds}s of handovers.");
 
-            // Stop reaches the handle's player and the successor it scheduled; an outgoing player nobody holds
-            // any more finishes its own fade-out, which bounds this wait by one transition.
+            // An outgoing player nobody holds finishes its own fade-out, so this wait spans up to one transition.
             player.Stop(0f);
             yield return WaitUntilOrTimeout(() => GetCheckedOutPlayers(id).Count == 0,
                 "every player of the loop to recycle after Stop()", TransitionSeconds + DefaultPlaybackWaitSeconds);

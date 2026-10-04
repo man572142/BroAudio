@@ -5,9 +5,8 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// E0 tier: pure functions on <see cref="BroEditorUtility"/> that touch no Unity state.
-    /// No fixture behavior is exercised here, but every test still derives from
-    /// <see cref="BroEditorTestFixture"/> per the suite's contract.
+    /// Pure <see cref="BroEditorUtility"/> functions that touch no Unity state. Derives from
+    /// <see cref="BroEditorTestFixture"/> anyway, per the suite's contract.
     /// </summary>
     public class EditorUtilityPureTests : BroEditorTestFixture
     {
@@ -73,7 +72,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_24")]
         public void Combine_ThreeArgForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
-            // Characterizes TEST_FINDINGS #24: naked "+ "/" +" concatenation does not strip a trailing slash.
+            // Pins TEST_FINDINGS #24.
             Assert.AreEqual("a//b/c", BroEditorUtility.Combine("a/", "b", "c"));
         }
 
@@ -87,7 +86,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_24")]
         public void Combine_ParamsForm_TrailingSlashOnInput_YieldsDoubleSlash()
         {
-            // Characterizes TEST_FINDINGS #24: the same quirk as the 3-arg form, characterized rather than fixed.
+            // Pins TEST_FINDINGS #24.
             Assert.AreEqual("a//b", BroEditorUtility.Combine("a/", "b"));
         }
 
@@ -106,9 +105,8 @@ namespace Ami.BroAudio.Editor.Tests
 
         #region ForeachConcreteDrawedProperty / DrawedProperty.Contains
         /// <summary>
-        /// Every single-bit, nonzero member the enum declares, read from the enum itself rather than listed by hand:
-        /// a flag added to <see cref="DrawedProperty"/> lands here automatically, so a flag that was not also folded
-        /// into <see cref="DrawedProperty.All"/> turns both tests below red.
+        /// Every single-bit <see cref="DrawedProperty"/> member, read from the enum rather than a hand list, so a
+        /// new flag not folded into <see cref="DrawedProperty.All"/> turns both tests below red.
         /// </summary>
         private static readonly DrawedProperty[] ConcreteDrawedProperties = DeclaredSingleBitFlags();
 
@@ -150,9 +148,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void DrawedPropertyAll_IsExactlyTheConcreteFlagsCombined()
         {
-            // The stop condition of ForeachConcreteDrawedProperty is All itself. If a new flag is added
-            // without folding it into All, iteration stops short of it and nothing else in the suite notices.
-            // ConcreteDrawedProperties comes from Enum.GetValues, so such a flag is in the OR below but not in All.
+            // ForeachConcreteDrawedProperty stops at All, so a flag missing from All is silently skipped.
             int combined = 0;
             foreach (DrawedProperty flag in ConcreteDrawedProperties)
             {

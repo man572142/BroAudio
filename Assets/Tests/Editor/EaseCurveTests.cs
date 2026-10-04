@@ -5,37 +5,26 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Shape assertions for <see cref="EaseExtension.SetEase"/> - the only shaping function behind player
-    /// volume fades (FaderModule), master fades (SoundManager) and all effect automation
-    /// (EffectAutomationHelper). Pure math: no SoundManager, no MonoBehaviour, no Play Mode.
-    /// <para>
-    /// Every expected value below is hand-derived from the curve's closed form and written as a literal.
-    /// Nothing in this file may call <c>SetEase</c> to produce an expectation - a test that re-derives its
-    /// expectation from the code under test cannot catch a transcription slip (<c>Pow(v, 3)</c> becoming
-    /// <c>Pow(v, 4)</c>), which is precisely the failure mode this file exists to catch. For the same reason
-    /// each interior sample is chosen so that no two curves in the same family - and no curve versus
-    /// Linear - share the asserted value.
-    /// </para>
+    /// Shape of <see cref="EaseExtension.SetEase"/>, behind every fade and effect automation ramp.
+    /// Expectations are hand-derived literals: never call <c>SetEase</c> to produce one, or a transcription
+    /// slip (<c>Pow(v, 3)</c> to <c>Pow(v, 4)</c>) passes. Samples are chosen so no two curves in a family,
+    /// nor any curve and Linear, share the asserted value.
     /// </summary>
     public class EaseCurveTests
     {
         /// <summary>
-        /// Sample points used throughout. The InOut curves branch on <c>value &lt; 0.5f</c>, so they are
-        /// sampled on both sides of that seam as well as exactly on it.
+        /// The InOut curves branch on <c>value &lt; 0.5f</c>, so they are sampled on both sides of it and on it.
         /// </summary>
         private const float Quarter = 0.25f;
         private const float Half = 0.5f;
         private const float ThreeQuarters = 0.75f;
 
         /// <summary>
-        /// The curves are float32 Pow/Sqrt/Sin/Cos evaluations of exactly representable inputs; the dyadic
-        /// expectations (0.125, 0.96875, ...) are exact and the transcendental ones are written to 8 decimals,
-        /// so 1e-5 is orders of magnitude wider than the arithmetic error yet far tighter than the gap between
-        /// any two curves asserted here (the closest pair, InCubic 0.125 vs InCirc 0.13397460, differ by ~9e-3).
+        /// Far wider than float32 error, far tighter than the closest pair of curves (InCubic vs InCirc, ~9e-3).
         /// </summary>
         private const float Tolerance = 1e-5f;
 
-        /// <summary>Drives the endpoint tests, so a newly added Ease member is covered automatically.</summary>
+        /// <summary>So a newly added Ease member gets endpoint coverage automatically.</summary>
         private static readonly Ease[] AllEaseValues = (Ease[])Enum.GetValues(typeof(Ease));
 
         #region Endpoints
@@ -43,15 +32,13 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void SetEase_AtZero_ReturnsZero([ValueSource(nameof(AllEaseValues))] Ease ease)
         {
-            // Every Ease is normalized: a fade starting at t=0 must start at the origin volume, whichever
-            // curve the user picked. A curve that does not pass through (0,0) pops at the start of the fade.
+            // A curve off (0,0) pops at the start of the fade.
             Assert.That(0f.SetEase(ease), Is.EqualTo(0f).Within(Tolerance), "Ease." + ease + " must map t=0 to 0.");
         }
 
         [Test]
         public void SetEase_AtOne_ReturnsOne([ValueSource(nameof(AllEaseValues))] Ease ease)
         {
-            // ...and must reach the target exactly at t=1, or the fade never lands on its target volume.
             Assert.That(1f.SetEase(ease), Is.EqualTo(1f).Within(Tolerance), "Ease." + ease + " must map t=1 to 1.");
         }
 
@@ -100,8 +87,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InOutQuint, Quarter, 0.001953125f)]
         [TestCase(Ease.InOutSine, Quarter, 0.14644661f)]
         [TestCase(Ease.InOutCirc, Quarter, 0.06698730f)]
-        // InOut family, upper (ease-out) half at t=0.75, where -2t + 2 = 0.5. This is a separate branch of
-        // the expression, so it needs its own row per curve:
+        // InOut family, upper (ease-out) branch at t=0.75, where -2t + 2 = 0.5:
         //   InOutQuad  1 - 0.5^2 / 2                 = 0.875
         //   InOutCubic 1 - 0.5^3 / 2                 = 0.9375
         //   InOutQuart 1 - 0.5^4 / 2                 = 0.96875
@@ -131,9 +117,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(Ease.InOutCirc)]
         public void SetEase_InOutCurves_AtMidpoint_AreExactlyHalfway(Ease ease)
         {
-            // Pins the seam: all but InOutSine branch on `value < 0.5f` (strictly less), so t=0.5 evaluates
-            // the ease-OUT half, and its value there must still be 0.5 or the fade steps at the midpoint.
-            // InOutSine is a single expression and is symmetric about 0.5 by construction.
+            // `value < 0.5f` is strict, so t=0.5 evaluates the ease-OUT branch (InOutSine has no branch).
             Assert.That(Half.SetEase(ease), Is.EqualTo(0.5f).Within(Tolerance),
                 "Ease." + ease + " must pass through (0.5, 0.5) - its two halves have to meet at the midpoint.");
         }
@@ -150,14 +134,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_53")]
         public void SetEase_OutOfRangeInput_IsNotClamped_CharacterizesDiscardedClamp01(Ease ease, float t, float expected)
         {
-            // Characterizes TEST_FINDINGS #53: SetEase opens with a bare
-            // `Mathf.Clamp01(value);` whose return value is discarded - Mathf.Clamp01 is pure, so the clamp
-            // does nothing and out-of-range t flows straight into the curve. t > 1 therefore overshoots the
-            // target volume and a negative t can come back POSITIVE through the even powers (-1 -> 1). A
-            // curve that peaks at t = 1 turns back down past it: OutSine at 1.2 is sin(0.6 * pi) = 0.951, short
-            // of 1. The master-volume, pitch and effect-automation ramps add the frame's delta before they
-            // evaluate, so their last pass does reach t > 1. If the clamp is ever wired up
-            // (`value = Mathf.Clamp01(value);`), these rows are the ones that must change.
+            // Pins TEST_FINDINGS #53; wiring up the clamp changes these rows. OutSine at 1.2 = sin(0.6 * pi).
             Assert.That(t.SetEase(ease), Is.EqualTo(expected).Within(Tolerance));
         }
 
@@ -165,9 +142,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_53")]
         public void SetEase_InCircPastOne_IsNaN()
         {
-            // Characterizes TEST_FINDINGS #53: with no clamp, InCirc (1 - sqrt(1 - t^2)) takes the square root of a
-            // negative number for any t > 1. VolumePitchMixerTests.SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer
-            // shows that value reaching the mixer.
+            // Pins TEST_FINDINGS #53: InCirc is sqrt(1 - t^2), negative under the root past 1.
             Assert.IsTrue(float.IsNaN(1.1f.SetEase(Ease.InCirc)),
                 "Ease.InCirc at t = 1.1 read " + 1.1f.SetEase(Ease.InCirc) + ", not NaN.");
         }
@@ -176,9 +151,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_54")]
         public void SetEase_UndefinedEaseValue_FallsBackToZero()
         {
-            // Characterizes TEST_FINDINGS #54: the `_ => 0` switch arm - an out-of-range cast (e.g. a
-            // saved ordinal from a newer build) silently yields 0 for the whole fade rather than
-            // throwing, which pins the volume at the fade's origin for its entire duration.
+            // Pins TEST_FINDINGS #54.
             Assert.That(Half.SetEase((Ease)9999), Is.EqualTo(0f).Within(Tolerance));
         }
 
@@ -186,9 +159,7 @@ namespace Ami.BroAudio.Tests
 
         #region Enum ordinals
 
-        // Characterizes TEST_FINDINGS #54: the exposure half - Ease carries no explicit values and Unity
-        // serializes it BY ORDINAL, which is how a saved asset hands SetEase an undefined member and
-        // reaches the `_ => 0` arm at all. Pinning the ordinals keeps that route closed.
+        // Pins TEST_FINDINGS #54's exposure half: serialized ordinals are how a saved asset reaches `_ => 0`.
         [TestCase(Ease.Linear, 0)]
         [TestCase(Ease.InQuad, 1)]
         [TestCase(Ease.InCubic, 2)]

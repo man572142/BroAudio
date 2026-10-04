@@ -8,12 +8,9 @@ using UnityEngine;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// E2 tier: the three <see cref="SerializedProperty"/> helpers in
-    /// BroEditorUtility.SerializedProperty.cs. Clip fields are reached through a real
-    /// <see cref="AudioEntity"/> (an in-memory ScriptableObject, tracked for teardown) because
-    /// <see cref="BroAudioClip"/> is a plain serializable class, not an asset in its own right.
-    /// <see cref="SpatialSetting"/> is used for the curve tests since it is itself a
-    /// ScriptableObject with AnimationCurve fields, so the fixture's temp-object helper applies directly.
+    /// Pins the <see cref="SerializedProperty"/> reset and curve helpers. <see cref="BroAudioClip"/> is a plain
+    /// class, so clip fields are reached through an <see cref="AudioEntity"/>; <see cref="SpatialSetting"/>
+    /// supplies a ScriptableObject with AnimationCurve fields.
     /// </summary>
     public class SerializedPropertyResetTests : BroEditorTestFixture
     {
@@ -132,7 +129,7 @@ namespace Ami.BroAudio.Editor.Tests
             // Volume resets to FullVolume, not 0 - the one field that differs from a straight zero-out.
             AssertPlaybackSettingWasReset(target);
 
-            // This is the whole difference from ResetBroAudioClipSerializedProperties: these two survive.
+            // Unlike ResetBroAudioClipSerializedProperties, these survive.
             Assert.AreSame(clip, target.FindPropertyRelative(BroAudioClip.NameOf.AudioClip).objectReferenceValue);
             Assert.AreEqual(DistinctiveWeight, target.FindPropertyRelative(nameof(BroAudioClip.Weight)).intValue);
 #if PACKAGE_ADDRESSABLES

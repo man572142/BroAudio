@@ -29,16 +29,11 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db));
             Assert.AreEqual(0.25f.ToDecibel(), db, DecibelTolerance, "Master volume should write vol.ToDecibel() straight to the mixer's Master parameter.");
 
-            // characterizes: master volume is a separate mixer-graph stage, not a peer in the
-            // player's own linear product (Docs/inventory/volume-mixer.md "Conflicts observed").
+            // characterizes: master is a separate mixer stage (Docs/inventory/volume-mixer.md "Conflicts observed").
             Assert.AreEqual(baselineLinear, player.GetVolume(), LinearTolerance, "Master volume must never appear in IAudioPlayer.GetVolume()'s linear product.");
         }
 
-        // Per-SoundID and per-BroAudioType volume composing multiplicatively in the linear product, and that
-        // product reaching the track's mixer dB parameter, is covered by
-        // AuthoredVolumeTests.SetVolume_ComposesMultiplicativelyWithTheAuthoredClipAndMasterVolume, which
-        // additionally starts from a non-default authored clip*master product - a strict superset of what a
-        // default-entity version of this test could prove.
+        // Per-id * per-type composition lives in AuthoredVolumeTests.SetVolume_ComposesMultiplicativelyWithTheAuthoredClipAndMasterVolume.
 
         [UnityTest]
         public IEnumerator SetAudioTypeVolume_ToExactlyDefault_PushesLive_AndNonDefaultAppliesToFuturePlayersAndMixer()
@@ -47,25 +42,18 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer livePlayer = BroAudio.Play(liveId);
             yield return WaitForPlaybackStart(livePlayer, "live playback to start");
 
-            // Move the live player's per-type factor away from default so a push back to it is observable.
             BroAudio.SetVolume(BroAudioType.SFX, 0.4f, 0f);
             yield return WaitFrames(1);
             Assert.AreEqual(0.4f, livePlayer.GetVolume(), LinearTolerance);
 
-            // Setting back to exactly 1f (DefaultTrackVolume) is pushed to live players.
             BroAudio.SetVolume(BroAudioType.SFX, 1f, 0f);
             yield return WaitFrames(1);
             Assert.AreEqual(1f, livePlayer.GetVolume(), LinearTolerance, "Live players are pushed even when the new value equals the default.");
 
-            // PlayControl applies the stored pref to a freshly-started player unconditionally, so the pref
-            // and live players agree at every value including the default.
             Assert.IsTrue(SoundManager.Instance.TryGetAudioTypePref(BroAudioType.SFX, out IAudioPlaybackPref pref));
             Assert.AreEqual(1f, pref.Volume, LinearTolerance);
 
-            // Now move the per-type factor to a NON-default value before playing the future player. Checking a
-            // future player against the default (1f) can't tell "the pref applied" from "the pref was dropped
-            // and the player just started at full volume" - they read identically. 0.4f rules that out: only a
-            // genuinely-applied pref reads back as 0.4, not silently as 1.
+            // Non-default, or a dropped pref would read the same as an applied one.
             const float NonDefaultTypeVolume = 0.4f;
             BroAudio.SetVolume(BroAudioType.SFX, NonDefaultTypeVolume, 0f);
             yield return WaitFrames(1);
@@ -76,8 +64,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(NonDefaultTypeVolume, futurePlayer.GetVolume(), LinearTolerance,
                 "A fresh player should read the stored per-type volume, not silently fall back to full volume.");
 
-            // Prove the stored pref reaches the new player's actual mixer output too, not just its own linear
-            // bookkeeping - mirrors SetVolume_Master_WritesDirectlyToMixerAndNeverEntersLinearProduct's mixer read.
             Assert.IsNotNull(futurePlayer.AudioSource.outputAudioMixerGroup, "The player must hold a pooled track for its volume parameter to be exposed.");
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(futurePlayer.AudioSource.outputAudioMixerGroup.name, out float db));
             Assert.AreEqual(NonDefaultTypeVolume.ToDecibel(), db, DecibelTolerance,
@@ -129,25 +115,17 @@ namespace Ami.BroAudio.Tests
             SoundID id = NewSound("DeferredPitchSfx", BroAudioType.SFX, NewClip(3f));
 
             IAudioPlayer player = BroAudio.Play(id);
-            // Called in the same frame Play() was enqueued - before SoundManager.LateUpdate drains the
-            // queue and SetInitialPitch runs - so this must hit the deferred-fade branch, not the live one.
+            // Must be the same frame as Play(), before the queue drains, to hit the deferred-fade branch.
             player.SetPitch(2f, 0.5f);
 
             yield return WaitForPlaybackStart(player);
 
-            // The very first playing frame should still read close to the entity's base pitch (1), proving
-            // the fade was deferred rather than the pitch snapping straight to the target (2).
             Assert.Less(player.AudioSource.pitch, 1.9f, "SetPitch called before play should defer into a fade, not snap to the target immediately.");
 
             yield return WaitUntilOrTimeout(() => Mathf.Abs(player.AudioSource.pitch - 2f) < 0.01f, "the deferred pitch fade to reach its target", DefaultPlaybackWaitSeconds);
             Assert.AreEqual(2f, player.AudioSource.pitch, LinearTolerance);
         }
 
-        // SoundManager.SetPitch(float, BroAudioType, float) mirrors
-        // SetAudioTypeVolume_ToExactlyDefault_PushesLive_AndNonDefaultAppliesToFuturePlayersAndMixer above: it both pushes the new
-        // pitch to every live player of the matching type and stores it into AudioTypePlaybackPreference,
-        // so a player that hasn't been played yet also picks it up via SetInitialPitch. BroAudio.SetPitch
-        // with no fadeTime argument defaults to BroAdvice.FadeTime_Immediate, so this applies instantly.
         [UnityTest]
         public IEnumerator SetPitch_ByBroAudioType_AppliesToLiveAndFuturePlayersOfThatTypeOnly()
         {
@@ -172,8 +150,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(0.5f, futureSfxPlayer.AudioSource.pitch, LinearTolerance, "A freshly played SFX entity should pick up the stored per-type pitch.");
         }
 
-        // SoundManager.SetPitch(SoundID, ...) only pushes to live players with that ID - unlike the per-type
-        // overload it stores nothing, so a later play of the same ID starts from its base pitch again.
         [UnityTest]
         public IEnumerator SetPitch_BySoundId_AppliesToThatInstanceOnly()
         {
@@ -204,12 +180,8 @@ namespace Ami.BroAudio.Tests
                 "A per-SoundID pitch is not stored: the next play of that ID starts from its base pitch.");
         }
 
-        // Characterizes TEST_FINDINGS #53 at a real call site. SoundManager's master ramp adds the frame's delta
-        // before it evaluates, so its last pass hands SetEase a ratio just above 1, and SetEase's clamp is a
-        // no-op. InCirc is 1 - sqrt(1 - t^2), which is NaN for any t > 1, so the fade's final write puts NaN on
-        // the Master parameter instead of the target. The ramp and WaitForSeconds share the scaled frame clock
-        // (UpdateMode Normal), so waiting out the fade time plus two frames is past the ramp's last pass by
-        // construction rather than by margin.
+        // Pins TEST_FINDINGS #53 at a real call site. The ramp and WaitForSeconds share the scaled frame clock,
+        // so fade time plus two frames is past the ramp's last pass by construction, not by margin.
         [UnityTest]
         [Category("Finding_53")]
         public IEnumerator SetVolume_MasterFadeWithInCircEase_LastFrameWritesNaNToTheMixer()
@@ -233,8 +205,7 @@ namespace Ami.BroAudio.Tests
                 $"characterizes: the InCirc master fade ends on NaN (read {endDb}dB, the target is {AudioConstant.FullDecibelVolume}dB) - " +
                 "its last pass evaluates the ease past t = 1, where InCirc has no real value.");
 
-            // Recovery: SetMasterVolume's early return compares with ==, which NaN never satisfies, so a zero-fade
-            // set still gets through and rewrites the parameter.
+            // Must run: NaN never satisfies SetMasterVolume's == early return, so this rewrites the parameter.
             BroAudio.SetVolume(AudioConstant.FullVolume, 0f);
             yield return WaitFrames(1);
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float recoveredDb));

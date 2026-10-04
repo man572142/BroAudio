@@ -7,27 +7,18 @@ using UnityEngine;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// The only tests in this suite with a real disk footprint. Everything they create lives under
+    /// Tests with a real disk footprint; everything must land under
     /// <see cref="BroEditorTestFixture.TempFolder"/>, which TearDown deletes.
     /// <para>
-    /// The redirection that makes that true is <c>EditorSetting.AssetOutputPath</c>: AudioAssetEditor writes
-    /// new entities into that path, not next to the asset they belong to. The fixture snapshot/restore puts
-    /// the developer's real output path back afterwards.
-    /// </para>
-    /// <para>
-    /// <c>BroUserDataGenerator.CheckAndGenerateUserData</c> is deliberately NOT covered here — it writes into
-    /// the shipped package's own Resources folders and completes on an async ResourceRequest callback, so it
-    /// cannot be exercised without breaking the isolation contract. See Docs/TEST_INVENTORY.md.
+    /// Don't cover <c>BroUserDataGenerator.CheckAndGenerateUserData</c> here: it writes into the package's own
+    /// Resources folders on an async callback, which breaks the isolation contract.
     /// </para>
     /// </summary>
     public class AssetWritingTests : BroEditorTestFixture
     {
         private const string TempResourcesFolder = TempFolder + "/Resources";
 
-        /// <summary>
-        /// CreateScriptableObjectIfNotExist checks for existence through Resources.Load, so the not-exist
-        /// half only engages inside a Resources folder. Tests that need the second-call path use this.
-        /// </summary>
+        /// <summary>The existence check uses Resources.Load, so it only engages inside a Resources folder.</summary>
         private string EnsureTempResourcesFolder()
         {
             EnsureTempFolder();
@@ -47,8 +38,7 @@ namespace Ami.BroAudio.Editor.Tests
             editor = Track(UnityEditor.Editor.CreateEditor(asset, typeof(AudioAssetEditor))) as AudioAssetEditor;
             editor.SetData(AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(asset)), assetName);
 
-            // New entities land in AssetOutputPath, not beside the asset they belong to. Redirect it into the
-            // temp folder; the fixture restores the developer's real path in TearDown.
+            // New entities land in AssetOutputPath, not beside their asset; redirect it into the temp folder.
             BroEditorUtility.EditorSetting.AssetOutputPath = TempFolder;
             return asset;
         }
@@ -63,9 +53,8 @@ namespace Ami.BroAudio.Editor.Tests
 
             Assert.IsTrue(created, "No asset was created.");
             Assert.IsTrue(AssetDatabase.LoadAssetAtPath<EditorSetting>(path), "The asset is not on disk at the requested path.");
-            // Every bool on EditorSetting is field-initialised from FactorySettings, so asserting one
-            // against its own initialiser would pass with the reset removed. AudioTypeSettings and
-            // SpectrumBandColors are null on a bare CreateInstance - only the reset populates them.
+            // Don't assert a bool: they're field-initialised to the factory values, so they'd pass with the
+            // reset removed. These collections are null until the reset populates them.
             Assert.IsNotNull(created.AudioTypeSettings, "ResetToFactorySettings was not applied to the new EditorSetting.");
             Assert.AreEqual(ConcreteAudioTypes.Length, created.AudioTypeSettings.Count,
                 "The new asset did not get one AudioTypeSetting per concrete audio type.");
@@ -78,9 +67,8 @@ namespace Ami.BroAudio.Editor.Tests
             string path = EnsureTempResourcesFolder() + "/BroTestRuntimeSetting.asset";
 
             var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
-            // Re-imports only the new asset so the Resources.Load existence check sees it. Scoped to the path on
-            // purpose: a project-wide AssetDatabase.Refresh() would also import any .cs file a developer saved
-            // mid-run, and the recompile's domain reload would take the whole run down.
+            // Don't use AssetDatabase.Refresh(): it would import any .cs saved mid-run, and the domain reload
+            // kills the run.
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
             var second = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
 
@@ -91,9 +79,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_31")]
         public void CreateScriptableObjectIfNotExist_OutsideAResourcesFolder_CreatesANewInstanceEveryTime()
         {
-            // Characterizes TEST_FINDINGS #31: the existence check is Resources.Load-based rather than
-            // AssetDatabase-based, so outside a Resources folder the guard never fires and the asset is
-            // silently overwritten. Every production caller passes a Resources path, so this stays latent.
+            // Pins TEST_FINDINGS #31.
             string path = EnsureTempFolder() + "/BroTestNotInResources.asset";
 
             var first = BroEditorUtility.CreateScriptableObjectIfNotExist<RuntimeSetting>(path);
@@ -152,8 +138,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void Verify_ValidName_ClearsAPreviouslyReportedInstruction()
         {
-            // CurrInstruction starts at default, so verifying a valid name from a clean editor proves
-            // nothing. Dirty it with a bad name first, then check the good name actually clears it.
+            // CurrInstruction starts at default, so dirty it with a bad name first.
             NewAssetOnDisk("BroTestValidName", out AudioAssetEditor editor);
             editor.SetData(string.Empty, "1StartsWithANumber");
             editor.Verify();

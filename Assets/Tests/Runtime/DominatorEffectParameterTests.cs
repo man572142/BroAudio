@@ -10,11 +10,8 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization: DominatorPlayer.LowPassOthers/HighPassOthers/
-    /// QuietOthers write the dedicated <c>BroName.Dominator_*ParaName</c> mixer parameters ("Main_LowPass" /
-    /// "Main_HighPass"), a completely separate exposed surface from the <c>BroName.*ParaName</c> ("Effect_*")
-    /// parameters that <see cref="BroAudio.SetEffect"/> uses. The two effect paths never touch the same
-    /// mixer parameter, and their invalid-input guards differ in log level.
+    /// Dominator effects write their own <c>Main_*</c> mixer parameters, never the <c>Effect_*</c> ones
+    /// <see cref="BroAudio.SetEffect"/> uses, and their invalid-input guards differ in log level.
     /// </summary>
     public class DominatorEffectParameterTests : BroAudioTestFixture
     {
@@ -30,9 +27,6 @@ namespace Ami.BroAudio.Tests
 
             SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float effectLowPassBefore);
 
-            // characterizes: a dominator writes BroName.Dominator_LowPassParaName ("Main_LowPass"), a
-            // completely separate exposed parameter from BroName.LowPassParaName ("Effect_LowPass") that
-            // BroAudio.SetEffect uses. The two effect paths never touch the same mixer parameter.
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
             dominator.LowPassOthers(2000f, 0f);
 
@@ -75,17 +69,8 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Stops the dominator and checks that its filter reverts on its own: DominatorPlayer chains its effect
-        /// with .While(PlayerIsPlaying), so once the player is recycled TweakTrackParameter tweaks the Main_*
-        /// parameter back to its default and SwitchMainTrackMode(false) puts Main back at full volume. Nothing
-        /// else resets these parameters - the base fixture's teardown leaves them to this same automation -
-        /// so a broken revert would silently filter or mute every later test in the run.
-        /// <para>
-        /// The revert is observed rather than assumed, and on failure this puts the parameters back itself
-        /// before reporting, like QuietOthers_WithZeroFadeTime_*, so one broken revert fails one test. The
-        /// filter's reset fade is the zero fade the call was made with, so the budget only has to outlast the
-        /// frame the .While() notices the stop.
-        /// </para>
+        /// Nothing else resets these parameters, so a broken revert would filter or mute every later test:
+        /// on failure this restores them itself before reporting, so one broken revert fails one test.
         /// </summary>
         private static IEnumerator StopAndAssertRevert(IAudioPlayer dominatorPlayer, string parameterName, float defaultValue)
         {
@@ -135,11 +120,7 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.AudioMixer.GetFloat(BroName.Dominator_LowPassParaName, out float before);
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
 
-            // characterizes: this is NOT silent. AudioExtension.IsValidFrequency itself calls Debug.LogError
-            // (with the standard Utility.LogTitle prefix) before
-            // DominatorPlayer.LowPassOthers even reaches SetAllEffectExceptDominator. The log's TYPE and
-            // BroAudio's own tag are the contract (Docs/GOAL.md anti-goal: "Asserting on log text"); the
-            // parameter staying put is what actually proves the guard rejected the call.
+            // Pin the log's type and tag, never its text; the unmoved parameter proves the rejection.
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             dominator.LowPassOthers(0f, 0f);
             yield return WaitFrames(2);
@@ -147,11 +128,8 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.AudioMixer.GetFloat(BroName.Dominator_LowPassParaName, out float after);
             Assert.AreEqual(before, after, "An invalid frequency must leave the mixer parameter untouched.");
 
-            // Contrast: QuietOthers' own range guard also logs with the Utility.LogTitle prefix, but at
-            // Warning instead of Error — the two "invalid input" guards still differ in log level, which is
-            // what LogType.Warning vs LogType.Error above and below actually pins.
-            // Both reads are asserted to resolve: an unexposed parameter would hand back 0 twice and make the
-            // comparison below pass without the guard doing anything.
+            // Contrast: QuietOthers' guard logs at Warning. Both reads must resolve: an unexposed parameter
+            // reads 0 twice and passes vacuously.
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MainDominatedTrackName, out float quietBefore),
                 "Precondition: " + BroName.MainDominatedTrackName + " must be an exposed mixer parameter for this check to mean anything.");
             LogAssert.Expect(LogType.Warning, TestAudioLibrary.BroAudioLogPrefix);
@@ -162,18 +140,8 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(quietBefore, quietAfter, "An invalid othersVol must leave the mixer parameter untouched.");
         }
 
-        // Characterizes TEST_FINDINGS #43: QuietOthers with a zero fade time mutes Main and never ducks
-        // Main_Dominated, so everything else keeps playing at full volume.
-        //
-        // EffectAutomationHelper.SetEffectTrackParameter starts TweakTrackParameter, and with fadeTime 0 the
-        // whole coroutine drains synchronously inside StartCoroutine: Tweak writes
-        // the ducked level to Main_Dominated, and the coroutine's tail runs SwitchMainTrackMode(false).
-        // SetEffectTrackParameter then runs SwitchMainTrackMode(true), whose ChangeChannel(Main ->
-        // Main_Dominated, FullDecibelVolume) mutes Main and overwrites Main_Dominated with 0dB. The
-        // `.While(PlayerIsPlaying)` that DominatorPlayer chains does not write the ducked level back.
-        //
-        // Stopping the dominator is then observed rather than assumed: a Main left muted would silence every
-        // later test in the run, so the test puts both parameters back itself before reporting that.
+        // Pins TEST_FINDINGS #43. A Main left muted would silence every later test, so the stop is observed
+        // and the parameters restored before reporting.
         [UnityTest]
         [Category("Finding_43")]
         public IEnumerator QuietOthers_WithZeroFadeTime_MutesMainAndLeavesMainDominatedAtFullVolume()
@@ -182,17 +150,14 @@ namespace Ami.BroAudio.Tests
             float requestedDuckDb = OthersVolume.ToDecibel();
             AudioMixer mixer = SoundManager.Instance.AudioMixer;
 
-            // Main reading full volume means no earlier dominator's TweakTrackParameter is still parked on its
-            // .While(): SwitchMainTrackMode(false) is that coroutine's last statement. The Volume tweaker is
-            // shared for the whole run, and a still-tweaking one would take SetEffectTrackParameter's
-            // IsTweaking/isMoreIntense branch instead of the path under test.
+            // The Volume tweaker is shared for the run; one still tweaking from an earlier dominator would take
+            // a different branch than the path under test. Main at full volume means none is.
             yield return WaitUntilOrTimeout(() => IsAtFullVolume(mixer, BroName.MainTrackName),
                 "Precondition: Main to read full volume, i.e. no dominator effect still active from an earlier test", DefaultPlaybackWaitSeconds);
 
             SoundID dominatorId = NewSound("ZeroFadeQuietOthersSfx", BroAudioType.SFX, NewClip(4f));
             IAudioPlayer dominatorPlayer = BroAudio.Play(dominatorId);
-            // Same frame as Play, so the dominator is routed to a Dominator track and is not ducked by
-            // itself (TEST_FINDINGS #42). The mixer parameters asserted below do not depend on the routing.
+            // Same frame as Play, so the dominator isn't ducked by itself (TEST_FINDINGS #42).
             IPlayerEffect dominator = dominatorPlayer.AsDominator();
             yield return WaitForPlaybackStart(dominatorPlayer, "the dominator to start playing");
 

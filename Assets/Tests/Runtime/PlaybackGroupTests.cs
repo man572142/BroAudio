@@ -7,30 +7,18 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// PlaybackGroup voice limiting and comb-filtering rejection, and how a custom
-    /// IPlayableValidator overrides the group entirely. See Docs/inventory/selection-policy.md,
-    /// "Playback-group voice limiting and rejection".
+    /// Pins PlaybackGroup voice limiting, comb-filtering rejection, and a custom IPlayableValidator overriding
+    /// the group. Each test wires its group via <see cref="NewGroup"/>/<see cref="NewGroupedSound"/> before the
+    /// first Play (the rule list is cached on first use). Every rule NewGroup writes overrides, so the parent
+    /// <see cref="BroAudioTestFixture.FactoryGlobalPlaybackGroup"/> is never consulted.
     /// <para>
-    /// A code-built AudioEntity has no PlaybackGroup (_group is null, no AudioAsset), so every test here wires
-    /// one explicitly via <see cref="NewGroup"/>/<see cref="NewGroupedSound"/> before the first Play call -
-    /// PlaybackGroup caches its rule list lazily on first use.
-    /// </para>
-    /// <para>
-    /// Such a group's parent is the fixture's <see cref="BroAudioTestFixture.FactoryGlobalPlaybackGroup"/>, but a
-    /// rule consults its parent only when its override flag is off, and every rule NewGroup writes keeps the
-    /// default (on) - so what each test here observes is its own group's values alone. The shipped global group
-    /// and the parent fallback are covered in DefaultPlaybackGroupTests.
-    /// </para>
-    /// <para>
-    /// A test that expects a replay inside the window to be *accepted* uses the same 10s window as the
-    /// rejection baseline, and has a rejecting twin that differs only in the exemption: with a short window, a
-    /// stall between the two plays would let the window expire and the acceptance would pass for the wrong
-    /// reason.
+    /// An acceptance-inside-the-window test uses the same 10s window as its rejecting twin: with a short
+    /// window, a stall between the plays would expire it and the acceptance would pass for the wrong reason.
     /// </para>
     /// </summary>
     public class PlaybackGroupTests : BroAudioTestFixture
     {
-        /// <summary>Always allows the play - the opposite of PlaybackLifecycleTests' RejectingValidator.</summary>
+        /// <summary>Always allows the play.</summary>
         private class AllowingValidator : IPlayableValidator
         {
             public bool IsPlayable(SoundID id, Vector3 position) => true;
@@ -45,9 +33,6 @@ namespace Ami.BroAudio.Tests
             return IdOf(entity);
         }
 
-        // The (N+1)th concurrent play is rejected once the limit is reached; when an accepted play ends
-        // (here via Stop, which recycles and fires OnEnd same as natural completion) the count decrements and
-        // a new play succeeds again.
         [UnityTest]
         public IEnumerator Play_BeyondMaxPlayableCount_RejectsThenAcceptsAfterASlotFrees()
         {
@@ -75,9 +60,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(player4.IsActive, "Once a slot frees (OnEnd decrements the group's count), a new play must succeed again.");
         }
 
-        // characterizes: MaxPlayableCountRule.OnGetPlayer increments inside SoundManager.IsPlayable,
-        // synchronously during Play(), before LateUpdate drains the queue. Two plays issued in the same frame -
-        // neither yet audible - already exhaust the limit.
+        // Characterizes: the count increments synchronously inside Play(), before LateUpdate starts any voice.
         [UnityTest]
         public IEnumerator Play_TwoPlaysInSameFrame_BothCountAgainstLimitBeforeEitherStartsPlaying()
         {
@@ -96,14 +79,11 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // Baseline: two plays of the same SoundID within _combFilteringTime, in different frames
-        // (neither exemption applies), reject the second.
+        // Baseline: different frames, so neither exemption applies.
         [UnityTest]
         public IEnumerator Play_SameID_WithinCombFilteringWindow_RejectsSecond()
         {
-            // combFilteringTime is generous (10s) so the window can't expire from a slow CI runner
-            // stalling between the first Play and the second - this test is about the rejection itself,
-            // not about timing the window's edge.
+            // 10s, so a stall between the plays cannot expire the window.
             DefaultPlaybackGroup group = NewGroup(combFilteringTime: 10f);
             SoundID id = NewGroupedSound(group, "CombWindowSfx");
 
@@ -116,8 +96,6 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(player2.IsActive, "A same-ID replay inside the comb-filtering window must be rejected.");
         }
 
-        // _ignoreCombFilteringIfSameFrame == true: two same-ID plays enqueued in the same frame
-        // (still queued, neither started) are exempt.
         [UnityTest]
         public IEnumerator Play_SameID_SameFrameWithIgnoreFlagTrue_BothSucceed()
         {
@@ -134,9 +112,8 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // _ignoreCombFilteringIfSameFrame == false: the same same-frame scenario now rejects the second
-        // play. characterizes: "still queued" (PlaybackStartingTime == 0) counts as the same frame internally
-        // regardless of the flag - the flag only controls whether that same-frame case is forgiven.
+        // Characterizes: "still queued" (PlaybackStartingTime == 0) counts as same-frame regardless of the
+        // flag; the flag only decides whether that case is forgiven.
         [UnityTest]
         public IEnumerator Play_SameID_SameFrameWithIgnoreFlagFalse_RejectsSecond()
         {
@@ -153,8 +130,6 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // Positional asymmetry, part 1: two positioned plays farther apart than
-        // _ignoreIfDistanceIsGreaterThan are exempt even inside the time window.
         [UnityTest]
         public IEnumerator Play_PositionedFarApart_WithinCombFilteringWindow_BothSucceed()
         {
@@ -171,9 +146,7 @@ namespace Ami.BroAudio.Tests
                 "Two positioned plays farther apart than _ignoreIfDistanceIsGreaterThan are exempt from comb-filtering even inside the time window.");
         }
 
-        // Negative control for the test above: the same pair only 1 unit apart - inside
-        // _ignoreIfDistanceIsGreaterThan - is rejected, so the acceptance above comes from the distance and not
-        // from the window having expired.
+        // Negative control for the test above.
         [UnityTest]
         public IEnumerator Play_PositionedCloseTogether_WithinCombFilteringWindow_RejectsSecond()
         {
@@ -190,11 +163,7 @@ namespace Ami.BroAudio.Tests
                 "Two positioned plays closer than _ignoreIfDistanceIsGreaterThan get no exemption inside the time window.");
         }
 
-        // Characterizes TEST_FINDINGS #12: positional asymmetry, part 2. A global (2D) play has no
-        // position to compare against a positioned one, so DefaultPlaybackGroup skips the distance check
-        // entirely for a global/positioned mix and instead exempts the pair purely because
-        // _ignoreIfDistanceIsGreaterThan > 0 - even when the positioned play sits at the exact same origin,
-        // i.e. not actually "far apart" at all.
+        // Pins TEST_FINDINGS #12.
         [UnityTest]
         [Category("Finding_12")]
         public IEnumerator Play_GlobalThenPositioned_WithinCombFilteringWindow_ExemptedRegardlessOfActualDistance()
@@ -212,9 +181,7 @@ namespace Ami.BroAudio.Tests
                 "A global/positioned mix is exempted purely because _ignoreIfDistanceIsGreaterThan > 0, with no actual distance comparison possible.");
         }
 
-        // Negative control for the #12 pin above: the identical global-then-positioned pair with
-        // _ignoreIfDistanceIsGreaterThan at 0 is rejected. So the pin's acceptance is the distance setting's
-        // doing, not an expired window.
+        // Negative control for the #12 pin above.
         [UnityTest]
         public IEnumerator Play_GlobalThenPositioned_WithDistanceExemptionOff_RejectsSecond()
         {
@@ -231,9 +198,6 @@ namespace Ami.BroAudio.Tests
                 "With _ignoreIfDistanceIsGreaterThan at 0, a global/positioned mix inside the window gets no exemption.");
         }
 
-        // A custom IPlayableValidator passed to Play() replaces the entity's own PlaybackGroup entirely
-        // (SoundManager.IsPlayable: customValidator ?? entity.PlaybackGroup) - it wins outright, even when it
-        // allows a play the group would have rejected.
         [UnityTest]
         public IEnumerator Play_WithCustomValidator_OverridesGroupEntirely()
         {

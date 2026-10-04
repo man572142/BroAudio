@@ -7,12 +7,8 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization: the <see cref="AudioEntity.HasLoop(out LoopType, out float)"/>
-    /// 2-arg overload - the one SoundManager.Playback.cs actually calls to decide whether Play() schedules a
-    /// handover - reads SoundManager.Instance.Setting live, so it needs a real SoundManager and cannot move
-    /// to the EditMode suite: SoundManager.Instance returns null outside Play Mode
-    /// (Runtime/SoundManager/SoundManager.cs), so this overload throws a NullReferenceException there. The
-    /// 4-arg overload with explicit defaults is covered EditMode-side by ClipSelectionTests.cs.
+    /// The <see cref="AudioEntity.HasLoop(out LoopType, out float)"/> overload reads SoundManager.Instance.Setting,
+    /// so it can't move to EditMode; the explicit-defaults overload is covered in ClipSelectionTests.
     /// </summary>
     public class ChainedLoopDefaultSettingTests : BroAudioTestFixture
     {
@@ -35,9 +31,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(hasLoopWhenOff, "With the default turned off and no explicit flag, a Chained entity has no loop at all.");
             Assert.AreEqual(LoopType.None, loopTypeOff);
 
-            // Characterizes TEST_FINDINGS #13: HasLoop's Chained branch writes transitionTime *before* deciding
-            // the return value, so a false return still hands back the configured transition time rather than 0.
-            // Callers must not read the out parameter unless the method returned true.
+            // Pins TEST_FINDINGS #13.
             Assert.AreEqual(1.5f, transitionTimeOff,
                 "The out parameter is populated even though HasLoop returned false.");
 

@@ -8,28 +8,17 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The <see cref="SpectrumAnalyzer"/> no-code component: where it gets its player, how it sizes its FFT
-    /// buffer, and the per-band ballistics (attack / decay / smoothing) that turn raw spectrum magnitudes
-    /// into the values a meter is drawn from.
+    /// The <see cref="SpectrumAnalyzer"/> component: source acquisition, FFT buffer sizing, and per-band
+    /// ballistics (attack / decay / smoothing).
     /// <para>
-    /// Most of these drive a deliberately <b>silent</b> clip. That is not a shortcut - it is what makes the
-    /// ballistics assertions deterministic: with an all-zero spectrum every band's target is exactly the
-    /// floor (<c>0f.ToDecibel()</c> == <see cref="AudioConstant.MinDecibelVolume"/>), so a band pinned above
-    /// the floor must fall and a band pinned below it must rise, at a rate the inspector fields control and
-    /// nothing else. <see cref="SpectrumAnalyzer.Band.SetVolume"/> is public, so pinning a band is done
-    /// through the component's own API rather than by reflection. That holds for any band wide enough to
-    /// meter over - residual noise from the mixer is orders of magnitude below <c>MinVolume</c> and clamps
-    /// away - but not for the divide-by-zero band below, whose target is decided by whether one bin is
-    /// exactly zero or merely near it, so that one test asserts on both outcomes.
+    /// Most tests play a <b>silent</b> clip on purpose: every band's target is then exactly
+    /// <see cref="AudioConstant.MinDecibelVolume"/>, so a pinned band moves at a rate only the inspector
+    /// fields control. Exception: a sub-bin band's target depends on whether one bin is exactly zero, so
+    /// that test accepts both outcomes.
     /// </para>
     /// <para>
-    /// Two tests play a real tone end to end - the band-coverage check and the Weighted pin, which needs a
-    /// band carrying real energy for a weighting to have anything to act on. They are the only ones whose
-    /// result depends on the engine actually producing spectrum data; both gate on a realtime audio clock
-    /// first, so a buffer that never leaves zero after that is a failure, not a reason to skip. Every test
-    /// that needs playback to survive more than a frame first
-    /// calls RequireRealtimeAudioClock: without an audio output device the DSP clock runs hundreds of times
-    /// faster than wall time and a clip is over before the analyzer ever sees it.
+    /// Tests needing playback past a frame call RequireRealtimeAudioClock first: without a device the DSP
+    /// clock outruns wall time and the clip ends before the analyzer sees it.
     /// </para>
     /// </summary>
     public class SpectrumAnalyzerTests : BroAudioTestFixture
@@ -37,9 +26,8 @@ namespace Ami.BroAudio.Tests
         private const int DefaultResolutionScale = 10;
 
         /// <summary>
-        /// The width of one FFT bin, computed exactly as <see cref="SpectrumAnalyzer"/>'s Start does. Band
-        /// frequencies that have to land on a particular bin are derived from this rather than hardcoded -
-        /// the output sample rate is a machine/driver property, not a project one.
+        /// One FFT bin's width, as <see cref="SpectrumAnalyzer"/>'s Start computes it. Derive bin-aligned
+        /// frequencies from this, never hardcode them: the output sample rate is a machine property.
         /// </summary>
         private static float HarmonicOf(int resolutionScale)
         {
@@ -52,9 +40,8 @@ namespace Ami.BroAudio.Tests
             => Track(AudioClip.Create(name, Mathf.RoundToInt(seconds * TestAudioLibrary.SampleRate), 1, TestAudioLibrary.SampleRate, false));
 
         /// <summary>
-        /// Builds a tracked SpectrumAnalyzer with its serialized fields already written. The host starts
-        /// deactivated so the fields land before Start reads _resolutionScale and _soundSource; both are
-        /// snapshotted there and never re-read.
+        /// Builds a tracked SpectrumAnalyzer. The host starts inactive so the fields land before Start,
+        /// which snapshots _resolutionScale and _soundSource.
         /// </summary>
         private SpectrumAnalyzer NewAnalyzer(float[] bandFrequencies, SoundSource soundSource = null,
             int resolutionScale = DefaultResolutionScale, SpectrumAnalyzer.Metering metering = SpectrumAnalyzer.Metering.Peak,
@@ -124,8 +111,6 @@ namespace Ami.BroAudio.Tests
             => BroAudio.Play(NewSound("SilentSpectrumSfx", BroAudioType.SFX, NewSilentClip(seconds)));
 
         #region Setup and inert paths
-        // Start turns the 6..13 resolution scale into a 2^scale FFT buffer - the size Unity requires
-        // GetSpectrumData's array to be, and the divisor for the bin width every band range is measured in.
         [UnityTest]
         public IEnumerator Start_SizesTheSpectrumBufferFromTheResolutionScale()
         {
@@ -139,8 +124,6 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(4096, fine.Spectrum.Count, "A resolution scale of 12 must allocate 2^12 samples.");
         }
 
-        // A band starts at the bottom of the scale rather than at zero, so a meter bound to Amplitube reads
-        // silence rather than an uninitialized value before the first spectrum ever arrives.
         [UnityTest]
         public IEnumerator Bands_BeforeAnyPlayback_RestAtTheSilenceFloor()
         {
@@ -156,8 +139,6 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        // With neither a SetSource call nor a serialized SoundSource there is nothing to sample: Update must
-        // fall straight through, leaving the bands untouched and the event silent.
         [UnityTest]
         public IEnumerator Update_WithNoPlayerAndNoSoundSource_StaysInert()
         {
@@ -172,8 +153,6 @@ namespace Ami.BroAudio.Tests
                 "An analyzer with no source must leave its bands at the floor.");
         }
 
-        // The gate is IsPlaying, not "was ever given a player": once the player behind the handle has been
-        // recycled the analyzer goes quiet again rather than reading a dead source.
         [UnityTest]
         public IEnumerator Update_AfterThePlayerIsRecycled_GoesQuiet()
         {
@@ -196,8 +175,6 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Source acquisition
-        // SetSource is the scripted entry point: from the moment a playing player is handed over, the
-        // analyzer samples it once per frame and hands the live band array to every OnUpdate subscriber.
         [UnityTest]
         public IEnumerator SetSource_WithAPlayingPlayer_RaisesOnUpdateEveryFrameWithTheLiveBandList()
         {
@@ -216,10 +193,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreSame(analyzer.Bands, recorder.LastBands, "OnUpdate hands out the analyzer's own band array, not a copy.");
         }
 
-        // Characterizes TEST_FINDINGS #38: the serialized SoundSource is polled every frame until it yields
-        // a player, which is what lets a Play On Enable source and an analyzer be wired up in the inspector
-        // with no script. But whether that polling happens at all is decided once, in Start, from whether the
-        // field was already assigned - so a SoundSource attached later is ignored for the object's whole life.
+        // Pins TEST_FINDINGS #38.
         [UnityTest]
         [Category("Finding_38")]
         public IEnumerator Update_TakesThePlayerFromItsSoundSource_ButOnlyIfItWasAssignedBeforeStart()
@@ -246,8 +220,6 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Ballistics
-        // The baseline every other ballistics test measures against: a silent clip drives every band's
-        // target to the floor, and a band already there stays put instead of drifting.
         [UnityTest]
         public IEnumerator Update_WithSilence_HoldsEveryBandAtTheFloor()
         {
@@ -263,9 +235,8 @@ namespace Ami.BroAudio.Tests
 
             foreach (SpectrumAnalyzer.Band band in analyzer.Bands)
             {
-                // Bounded on both sides rather than asserted equal: the rate limiter can overshoot a target
-                // by up to one step before snapping back, so "rests here" is a band around the floor, not a
-                // point. The lower bound is what separates resting from the runaway drift pinned below.
+                // A range, not equality: the rate limiter can overshoot by one step. The lower bound separates
+                // resting from the runaway drift pinned below.
                 Assert.LessOrEqual(band.DecibelVolume, AudioConstant.MinDecibelVolume + DecibelTolerance,
                     "Silence resolves to the decibel floor, so no band may climb above it.");
                 Assert.GreaterOrEqual(band.DecibelVolume, AudioConstant.MinDecibelVolume - 1f,
@@ -274,8 +245,7 @@ namespace Ami.BroAudio.Tests
             }
         }
 
-        // A falling band is rate-limited: Decay is the milliseconds it takes to shed MaxVolumeChange (20dB),
-        // so a 20ms decay empties a band within a few frames while a 20s one has barely started.
+        // Decay is the milliseconds to shed MaxVolumeChange (20dB).
         [UnityTest]
         public IEnumerator Update_Decay_RateLimitsTheFallAndTheDecaySettingSetsTheRate()
         {
@@ -290,8 +260,6 @@ namespace Ami.BroAudio.Tests
             fast.SetSource(player);
             slow.SetSource(player);
 
-            // Pinned after the analyzers' Update has already run this frame, so the first decay step lands
-            // on the next one.
             PinBandTo(fast.Bands[0], AudioConstant.FullDecibelVolume);
             PinBandTo(slow.Bands[0], AudioConstant.FullDecibelVolume);
 
@@ -304,8 +272,6 @@ namespace Ami.BroAudio.Tests
                 "A 20s decay sheds 20dB per 20s, so the slow band cannot have collapsed to the floor in the time the fast one took.");
         }
 
-        // The mirror image: Attack is the milliseconds it takes to gain 20dB. A band pinned below the floor
-        // rises towards it, fast or slow, and settles exactly on the target rather than overshooting.
         [UnityTest]
         public IEnumerator Update_Attack_RateLimitsTheRiseAndTheAttackSettingSetsTheRate()
         {
@@ -334,8 +300,6 @@ namespace Ami.BroAudio.Tests
                 "A 20s attack gains 20dB per 20s, so the slow band cannot have caught up in the time the fast one took.");
         }
 
-        // Smooth turns the fixed 20dB-per-changeTime step into one proportional to how far the band still
-        // has to travel, so the same Decay setting produces a decelerating approach instead of a ramp.
         [UnityTest]
         public IEnumerator Update_Smooth_ScalesTheStepByTheRemainingDifference()
         {
@@ -363,14 +327,8 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Band ranges
-        // Characterizes TEST_FINDINGS #39: a band whose frequency window is narrower than one FFT bin has
-        // start == end, so RangeInt.length is 0, and RMS/Average divide the summed magnitude by it. Which
-        // way that breaks is decided by the one bin the band covers, and the test may not assume either: an
-        // exactly-zero bin gives 0/0 = NaN, which loses every comparison in the ballistics block and leaves
-        // the band subtracting a step forever, while a bin holding any energy at all gives x/0 = +Infinity,
-        // which ClampNormalize pins to MaxVolume and the band climbs to the ceiling instead. Both ends are
-        // wrong in the same way - the band stops reporting the signal - so the assertion is that it leaves
-        // the floor, and then that whichever end it ran to is the end the ballistics block makes it run to.
+        // Pins TEST_FINDINGS #39. Whether the one covered bin is exactly zero (0/0 = NaN, falls forever) or
+        // not (x/0 = +Infinity, climbs to the ceiling) is not controllable, so both branches are accepted.
         [UnityTest]
         [Category("Finding_39")]
         public IEnumerator Update_WithABandNarrowerThanOneFftBin_LeavesTheFloorUnderRmsButHoldsUnderPeak()
@@ -379,8 +337,7 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player = PlaySilence();
             yield return WaitForPlaybackStart(player);
 
-            // Band 1 spans (k - 0.5) to (k + 0.5) bin widths: it both starts and ends on bin k, so it covers
-            // exactly one sample and RangeInt.length lands on 0. Band 0 keeps a normal, wide range.
+            // Band 1 spans (k - 0.5) to (k + 0.5) bin widths, so it starts and ends on bin k: length 0.
             float harmonic = HarmonicOf(DefaultResolutionScale);
             float[] bands = { 39.5f * harmonic, 40.5f * harmonic };
 
@@ -391,8 +348,7 @@ namespace Ami.BroAudio.Tests
             rms.SetSource(player);
             peak.SetSource(player);
 
-            // 10dB is far enough out that no ballistics ramp can be sitting there by accident, and both
-            // runaways cover it in well under a second: the decay step is 20dB/1500ms, the attack 20dB/100ms.
+            // Far enough that no ramp sits there by accident; both runaways cover it in well under a second.
             const float FloorDistance = 10f;
             yield return WaitUntilOrTimeout(
                 () => Mathf.Abs(rms.Bands[1].DecibelVolume - AudioConstant.MinDecibelVolume) > FloorDistance,
@@ -400,16 +356,12 @@ namespace Ami.BroAudio.Tests
 
             if (rms.Bands[1].DecibelVolume < AudioConstant.MinDecibelVolume)
             {
-                // 0/0: the NaN target fails even "close enough, snap to it", so the band never stops falling.
                 Assert.AreEqual(AudioConstant.MinVolume, rms.Bands[1].Amplitube, 1e-6f,
                     "Amplitube clamps at the floor, so nothing bound to it can see the value running away underneath.");
             }
             else
             {
-                // x/0: ClampNormalize turns the +Infinity target into MaxVolume, so the band settles on the
-                // ceiling and reports full scale for a signal that is not there.
-                // The ballistics block snaps to the target once one step covers what is left, so the climb
-                // ends on MaxDecibelVolume exactly rather than approaching it.
+                // The last step snaps to the target, so the climb ends on MaxDecibelVolume exactly.
                 yield return WaitUntilOrTimeout(
                     () => rms.Bands[1].DecibelVolume >= AudioConstant.MaxDecibelVolume,
                     "the same band to finish its climb to the ceiling", RampConvergenceWaitSeconds);
@@ -426,8 +378,6 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region End to end
-        // The whole point of the component, with real audio in it: a 440Hz tone must light up the band that
-        // covers 440Hz and leave the band above it alone.
         [UnityTest]
         public IEnumerator Update_WithATone_RaisesTheBandCoveringItAndNotTheOneAboveIt()
         {
@@ -450,12 +400,8 @@ namespace Ami.BroAudio.Tests
                 "The normalized amplitude a meter binds to must rise with the decibel value.");
         }
 
-        // Characterizes TEST_FINDINGS #40: every Band carries a serialized, inspector-drawn "Weighted" value
-        // that UpdateSpectrum never reads, so two analyzers that differ only in it produce the same numbers.
-        // Driven by the tone rather than by silence deliberately: on an all-zero spectrum the obvious fix -
-        // scaling the metered amplitude by the weight - would still leave the two bands identical, because
-        // 0 * 1 == 0 * 20, and the pin would survive the very change it exists to catch. Metering a band
-        // that carries real energy, any use of the field at all pulls the two readings apart.
+        // Pins TEST_FINDINGS #40. Must play a tone, not silence: on an all-zero spectrum 0 * 1 == 0 * 20, so
+        // the pin would survive the fix it exists to catch.
         [UnityTest]
         [Category("Finding_40")]
         public IEnumerator Update_BandWeighting_HasNoEffectOnTheBandOutput()
@@ -478,9 +424,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForSpectrumData(unweighted);
             yield return WaitUntilOrTimeout(() => unweighted.Bands[0].DecibelVolume > AudioConstant.MinDecibelVolume + 20f,
                 "the tone's own band to rise well clear of the floor", RampConvergenceWaitSeconds);
-            // Both bands climb from the floor under the same 20dB-per-100ms attack, so half a second puts
-            // them past the ramp and onto the tone's own level, which each then re-snaps to every frame -
-            // the state in which a weight applied to one of them has nothing left to hide behind.
+            // Past the 20dB-per-100ms attack ramp, so both bands sit on the tone's level where a weight would show.
             yield return new WaitForSeconds(0.5f); // a frame-clock ramp, so wall time is the right clock
 
             Assert.Greater(weighted.Bands[0].DecibelVolume, AudioConstant.MinDecibelVolume + 20f,
@@ -491,14 +435,9 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Fails the calling test unless the engine actually fills the spectrum buffer. Everything else in
-        /// this file is written to hold on an all-zero spectrum; the two tone-driven tests cannot be.
-        /// <para>
-        /// Both callers have already passed RequireRealtimeAudioClock, so a device is mixing in real time and
-        /// a playing 440Hz tone has every reason to show up. A spectrum that stays at zero there is a broken
-        /// analyzer or a broken source hookup, not a machine without audio, so it must not be an
-        /// Assert.Ignore: an ignored test is not a failure, and the #40 pin would silently stop running.
-        /// </para>
+        /// Fails unless the engine fills the spectrum buffer. Don't make it Assert.Ignore: callers already
+        /// passed RequireRealtimeAudioClock, so zero data is a real failure, and ignoring would silently
+        /// disable the #40 pin.
         /// </summary>
         private static IEnumerator WaitForSpectrumData(SpectrumAnalyzer analyzer, float timeout = 2f)
         {

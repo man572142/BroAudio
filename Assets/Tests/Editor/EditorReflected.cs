@@ -5,12 +5,10 @@ using Ami.BroAudio.Runtime;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// The EditMode suite's counterpart of <c>TestAudioLibrary.Reflected</c>: every non-public member this
-    /// assembly reaches by name, in one place to update on a rename, and one lookup family that fails with a
-    /// <see cref="BroAudioException"/> naming the exact member. <c>TestAudioLibrary.Reflected</c> lives in the
-    /// runtime test assembly, which cannot name Editor-only types and only resolves private INSTANCE members,
-    /// so the Editor-only and static/constructor cases live here. A private instance field on an Editor type
-    /// still goes through <c>TestAudioLibrary.Reflected.Field</c>, with its name kept here.
+    /// Every non-public member the EditMode suite reaches by name, with lookups that throw a
+    /// <see cref="BroAudioException"/> naming the member. Holds what <c>TestAudioLibrary.Reflected</c> can't:
+    /// Editor-only types and static/constructor members. A private instance field on an Editor type still goes
+    /// through <c>TestAudioLibrary.Reflected.Field</c>, with its name kept here.
     /// </summary>
     public static class EditorReflected
     {

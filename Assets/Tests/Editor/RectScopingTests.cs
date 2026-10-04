@@ -5,9 +5,7 @@ using Ami.Extension;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Pure-math coverage for the <see cref="EditorScriptingExtension"/> <c>Scoping</c>/<c>DeScope</c>
-    /// rect-coordinate helpers. No IMGUI context is touched — every target here is plain Rect arithmetic
-    /// that runs outside OnGUI.
+    /// <see cref="EditorScriptingExtension"/>'s <c>Scoping</c>/<c>DeScope</c> rect helpers; plain arithmetic, no IMGUI.
     /// </summary>
     public class RectScopingTests : BroEditorTestFixture
     {
@@ -48,18 +46,15 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(40f, result.height, 0.0001f); // yMax clamped from 80 down to scope.yMax (50)
         }
 
-        // The tests above keep the scope at the origin, where scope.xMax == scope.width and a clamp against
-        // either edge gives the same answer. Scoping's real callers pass an EditorWindow's position (e.g.
-        // LibraryManagerWindow), which is not at the origin, so the cases below move the scope off it.
+        // At the origin scope.xMax == scope.width, hiding which edge is clamped against; real callers pass an
+        // EditorWindow's position, so the cases below move the scope off it.
 
         [Test]
         [Category("Finding_62")]
         public void Scoping_OffOriginScope_ClampsLocalRectAgainstGlobalEdge()
         {
-            // Characterizes TEST_FINDINGS #62: Scoping converts the rect into scope-local coordinates, then
-            // clamps its xMax/yMax against scope.xMax/yMax, which are GLOBAL coordinates. Local (10, 10, 80, 90)
-            // has xMax 90 and yMax 100, both under the global edge (150, 150), so nothing is clamped - although
-            // the rect overhangs the scope's local bounds (width 50, height 50) by 40 and 50.
+            // Pins TEST_FINDINGS #62. Local xMax/yMax (90, 100) stay under the global edge (150), so nothing is
+            // clamped although the rect overhangs the local bounds.
             var scope = new Rect(100f, 100f, 50f, 50f);
             var oversizedGlobalRect = new Rect(110f, 110f, 80f, 90f);
 
@@ -77,9 +72,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_62")]
         public void Scoping_OffOriginScope_LocalRectPastTheGlobalEdge_IsClampedToTheGlobalEdge()
         {
-            // The other half of #62: the clamp does fire once the LOCAL xMax passes the GLOBAL scope.xMax, and it
-            // then cuts the local rect back to that global value, not to scope.width.
-            // Local (10, 10, 200, 200): xMax 210 > 150, so xMax becomes 150 -> width 140 (a correct clamp gives 40).
+            // The other half of #62: local xMax 210 > 150 is cut to 150 -> width 140 (a correct clamp gives 40).
             var scope = new Rect(100f, 100f, 50f, 50f);
             var oversizedGlobalRect = new Rect(110f, 110f, 200f, 200f);
 
@@ -92,8 +85,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void DeScope_OffOriginScope_ClampsGlobalRectAgainstGlobalEdge()
         {
-            // DeScope's result is in global coordinates, so its clamp against the global scope.xMax/yMax is
-            // consistent - the contrast that shows #62 is confined to Scoping.
+            // Contrast: DeScope's result is global, so its clamp is consistent; #62 is confined to Scoping.
             // Local (10, 10, 80, 90) -> global (110, 110), xMax 190 -> 150, yMax 200 -> 150.
             var scope = new Rect(100f, 100f, 50f, 50f);
             var oversizedLocalRect = new Rect(10f, 10f, 80f, 90f);

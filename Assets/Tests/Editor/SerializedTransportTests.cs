@@ -10,9 +10,8 @@ using UnityEngine;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Covers the serialized writeback layer on top of <see cref="Transport"/> (already covered plain
-    /// in <see cref="TransportSetValueTests"/>) and the reflection helper the runtime suite's
-    /// <see cref="TestAudioLibrary"/> leans on to reach auto-property backing-field state.
+    /// Pins the serialized writeback layer over <see cref="Transport"/>, and the backing-field lookup the
+    /// runtime suite's <see cref="TestAudioLibrary"/> reflection depends on.
     /// </summary>
     public class SerializedTransportTests : BroEditorTestFixture
     {
@@ -39,8 +38,7 @@ namespace Ami.BroAudio.Editor.Tests
             transport.SetValue(1.5f, TransportType.FadeOut);
             transport.SetValue(3f, TransportType.Delay);
 
-            // Read straight off the actual object, bypassing SerializedProperty entirely, to prove the
-            // writes were committed and not merely staged on the SerializedObject.
+            // Read off the object itself, proving the writes were committed, not merely staged.
             BroAudioClip clip = entity.Clips[0];
             Assert.AreEqual(1f, clip.StartPosition, 0.0001f, "Start");
             Assert.AreEqual(2f, clip.EndPosition, 0.0001f, "End");
@@ -66,8 +64,6 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void SetValue_AppliesImmediately_WithoutTheCallerCallingApplyModifiedProperties()
         {
-            // Contract check: SerializedTransport.SetValue calls ApplyModifiedProperties itself
-            // — a caller that also calls it is redundant, not required.
             AudioEntity entity = Track(TestAudioLibrary.CreateEntity("SelfApplies", BroAudioType.SFX, Track(TestAudioLibrary.CreateClip(10f))));
             var entitySo = new SerializedObject(entity);
             SerializedProperty clipProp = GetFirstClipProperty(entitySo);
@@ -85,15 +81,11 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void FindBackingFieldProperty_ResolvesEveryAutoPropertyBackedAudioEntityMember()
         {
-            // The runtime suite reaches these same names via reflection (TestAudioLibrary.SetPrivateField
-            // falls back to "<Name>k__BackingField") with no test of its own that would notice a rename.
-            // A failure here should name the exact member so a rename is caught loudly, in one place.
+            // TestAudioLibrary.SetPrivateField reaches these by "<Name>k__BackingField"; this names a renamed one.
             AudioEntity entity = Track(TestAudioLibrary.CreateEntity("BackingFields", BroAudioType.SFX));
             var entitySo = new SerializedObject(entity);
 
-            // The set comes from the type, not a hand list: every public auto-property whose compiler-generated
-            // backing field is serialized. A hand list drifted before (it lacked SpatialSetting and Priority, both
-            // of which SpatialAndPriorityTests writes through SetPrivateField).
+            // Derived from the type, not a hand list, which drifts.
             var members = new List<string>();
             foreach (PropertyInfo property in typeof(AudioEntity).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
@@ -104,8 +96,7 @@ namespace Ami.BroAudio.Editor.Tests
                 }
             }
 
-            // Floor for the derivation: the names the runtime suite actually reaches must all be in it, so an
-            // empty or partial set cannot pass.
+            // Floor, so an empty or partial derivation cannot pass.
             string[] reachedByTheRuntimeSuite =
             {
                 nameof(AudioEntity.Loop),

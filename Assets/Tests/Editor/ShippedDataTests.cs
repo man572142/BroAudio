@@ -12,22 +12,16 @@ using UnityEngine;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Data-integrity checks on the data BroAudio ships - the BroInstruction asset and EditorSetting's factory
-    /// values - rather than on in-memory fixtures. BroInstruction's <c>_dictionary</c> field is private
-    /// serialized data; it is read here via <see cref="SerializedObject"/>, never mutated.
+    /// Integrity of shipped data: the BroInstruction asset (read via <see cref="SerializedObject"/>, never
+    /// mutated) and EditorSetting's factory values.
     /// <para>
-    /// The BroInstruction checked is the COMMITTED one under <c>Resources~/Editor</c>, not the
-    /// <c>Editor/Resources</c> copy <c>Resources.Load</c> would find: that copy is gitignored and only created
-    /// from <c>Resources~</c> when absent, so it can be stale in either direction. <c>Resources~</c> is hidden
-    /// from the AssetDatabase (the trailing <c>~</c>), so the file is deserialized straight from disk.
+    /// Checks the COMMITTED BroInstruction under <c>Resources~/Editor</c>, deserialized from disk since the
+    /// <c>~</c> hides it from the AssetDatabase: the gitignored <c>Editor/Resources</c> copy can be stale either way.
     /// </para>
     /// </summary>
     public class ShippedDataTests : BroEditorTestFixture
     {
-        /// <summary>
-        /// The committed asset. This suite runs in the development project, where the package lives at
-        /// Assets/BroAudio (see <see cref="BroEditorTestFixture.TempFolder"/>'s note on the shipped subtree).
-        /// </summary>
+        /// <summary>The suite runs in the development project, where the package lives at Assets/BroAudio.</summary>
         private static string CommittedInstructionAssetPath =>
             Path.Combine(Application.dataPath, "BroAudio", "Resources~", "Editor", BroName.InstructionFileName + ".asset");
 
@@ -99,11 +93,8 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void BroInstructionAsset_HasNoDuplicateKeys()
         {
-            // Not expected to be red today, but worth its own test: BroInstruction.OnEnable() builds its
-            // dictionary with Dictionary.Add(), which THROWS on a duplicate key. That leaves _actualDict
-            // half-built, and every instruction after the throw point (plus every instruction ever, since the
-            // exception is swallowed by Unity's asset-load pipeline) silently resolves to "??????????" instead
-            // of failing anywhere visible. This is the failure mode nobody would diagnose from the symptom.
+            // Its own test because the runtime failure is invisible (see the message): Unity's asset-load
+            // pipeline swallows the throw.
             var asset = LoadShippedInstructionAsset();
             var entries = ReadDictionaryEntries(asset);
 
@@ -142,9 +133,8 @@ namespace Ami.BroAudio.Editor.Tests
             EditorSetting setting = BroEditorUtility.EditorSetting;
             setting.ResetToFactorySettings();
 
-            // Compared against the factory colour constants rather than against TryGetAudioTypeSetting's
-            // own output - GetAudioTypeColor is defined in terms of TryGetAudioTypeSetting, so checking
-            // one against the other cannot detect a wrong colour or a wrong type-to-colour pairing.
+            // Factory constants, not TryGetAudioTypeSetting's output: GetAudioTypeColor is built on it, so
+            // comparing the two can't catch a wrong pairing.
             var factoryColors = new Dictionary<BroAudioType, string>
             {
                 { BroAudioType.Music, EditorSetting.FactorySettings.MusicColor },
@@ -169,9 +159,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void GetSpectrumColor_InRange_ReturnsTheStoredColor()
         {
-            // Expected values come from this test, not from the list GetSpectrumColor reads: a lookup that
-            // returned the wrong index, or the factory list regardless of what is stored, would still pass a
-            // check that read both sides from SpectrumBandColors. An in-memory instance keeps the write off the
+            // Expected values come from here, not the list under test. In-memory, to keep the write off the
             // project's EditorSetting.
             EditorSetting setting = NewScriptableObject<EditorSetting>();
             setting.SpectrumBandColors = new List<Color> { Color.red, Color.green, Color.blue };
@@ -187,8 +175,7 @@ namespace Ami.BroAudio.Editor.Tests
             EditorSetting setting = NewScriptableObject<EditorSetting>();
             setting.ResetToFactorySettings();
 
-            // Factory literals, written out here rather than read back from the list under test. The factory
-            // bands all carry alpha 150/256.
+            // Factory literals, not read back from the list under test.
             const float FactoryBandAlpha = 150f / 256f;
             ColorUtility.TryParseHtmlString("#7CAEFF", out Color first);
             ColorUtility.TryParseHtmlString("#6CFF75", out Color last);

@@ -79,10 +79,9 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Creates a playable entity exactly like <see cref="CreateEntity"/>, but owned by
-        /// <paramref name="asset"/>, so that <see cref="AudioEntity.PlaybackGroup"/> falls back to the asset's
-        /// group and from there to <see cref="RuntimeSetting.GlobalPlaybackGroup"/> - the chain every shipped
-        /// entity plays through.
+        /// Like <see cref="CreateEntity"/>, but owned by <paramref name="asset"/>, so
+        /// <see cref="AudioEntity.PlaybackGroup"/> falls back through the asset's group to
+        /// <see cref="RuntimeSetting.GlobalPlaybackGroup"/> as shipped entities do.
         /// </summary>
         public static AudioEntity CreateAssetBackedEntity(string name, BroAudioType audioType, AudioAsset asset, params AudioClip[] clips)
         {
@@ -110,18 +109,9 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Creates a playable entity exactly like <see cref="CreateEntity"/>, but with the per-clip
-        /// <see cref="BroAudioClip.Volume"/> and entity <see cref="AudioEntity.MasterVolume"/> authored away
-        /// from their shared default of 1f (AudioConstant.FullVolume). Neither factor can be moved off 1
-        /// by any other factory here, which leaves AudioPlayer.Playback.cs's `_clip.Volume *
-        /// _pref.Entity.GetMasterVolume()` product (SetupClipVolume) unable to
-        /// ever read as anything but 1 * 1 in the suite - this is the smallest addition that fixes that.
-        /// <para>
-        /// <see cref="BroAudioClip.Volume"/> is a plain public field, so it's written directly; MasterVolume
-        /// is `private set` like most of <see cref="AudioEntity"/>, so it goes through <see cref="SetPrivateField"/>
-        /// against the auto-property's backing field, the same way every other authored AudioEntity field in
-        /// this suite (RandomFlags, VolumeRandomRange, Loop, ...) is written.
-        /// </para>
+        /// Like <see cref="CreateEntity"/>, but with per-clip <see cref="BroAudioClip.Volume"/> and
+        /// <see cref="AudioEntity.MasterVolume"/> moved off their default of 1, so the clip-volume product in
+        /// SetupClipVolume can read as something other than 1 * 1.
         /// </summary>
         public static AudioEntity CreateEntityWithVolume(string name, BroAudioType audioType, float clipVolume, float masterVolume, params AudioClip[] clips)
         {
@@ -135,15 +125,8 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Creates a playable entity exactly like <see cref="CreateEntity"/>, but with the entity's authored
-        /// <see cref="AudioEntity.Pitch"/> moved off <see cref="AudioConstant.DefaultPitch"/>.
-        /// <para>
-        /// <see cref="AudioEntity.CreateNewInstance"/> always sets Pitch to exactly 1, and nothing else in this
-        /// suite moves it, which leaves AudioPlayer.Pitch.cs's <c>GetBasePitch</c> unable to read as anything but
-        /// 1 - the same blind spot <see cref="CreateEntityWithVolume"/> exists to remove for clip/master volume.
-        /// Pitch is `private set` like most of <see cref="AudioEntity"/>, so it goes through
-        /// <see cref="SetPrivateField"/> against the auto-property's backing field.
-        /// </para>
+        /// Like <see cref="CreateEntity"/>, but with <see cref="AudioEntity.Pitch"/> moved off
+        /// <see cref="AudioConstant.DefaultPitch"/>, so <c>GetBasePitch</c> can read as something other than 1.
         /// </summary>
         public static AudioEntity CreateEntityWithPitch(string name, BroAudioType audioType, float pitch, params AudioClip[] clips)
         {
@@ -153,14 +136,8 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Creates a playable entity with the per-play randomization a designer authors in the Library Manager:
-        /// <see cref="AudioEntity.RandomFlags"/> plus the base value and range for each enabled flag.
-        /// <para>
-        /// <see cref="AudioEntity.GetRandomValue(float, RandomFlag)"/> returns
-        /// <c>baseValue + Random.Range(-range * 0.5f, range * 0.5f)</c>, so the base and the range are what
-        /// bound every draw; pass the two ranges as *different* values so a test can tell them apart if they
-        /// were ever swapped. All four numbers are `private set`, hence <see cref="SetPrivateField"/>.
-        /// </para>
+        /// Creates a playable entity with authored <see cref="AudioEntity.RandomFlags"/> plus the base value and
+        /// range for each flag. Pass the two ranges as different values, or a swap between them goes unnoticed.
         /// </summary>
         public static AudioEntity CreateRandomizedEntity(string name, BroAudioType audioType, RandomFlag randomFlags,
             float pitch, float pitchRandomRange, float masterVolume, float volumeRandomRange, params AudioClip[] clips)
@@ -176,14 +153,11 @@ namespace Ami.BroAudio.Tests
 
 #if PACKAGE_ADDRESSABLES
         /// <summary>
-        /// GUIDs of the suite's own addressable fixtures — <c>Assets/Tests/Fixtures/AddressableTone{A,B}.wav</c>,
-        /// addressed as <c>BroAudioTest/ToneA</c> and <c>BroAudioTest/ToneB</c> in the Default Local Group.
+        /// GUIDs of <c>Assets/Tests/Fixtures/AddressableTone{A,B}.wav</c> (regenerate via
+        /// <c>Tools > BroAudio > Tests > Regenerate Addressable Fixtures</c>).
         /// <para>
-        /// These are half-second sine tones generated by <c>Tools > BroAudio > Tests > Regenerate Addressable
-        /// Fixtures</c> and committed, rather than built at runtime like <see cref="CreateClip"/>: an
-        /// AssetReference resolves through the AssetDatabase, so an addressable clip has to be a real asset.
-        /// They deliberately live outside <c>Assets/BroAudio/Samples</c>, which ships as <c>Samples~</c> and is
-        /// therefore invisible to Unity on CI.
+        /// Committed assets, not runtime clips: an AssetReference resolves through the AssetDatabase. Don't move
+        /// them under <c>Assets/BroAudio/Samples</c>: it ships as <c>Samples~</c>, invisible to Unity on CI.
         /// </para>
         /// </summary>
         public static readonly string[] AddressableClipGuids =
@@ -222,20 +196,13 @@ namespace Ami.BroAudio.Tests
         }
 #endif
 
-        /// <summary>
-        /// Reads a private field or an auto-property backing field, walking the type hierarchy.
-        /// The read counterpart of <see cref="SetPrivateField"/>, for state a type exposes no getter for
-        /// (e.g. <c>SoundVolume.Setting</c>'s current volume).
-        /// </summary>
+        /// <summary>Reads a private field or an auto-property backing field, walking the type hierarchy.</summary>
         public static T GetPrivateField<T>(object target, string fieldName)
         {
             return (T)GetFieldOrThrow(target, fieldName).GetValue(target);
         }
 
-        /// <summary>
-        /// Writes a private field or an auto-property backing field, walking the type hierarchy.
-        /// Needed because most of <see cref="AudioEntity"/> is `private set`.
-        /// </summary>
+        /// <summary>Writes a private field or an auto-property backing field, walking the type hierarchy.</summary>
         public static void SetPrivateField(object target, string fieldName, object value)
         {
             GetFieldOrThrow(target, fieldName).SetValue(target, value);
@@ -258,18 +225,13 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Every genuinely private, non-auto-property member name the suite reaches by string literal - one
-        /// place to update on a rename. A member that already has a compile-checked source (a public
-        /// member's <c>nameof</c>, or a production <c>NameOf</c>/<c>EditorPropertyName</c> class) is NOT
-        /// duplicated here - except that several of those sources (<c>SoundSource.NameOf</c>,
-        /// <c>DefaultPlaybackGroup.NameOf</c>, <see cref="AudioEntity.EditorPropertyName"/>) live behind
-        /// <c>#if UNITY_EDITOR</c> in production, while this file's assembly (Tests.asmdef) targets every
-        /// platform - so the Runtime suite still has to reach those particular members by string, which is
-        /// what the constants below centralize.
+        /// The one home for private member names the suite reaches by string. Add a name here only when it has
+        /// no cross-platform compile-checked source: prefer <c>nameof</c> or a production <c>NameOf</c>, but
+        /// UNITY_EDITOR-only ones (e.g. <see cref="AudioEntity.EditorPropertyName"/>) can't be used from this
+        /// all-platform assembly.
         /// <para>
-        /// ReflectionCanaryTests resolves every constant here against the production type its nested class is
-        /// named after, so a rename fails one test by name instead of whichever tests happen to reach the
-        /// member. A new nested class needs an entry in that canary's type map, or the canary fails.
+        /// ReflectionCanaryTests resolves every constant here; a new nested class needs an entry in that
+        /// canary's type map, or the canary fails.
         /// </para>
         /// </summary>
         public static class Reflected
@@ -331,11 +293,7 @@ namespace Ami.BroAudio.Tests
                 return field;
             }
 
-            /// <summary>
-            /// Resolves a private instance method lazily, at first use, throwing the same exception as
-            /// <see cref="GetPrivateField{T}"/>/<see cref="SetPrivateField"/> (see <see cref="Unresolved"/>)
-            /// instead of leaving a caller to dereference a null MethodInfo.
-            /// </summary>
+            /// <summary>Resolves a private instance method lazily, at first use; throws <see cref="Unresolved"/> rather than return null.</summary>
             public static MethodInfo Method(System.Type type, string methodName)
             {
                 MethodInfo method = type.GetMethod(methodName, PrivateInstance);
@@ -346,12 +304,7 @@ namespace Ami.BroAudio.Tests
                 return method;
             }
 
-            /// <summary>
-            /// The one exception every reflection lookup in the suite throws when a member no longer resolves:
-            /// a <see cref="BroAudioException"/> naming the exact type and member. Reused instead of a new
-            /// exception type per CLAUDE.md - a renamed reflection target is a genuine test-scaffolding setup
-            /// error, not an expected "not found" gameplay path.
-            /// </summary>
+            /// <summary>The exception every reflection lookup in the suite throws when a member no longer resolves.</summary>
             internal static BroAudioException Unresolved(System.Type type, string memberName)
                 => new BroAudioException($"Reflection: {type.Name}.{memberName} could not be resolved. " +
                     "Renamed or moved? Update TestAudioLibrary.Reflected and its caller.");

@@ -7,12 +7,9 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Runtime-only characterization: clip-selection state lives on the
-    /// <see cref="AudioEntity"/>, not on the player. The pure per-strategy behavior already lives in
-    /// ClipSelectionTests.cs (EditMode) — this file only covers what needs a live SoundManager: the shared
-    /// cursor across concurrent plays, its explicit reset, and the SetVelocity/SetSequenceId wiring that has
-    /// to land before SoundManager.LateUpdate drains the queued Play() and calls PickNewClip - the same
-    /// same-frame seam VolumePitchMixerTests exercises for SetPitch.
+    /// Characterizes clip-selection state that lives on the <see cref="AudioEntity"/>, not the player: the
+    /// cursor shared across concurrent plays, its explicit reset, and SetVelocity/SetSequenceId landing in
+    /// Play()'s frame, before LateUpdate picks the clip.
     /// </summary>
     public class ClipSelectionCursorTests : BroAudioTestFixture
     {
@@ -30,8 +27,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(player1, "the first play to start");
             Assert.AreEqual("SeqClip0", player1.AudioSource.clip.name);
 
-            // characterizes: AudioEntity._clipSelectionStrategy is one field shared by every Play() on this
-            // SoundID — a second concurrent play advances the same cursor rather than starting its own at 0.
+            // Characterizes: one cursor per entity, shared by every Play() of this SoundID.
             IAudioPlayer player2 = BroAudio.Play(id);
             yield return WaitForPlaybackStart(player2, "the second play to start");
             Assert.AreEqual("SeqClip1", player2.AudioSource.clip.name,
@@ -95,8 +91,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(secondA, "the second 'a' play to start");
             Assert.AreSame(clip1, secondA.AudioSource.clip, "The 'a' cursor should have advanced to index 1.");
 
-            // characterizes: a named sequence id gets its own cursor, unlike the default shared one that
-            // Play_SameSequenceEntityPlayedTwice_AdvancesSharedCursor_AndResetRestartsAtClipZero pins down above.
+            // Characterizes: a named sequence id gets its own cursor, unlike the default shared one.
             IAudioPlayer firstB = BroAudio.Play(id);
             firstB.SetSequenceId("b");
             yield return WaitForPlaybackStart(firstB, "the first 'b' play to start");

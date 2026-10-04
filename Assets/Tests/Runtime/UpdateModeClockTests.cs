@@ -11,65 +11,27 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Utility.GetDeltaTime() is the single clock behind every fade, pitch tween,
-    /// scheduled start and effect automation in this codebase: it reads RuntimeSetting.UpdateMode and
-    /// returns Time.unscaledDeltaTime for AudioMixerUpdateMode.UnscaledTime, Time.deltaTime otherwise.
-    /// UnscaledTime exists so a fade can keep running while the game is paused (Time.timeScale == 0);
-    /// before this file, that branch appeared only in comments (three callers name it) and in zero
-    /// assertions - deleting it silently freezes every fade in a paused game.
+    /// Pins Utility.GetDeltaTime()'s UpdateMode branch at timeScale 0: fades progress under UnscaledTime and
+    /// freeze under Normal. Each test alone passes if the branch is hardcoded either way; only the pair
+    /// proves it. Both check two call sites with their own GetDeltaTime() call - a clip FadeIn (Fader) and
+    /// SetMasterVolume's coroutine.
     /// <para>
-    /// The discriminating scenario is Time.timeScale == 0: a fade must still progress under
-    /// AudioMixerUpdateMode.UnscaledTime and must NOT progress under the factory-default
-    /// AudioMixerUpdateMode.Normal (RuntimeSetting.FactorySettings.UpdateMode).
-    /// Neither half proves the branch alone - a GetDeltaTime that always returned unscaled time would
-    /// still pass the UnscaledTime half, and one that always returned scaled time would still pass the
-    /// Normal half - so both tests below assert their pair of outcomes and must be read together.
-    /// </para>
-    /// <para>
-    /// Both tests exercise two independent call sites so this isn't just pinning FaderModule: the clip's
-    /// own FadeIn (Fader.Update, observed through IAudioPlayer.GetVolume() exactly as
-    /// FadeAndTrimTests does) and SoundManager's master-volume ramp (SetMasterVolume's own local
-    /// coroutine - not the Fader class at all - the non-WebGL branch that is the one
-    /// actually compiled into an Editor/PlayMode run; its WebGL-only twin is `#if UNITY_WEBGL`'d
-    /// out here and untested by this file). Observed through the mixer's exposed Master parameter exactly
-    /// as VolumePitchMixerTests does. A regression that hardcoded the wrong Time.*deltaTime at only one of
-    /// these two call sites would be invisible to a test that checked just the other.
-    /// </para>
-    /// <para>
-    /// Both tests below pause the game and leave a master-volume fade in flight, and neither cleans up
-    /// after itself: BroAudioTestFixture's own TearDown owns both halves of that. It restores
-    /// Time.timeScale first - nothing else can drain while the game is paused, and the next test's first
-    /// WaitForSeconds would never return - and then waits for the Master parameter to stop being
-    /// rewritten, because a fade frozen here resumes the moment timeScale is restored and
-    /// SetMasterVolume cannot be cancelled by the teardown's own SetVolume(FullVolume, 0f): it only
-    /// RestartCoroutine()s on its `fadeTime != 0f` branch, and returns early when the parameter already
-    /// reads the requested value (Docs/TEST_FINDINGS.md #51). Do not re-add a local [UnityTearDown] here
-    /// for either half - the base runs after this class's, so a duplicate would only pay for itself twice.
-    /// </para>
-    /// <para>
-    /// Deliberately NOT gated on RequireRealtimeAudioClock: that gate exists for state that rides the DSP
-    /// clock (BroAudioTestFixture.WaitDspSeconds's own doc comment says so explicitly), and every value
-    /// asserted here - Fader.Current and the mixer's Master float - is written from the frame clock
-    /// (Utility.GetDeltaTime()) by a plain per-frame coroutine, never from AudioSettings.dspTime. Gating
-    /// this file on the DSP-clock check would only add an unrelated Assert.Ignore path.
+    /// No local teardown: the base fixture restores timeScale and drains the master fade. Not gated on
+    /// RequireRealtimeAudioClock: every value asserted here runs on the frame clock.
     /// </para>
     /// </summary>
     public class UpdateModeClockTests : BroAudioTestFixture
     {
-        // Same wide, meaning-carrying thresholds FadeAndTrimTests uses for a live Fader read rather than
-        // exact values - Mathf.Lerp plus an easing curve is not sample-accurate.
+        // Wide thresholds: a live Lerp-plus-ease read is not sample-accurate.
         private const float NearSilenceThreshold = 0.15f;
         private const float NearTargetThreshold = 0.95f;
 
-        // One duration shared by the clip's FadeIn and the master-volume fade so a single wait window
-        // below covers both ramps. A 6s clip comfortably outlasts every window used in this file (the
-        // widest is the frozen test's 3s realtime wait), so natural playback end never intervenes and
-        // resets _clipVolume out from under the assertion.
+        // One duration for both ramps (started in the same frame), so one wait covers both. The clip
+        // outlasts the longest wait (3s), so its natural end never resets _clipVolume mid-assertion.
         private const float FadeDuration = 1f;
         private const float ClipLength = 6f;
 
-        // -20dB (Mathf.Log10(0.1) * 20 = -20), a large, unambiguous drop from the 0dB baseline (full
-        // volume) established below - nowhere near mixer round-trip noise.
+        // -20dB: far beyond mixer round-trip noise.
         private const float MasterFadeTargetVolume = 0.1f;
 
         [UnityTest]
@@ -78,9 +40,7 @@ namespace Ami.BroAudio.Tests
             SoundManager.Instance.Setting.UpdateMode = AudioMixerUpdateMode.UnscaledTime;
             Time.timeScale = 0f;
 
-            // Known baseline before measuring: fadeTime 0 takes SetMasterVolume's immediate SafeSetFloat
-            // branch, which isn't gated by GetDeltaTime at all, so this lands
-            // regardless of the pause above.
+            // Zero fade bypasses GetDeltaTime, so this lands despite the pause.
             BroAudio.SetVolume(AudioConstant.FullVolume, 0f);
             yield return WaitFrames(1);
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float baselineDb),
@@ -92,21 +52,14 @@ namespace Ami.BroAudio.Tests
             SoundID id = IdOf(entity);
 
             IAudioPlayer player = BroAudio.Play(id);
-            // Started in the same frame as Play(): both ramps begin at effectively the same real time, so
-            // one wait window below can cover either.
             BroAudio.SetVolume(MasterFadeTargetVolume, FadeDuration);
 
             yield return WaitForPlaybackStart(player);
-            // SetupClipVolume snaps _clipVolume.Current to 0 before the fade-in coroutine starts ramping
-            // it up (same mechanism FadeAndTrimTests.Play_WithClipFadeIn_RampsVolumeUpFromSilence checks).
             Assert.Less(player.GetVolume(), NearSilenceThreshold,
                 "Clip fade-in should start near silence regardless of UpdateMode.");
 
-            // fadeDuration + 1.5s: real (unscaled) frame time keeps advancing every rendered frame even
-            // though Time.timeScale is 0 (yield return null still steps a frame - only WaitForSeconds
-            // would hang), so a working UnscaledTime branch finishes this 1s fade in about one real
-            // second regardless of the pause. 1.5s of slack absorbs test-runner frame-time noise the same
-            // way FadeAndTrimTests pads its own fade waits.
+            // Frames still step at timeScale 0 (only WaitForSeconds would hang), so a working UnscaledTime
+            // branch finishes in about the fade's own duration; 1.5s of slack for frame-time noise.
             const float fadeTimeout = FadeDuration + 1.5f;
             yield return WaitUntilOrTimeout(() => player.GetVolume() >= NearTargetThreshold,
                 "the clip's own fade-in to reach target while the game is paused under UnscaledTime - " +
@@ -125,8 +78,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator Fade_WithNormalModeAndPausedGame_FreezesAndNeverProgresses()
         {
-            // Explicit even though Normal is RuntimeSetting.FactorySettings.UpdateMode
-            // (already the ambient value here) - documents intent rather than relying on that default holding.
+            // Explicit, though Normal is already the factory value.
             SoundManager.Instance.Setting.UpdateMode = AudioMixerUpdateMode.Normal;
             Time.timeScale = 0f;
 
@@ -149,20 +101,11 @@ namespace Ami.BroAudio.Tests
                 "Clip fade-in should start near silence regardless of UpdateMode.");
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float masterDbAtStart));
 
-            // A REALTIME interval comfortably longer than the 1s fade: fadeDuration * 2 + 1s = 3s. With
-            // Time.timeScale == 0, Time.deltaTime is 0 on every frame (well-established Unity pause
-            // behaviour, not something this codebase controls), so Utility.GetDeltaTime() under Normal
-            // mode should accumulate nothing for the whole 3s and both ramps should still read exactly
-            // their starting value - if this is wrong, a 1s fade would instead be long complete by the
-            // time this wait returns. Must be WaitForSecondsRealtime, not WaitForSeconds: the latter never
-            // returns while timeScale is 0 (it is itself scaled-time-driven), which is exactly the trap
-            // this suite's own fixture warns about.
+            // Well past the fade's duration, so an unfrozen fade would be long complete. Must be realtime:
+            // WaitForSeconds never returns at timeScale 0.
             yield return new WaitForSecondsRealtime(FadeDuration * 2f + 1f);
 
-            // Fader.Update(), when _elapsedTime never advances, keeps recomputing
-            // Mathf.Lerp(origin, target, ease(0 / fadeTime)) every frame - the same value each time, since
-            // every standard Ease.*(0) is 0 (EaseExtension.cs) - so an exact-equality check (not just "below
-            // NearSilenceThreshold") is the tightest, most direct proof that literally zero progress was made.
+            // Exact equality holds: a frozen Fader recomputes the same Lerp at ease(0) = 0 every frame.
             Assert.AreEqual(clipVolumeAtStart, player.GetVolume(), 0.001f,
                 "Clip fade-in should not have progressed at all while the game is paused under Normal " +
                 "UpdateMode - a regression that returned unscaled time unconditionally would show movement here.");
@@ -173,12 +116,7 @@ namespace Ami.BroAudio.Tests
                 "Normal UpdateMode - this call site has its own Utility.GetDeltaTime() call " +
                 "that a fix to FaderModule alone would not touch.");
 
-            // Non-vacuity, read together with Fade_WithUnscaledTimeModeAndPausedGame_StillProgressesToCompletion
-            // above: this test alone would still pass if GetDeltaTime() always returned Time.deltaTime
-            // regardless of UpdateMode (Normal already expects that value), just as the UnscaledTime test
-            // alone would still pass if GetDeltaTime() always returned Time.unscaledDeltaTime. Only the pair,
-            // sharing the same paused-game setup and differing solely in UpdateMode, proves the branch in
-            // Utility.GetDeltaTime() actually reads RuntimeSetting.UpdateMode rather than ignoring it.
+            // Vacuous alone: read together with the UnscaledTime test above (see the class summary).
         }
     }
 }

@@ -10,19 +10,11 @@ using UnityEditor.AddressableAssets.Settings;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Regenerates the addressable fixtures that <see cref="TestAudioLibrary.AddressableClipGuids"/> points at.
-    /// <para>
-    /// Every other clip in the suite is built at runtime by <see cref="TestAudioLibrary.CreateClip"/>, but an
-    /// addressable one cannot be: an AssetReference resolves its GUID through the AssetDatabase, so the asset
-    /// has to exist on disk. These tones are therefore generated here and committed. They live under
-    /// <c>Assets/Tests/Fixtures</c> rather than in the demo content because the shipped folders
-    /// (<c>Samples</c>, <c>Resources</c>) are committed with a <c>~</c> suffix and Unity never imports them
-    /// on CI, which is what left the whole addressable suite failing there.
-    /// </para>
-    /// <para>
-    /// Re-running this is only needed if the .wav files are lost or their group entries are wiped. The GUIDs
-    /// come from the committed .meta files, so they survive a regeneration.
-    /// </para>
+    /// Regenerates the committed addressable fixtures behind <see cref="TestAudioLibrary.AddressableClipGuids"/>.
+    /// An AssetReference resolves through the AssetDatabase, so unlike <see cref="TestAudioLibrary.CreateClip"/>
+    /// clips these must exist on disk. Don't move them into the shipped <c>Samples</c>/<c>Resources</c> folders:
+    /// those are committed with a <c>~</c> suffix, which CI never imports. GUIDs come from the committed .meta
+    /// files, so they survive regeneration.
     /// </summary>
     public static class AddressableFixtureGenerator
     {
@@ -55,10 +47,7 @@ namespace Ami.BroAudio.Tests
             RegisterWithAddressables();
         }
 
-        /// <summary>
-        /// A mono 16-bit PCM sine at <see cref="TestAudioLibrary.SampleRate"/> — the same tone
-        /// <see cref="TestAudioLibrary.CreateClip"/> builds in memory, just encoded as a file.
-        /// </summary>
+        /// <summary>Mono 16-bit PCM sine at <see cref="TestAudioLibrary.SampleRate"/>.</summary>
         private static byte[] EncodeSineWav(float frequency)
         {
             int sampleRate = TestAudioLibrary.SampleRate;

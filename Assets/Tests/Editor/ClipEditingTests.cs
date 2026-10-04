@@ -7,20 +7,11 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// E3 tier: <see cref="AudioClipEditingHelper"/>'s sample math. This is the only place in the
-    /// Editor assembly where a bug corrupts a user's audio file, so every edit is verified against
-    /// exact expected sample values (via a ramp clip built in this file), not just "did it run".
+    /// <see cref="AudioClipEditingHelper"/>'s sample math: a bug here corrupts a user's audio file, so every edit
+    /// is checked against exact values from a ramp clip. Pinned quirks (TEST_FINDINGS) are characterized, not fixed.
     /// <para>
-    /// Several tests pin down real, verified quirks in the production code (Downmix drops the final
-    /// group, Reverse swaps stereo channels, AddSlient prepends rather than appends). These are
-    /// characterized, not fixed - do not "correct" them.
-    /// </para>
-    /// <para>
-    /// Ramp clips run at 1000 Hz, the lowest rate AudioClip.Create accepts (it caps anything lower and
-    /// logs an error). One sample is therefore one millisecond, and <see cref="Seconds"/> converts a sample
-    /// count back to the time argument the production code wants — every such value survives the
-    /// float round-trip exactly, including AddSlient's truncating (int) cast, with no
-    /// floating-point rounding risk, so index math can be asserted exactly.
+    /// At <see cref="SampleRate"/> one sample is one millisecond, so every <see cref="Seconds"/> value survives the
+    /// float round-trip (including AddSlient's (int) cast) and index math can be asserted exactly.
     /// </para>
     /// </summary>
     public class ClipEditingTests : BroEditorTestFixture
@@ -99,11 +90,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void Trim_OnStreamingClip_FailsAndLeavesOriginalClip()
         {
-            // Per Unity's docs, AudioClip.GetData flatly refuses on a streamed clip (stream:true in
-            // AudioClip.Create, or a Streaming-load-type import) - it is the one documented, reliable
-            // way to make TryGetSampleData return false rather than throw. (A too-large read range
-            // does not fail either - GetData wraps around - which is why TryGetSampleData clamps it;
-            // see Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround.)
+            // GetData refuses a streamed clip: the one reliable way to make TryGetSampleData return false.
             AudioClip clip = Track(AudioClip.Create("StreamedRamp10", 10, 1, SampleRate, stream: true));
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -120,13 +107,8 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_61")]
         public void Trim_OnStreamingClip_LeavesAZeroedBufferThatLaterEditsApplyTo()
         {
-            // Characterizes TEST_FINDINGS #61: TryGetSampleData allocates its out array BEFORE GetData fails and
-            // hands that array back even when it returns false, and Trim stores it in the helper's sample field
-            // unconditionally. The helper then holds a buffer of zeros the size of the requested range, never
-            // read from the clip, so CanEdit reads true and every later edit runs on that silence. On an
-            // imported streaming clip with real audio, GetResultClip after such an edit would return silence.
-            // (This test's streamed clip has no PCM reader, so its own content cannot be compared - the
-            // contrast test below shows that without the failed Trim the same clip is NOT editable.)
+            // Pins TEST_FINDINGS #61. A created streamed clip has no PCM reader, so content can't be compared;
+            // StreamingClip_WithoutAFailedTrim_IsNotEditable is the contrast.
             AudioClip clip = Track(AudioClip.Create("StreamedRamp10", 10, 1, SampleRate, stream: true));
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -141,8 +123,7 @@ namespace Ami.BroAudio.Editor.Tests
             helper.AdjustVolume(0.5f);
 
             Assert.IsTrue(helper.HasEdited, "AdjustVolume ran on the leftover buffer and reported an edit.");
-            // No public member exposes the buffer short of GetResultClip, which would re-create a STREAMED clip
-            // (the original's load type) and SetData into it - so the buffer is read directly.
+            // Read the field: GetResultClip would re-create a STREAMED clip and SetData into it.
             float[] buffer = (float[])SampleDataField.GetValue(helper);
             Assert.IsNotNull(buffer);
             Assert.AreEqual(10, buffer.Length, "The leftover buffer is sized to the requested range (the whole 10-sample clip).");
@@ -152,8 +133,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void StreamingClip_WithoutAFailedTrim_IsNotEditable()
         {
-            // The contrast for #61: the helper's lazy read fails the same way, but leaves the buffer null,
-            // so CanEdit is false and every edit is a no-op.
+            // Contrast for #61: the lazy read fails the same way but leaves the buffer null.
             AudioClip clip = Track(AudioClip.Create("StreamedRamp10", 10, 1, SampleRate, stream: true));
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -166,11 +146,8 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void Trim_RangeLongerThanTheClip_ClampsToTheEndInsteadOfWrappingAround()
         {
-            // AudioClip.GetData wraps back to the start of the clip when the requested range runs past
-            // the end rather than failing, so an oversized range would silently splice the clip with its
-            // own beginning if nothing guarded it. TryGetSampleData clamps the read to the samples that
-            // remain, which is the invariant this test pins. A negative end position is the simplest way
-            // to ask for more than the clip holds.
+            // GetData wraps past the end instead of failing, so TryGetSampleData must clamp. A negative end
+            // position asks for more than the clip holds.
             AudioClip clip = CreateRampClip("Ramp5", 5, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -189,7 +166,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_27")]
         public void AddSlient_PrependsSilenceAndShiftsOriginalDataToTail()
         {
-            // Characterizes TEST_FINDINGS #27: despite the name giving no indication, the silence goes at the FRONT.
+            // Pins TEST_FINDINGS #27.
             AudioClip clip = CreateRampClip("Ramp4", 4, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -204,9 +181,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_27")]
         public void AddSlient_PadLengthTruncatesInsteadOfRounding()
         {
-            // Characterizes TEST_FINDINGS #27: second half - AddSlient sizes the pad with a plain (int)
-            // cast, while FadeIn/FadeOut/GetDataSample all use Math.Round(..., AwayFromZero). This time
-            // computes to 3.9999 samples, so the cast yields 3 where every other path would yield 4.
+            // Pins TEST_FINDINGS #27: this time is 3.9999 samples.
             AudioClip clip = CreateRampClip("Ramp4Trunc", 4, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -253,9 +228,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_26")]
         public void Reverse_Stereo_ReversesRawArraySoChannelsAreTransposed()
         {
-            // Characterizes TEST_FINDINGS #26: Reverse() flips the raw interleaved array with no channel awareness.
-            // On a stereo clip this doesn't just time-reverse - it also SWAPS L and R, because index 0
-            // (a left slot) ends up holding what was the last RIGHT sample.
+            // Pins TEST_FINDINGS #26.
             AudioClip clip = CreateRampClip("Ramp3Stereo", 3, 2);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -265,7 +238,6 @@ namespace Ami.BroAudio.Editor.Tests
             // Original interleaved (L0,R0,L1,R1,L2,R2) = (0, 1/3, 2/3, 1, 4/3, 5/3).
             float[] expected = { 5f / 3f, 4f / 3f, 1f, 2f / 3f, 1f / 3f, 0f };
             Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
-            // Left channel (even indices) post-reverse is the original right channel, reversed - the transpose.
             Assert.AreEqual(5f / 3f, actual[0], Tolerance, "index 0 (now 'left') should hold the old last-right sample.");
         }
         #endregion
@@ -289,10 +261,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void FadeIn_ZeroTime_IsANoOpAndDoesNotReportAnEdit()
         {
-            // A zero fade window divides by it (volIncrement = 1f/fadeSamples), which would compute
-            // Infinity and still flip HasEdited, making GetResultClip mint a copy of an unchanged clip if
-            // nothing guarded it. FadeIn returns early on a zero window instead, which is the invariant
-            // this test pins.
+            // FadeIn must return early: a zero window divides by zero and would still flip HasEdited.
             AudioClip clip = CreateRampClip("Ramp3", 3, 1);
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -327,9 +296,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_25")]
         public void ConvertToMono_Downmixing_AveragesEachFrameButDropsTheFinalFrame()
         {
-            // Characterizes TEST_FINDINGS #25: each frame (L,R pair) is grouped and averaged correctly - the grouping
-            // is not offset - but the running sum is only flushed when the NEXT frame's boundary is reached, so the
-            // final frame is never flushed: output length is (totalSamples / channels) - 1, and the last frame is lost.
+            // Pins TEST_FINDINGS #25.
             AudioClip clip = CreateRampClip("Ramp3Stereo", 3, 2); // interleaved: 0, 1/3, 2/3, 1, 4/3, 5/3
             using var helper = new AudioClipEditingHelper(clip);
 
@@ -377,9 +344,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void ConvertToMono_ThenFadeIn_SizesFadeWindowByMonoChannelCountNotOriginal()
         {
-            // GetChannelCount() feeds off _isMono, which ConvertToMono flips. If FadeIn used the
-            // original stereo channel count instead, fadeSample would be twice as large and this
-            // test's untouched indices (2,3) would get faded too.
+            // Sized by the stereo count instead, fadeSample would double and fade indices 2,3 too.
             AudioClip clip = CreateRampClip("Ramp4Stereo", 4, 2); // interleaved: 0,.25,.5,.75,1,1.25,1.5,1.75
             using var helper = new AudioClipEditingHelper(clip);
 

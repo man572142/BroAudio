@@ -11,15 +11,11 @@ namespace Ami.BroAudio.Tests
 {
 #if !UNITY_WEBGL
     /// <summary>
-    /// What a mixer track looks like when it goes back to SoundManager's track pool, and which track the next
-    /// Play() takes. Tracks are pooled and shared across audio types, so AudioPlayer.Recycle mutes a track
-    /// before returning it (SilenceTrackBeforeReturn): otherwise its next borrower would be heard at the
-    /// previous sound's level until its own first volume write lands.
+    /// A recycled mixer track must return to the pool muted (SilenceTrackBeforeReturn): tracks are shared across
+    /// audio types, so the next borrower would otherwise be heard at the previous sound's level.
     /// <para>
-    /// Both tests rely on the track pool being LIFO: AudioTrackObjectPool is an ObjectPool, whose Extract and
-    /// Recycle both work on the last index, and the base fixture drains every player before each test, so the
-    /// only track returned during a test is the one the test returned. Track routing exists only off WebGL
-    /// (AudioPlayer.SetupAudioTrack takes no track there), hence the guard.
+    /// Both tests rely on the pool being LIFO and on the base fixture draining every player, so the only track
+    /// returned is the test's own. No tracks on WebGL.
     /// </para>
     /// </summary>
     public class MixerTrackRecycleTests : BroAudioTestFixture
@@ -65,8 +61,7 @@ namespace Ami.BroAudio.Tests
         {
             AudioMixer mixer = SoundManager.Instance.AudioMixer;
 
-            // Every later SFX Play() routes through the effect send. The base fixture's teardown removes the
-            // per-type effect and resets Effect_LowPass.
+            // Routes every later SFX Play() through the effect send.
             BroAudio.SetEffect(Effect.LowPass(800f));
             yield return WaitFrames(1);
 
@@ -87,16 +82,13 @@ namespace Ami.BroAudio.Tests
             BroAudio.Stop(firstId, 0f);
             yield return WaitForRecycle(first, "the first player to be recycled");
 
-            // Two steps get here: EndPlaying's ResetEffect mutes the send and clears the player's effect flags,
-            // then Recycle's SilenceTrackBeforeReturn mutes the dry track (and would mute the send too if the
-            // flags were still set). Both sides must come back muted.
+            // ResetEffect mutes the send and clears the effect flags; SilenceTrackBeforeReturn then mutes the dry track.
             Assert.AreEqual(AudioConstant.MinDecibelVolume, ReadDb(mixer, sendName), DecibelTolerance,
                 $"{sendName} should go back to the pool muted, so the track's next borrower is not heard through a stale send.");
             Assert.AreEqual(AudioConstant.MinDecibelVolume, ReadDb(mixer, trackName), DecibelTolerance,
                 $"{trackName} should go back to the pool muted.");
 
-            // The per-type effect is still set, so the next borrower of the same track routes through the send
-            // again and must end up with the same split as the first one: level on the send, dry track muted.
+            // The effect is still set, so the next borrower must get the same split as the first.
             SoundID secondId = NewSound("SendRecycleSfx2", BroAudioType.SFX, NewClip(3f));
             IAudioPlayer second = BroAudio.Play(secondId);
             yield return WaitForPlaybackStart(second, "the second playback to start");

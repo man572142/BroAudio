@@ -4,10 +4,7 @@ using Ami.Extension;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Pure-string coverage for the <see cref="EditorScriptingExtension"/> reflection-naming helpers:
-    /// <c>GetBackingFieldName</c> (property name -> compiler-generated backing field name) and
-    /// <c>GetFieldName</c> (property name -> the suite's own <c>_camelCase</c> field-name guess). No IMGUI
-    /// context is touched — every target here is plain string arithmetic.
+    /// <see cref="EditorScriptingExtension"/>'s reflection-naming helpers: plain string arithmetic, no IMGUI context.
     /// </summary>
     public class EditorReflectionNamingTests : BroEditorTestFixture
     {
@@ -33,10 +30,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Category("Finding_23")]
         public void GetFieldName_ReplacesEveryOccurrenceOfTheLeadingChar_NotJustTheFirst()
         {
-            // Characterizes TEST_FINDINGS #23: the implementation does
-            // propertyName.Replace(firstChar, lowerFirstChar) — a global string.Replace(char,char) — not a
-            // single-position substitution. Any later occurrence of the same uppercase leading letter
-            // elsewhere in the name is lowercased too.
+            // Pins TEST_FINDINGS #23.
             Assert.AreEqual("_foof", EditorScriptingExtension.GetFieldName("FooF"));
         }
 

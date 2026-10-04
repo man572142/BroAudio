@@ -8,15 +8,8 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The optional-package half of <see cref="TeardownTests"/>' sweep: the Addressables/Localization verbs on the
-    /// <see cref="BroAudio"/> facade once SoundManager is gone, which that sweep does not list because they only
-    /// compile with the packages installed. Same split as the core verbs - the release verbs go through the
-    /// null-safe <c>BroAudio.Manager</c> and no-op, while the load/query verbs read <c>SoundManager.Instance</c>
-    /// like Play and throw <see cref="BroAudioException"/>.
-    /// <para>
-    /// Destroy/restore is the same as TeardownTests': the whole manager GameObject goes with DestroyImmediate,
-    /// and a <c>[UnityTearDown]</c> here re-bootstraps it before the base fixture's teardown runs.
-    /// </para>
+    /// The optional-package half of <see cref="TeardownTests"/>' sweep, split off because these verbs only
+    /// compile with the packages: release verbs no-op, load/query verbs throw <see cref="BroAudioException"/>.
     /// </summary>
     public class OptionalPackageTeardownTests : BroAudioTestFixture
     {
@@ -74,8 +67,7 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // The acquire side of the same asymmetry: loading is Play-like and goes through SoundManager.Instance, and
-        // so does the IsLoaded query - it is not null-safe even though it changes nothing.
+        // IsLoaded is not null-safe even though it changes nothing.
         [UnityTest]
         public IEnumerator LoadAndIsLoadedVerbs_ForOptionalPackages_WithManagerDestroyed_ThrowBroAudioException()
         {

@@ -17,7 +17,7 @@ namespace Ami.BroAudio.Tests
     /// </summary>
     public class PlaybackEdgeCaseTests : BroAudioTestFixture
     {
-        /// <summary>Creates a tracked entity wired to the given group, as PlaybackGroupTests does.</summary>
+        /// <summary>Creates a tracked entity wired to the given group.</summary>
         private SoundID NewGroupedSound(DefaultPlaybackGroup group, string name, float clipSeconds)
         {
             AudioEntity entity = NewEntity(name, BroAudioType.SFX, NewClip(clipSeconds, name + "Clip"));
@@ -26,21 +26,15 @@ namespace Ami.BroAudio.Tests
         }
 
         #region Comb-filtering window expiry
-        /// <summary>
-        /// Seconds. Wide, so the in-window control play below cannot drift out of it on a stalled frame.
-        /// </summary>
+        /// <summary>Wide, so the in-window control play cannot drift out of it on a stalled frame.</summary>
         private const float CombWindowSeconds = 3f;
 
         /// <summary>How far past the window the second attempt is made - clear of the boundary on any frame.</summary>
         private const int CombWindowOvershootMilliseconds = 500;
 
-        // PlaybackGroupTests pins the rejection inside the window; this pins the other side of it.
-        // DefaultPlaybackGroup compares TimeExtension.UnscaledCurrentFrameBeganTime (frame-start unscaled time,
-        // in ms) against the previous player's PlaybackStartingTime, so the wait below polls exactly that clock.
-        // The first player is paused rather than left playing: a paused player stays active and stays the
-        // _combFilteringPreventer entry for its ID, so neither a clip ending early (a fast DSP clock) nor the
-        // recycle that would clear the entry can be what lets the later play through. The control play in the
-        // same paused state is what shows it is the elapsed time, and nothing else, that changes the verdict.
+        // The group compares UnscaledCurrentFrameBeganTime against PlaybackStartingTime, so the wait polls that
+        // clock. The first player is paused, not left playing: it stays the preventer entry, so neither an early
+        // clip end nor its recycle can be what lets the later play through - only elapsed time differs.
         [UnityTest]
         public IEnumerator Play_SameIdAfterTheCombFilteringWindowExpires_IsAcceptedAgain()
         {
@@ -75,11 +69,8 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Pause longer than the remaining clip
-        // PlayControl waits on `dspTime < _playbackEndDspTime`, an absolute DSP time fixed at the start. A pause
-        // replaces that coroutine with StopControl, and the resume's ResolveScheduledTiming slides the end time
-        // by the whole pause (then RecalculateScheduledEndTime re-derives it from the playhead). So a pause
-        // longer than what was left of the clip still resumes from the paused sample and plays the remainder -
-        // the stale end time, long past by then, would otherwise end the player in the frame it resumed.
+        // The end time is an absolute DSP time; the resume must slide it by the whole pause, or the long-past
+        // end would end the player in the frame it resumed.
         [UnityTest]
         public IEnumerator Pause_LongerThanTheRemainingClip_ResumesFromThePausedSampleAndPlaysTheRemainder()
         {
@@ -117,11 +108,8 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Loop with clip Delay
-        // SetClipDelayIfNotScheduled only applies clip.Delay while _pref.ScheduledStartTime is still 0. The first
-        // iteration gets it; ScheduleNextPlayback then hands the next player a ScheduledStartTime of the seam, so
-        // the delay is not applied again - it is a one-off pre-roll, not a gap between iterations.
-        // (A delayed first iteration also skips the loop warm-up: ResolveScheduledTiming only adds it when
-        // ScheduledStartTime is still 0.)
+        // clip.Delay applies only while ScheduledStartTime is 0, and the next loop player gets the seam's time,
+        // so the delay is a one-off pre-roll. (A delayed first iteration also skips the loop warm-up.)
         [UnityTest]
         public IEnumerator Loop_WithAClipDelay_DelaysOnlyTheFirstIterationAndNotEachSeam()
         {
@@ -153,12 +141,8 @@ namespace Ami.BroAudio.Tests
 
 #if !UNITY_WEBGL
         #region AudioSource.volume
-        // AudioPlayer.UpdateVolume writes the linear product clip * track * type as decibels to its mixer track,
-        // and only falls back to AudioSource.volume - linearly, clamped to [0, 1] - when the player holds no
-        // track (TrySetMixerDecibelVolume fails). A player past the Dominator pool's capacity is the cheapest way
-        // to get one without a track (DominatorTrackRoutingTests.AsDominator_BeyondThePoolCapacity_PlaysUnroutedAndWarns).
-        // So the same SetVolume(0.5) leaves a routed player's AudioSource.volume at 1 and puts exactly 0.5 - not a
-        // decibel value, not a curve - on the unrouted one: the engine applies AudioSource.volume linearly.
+        // UpdateVolume writes dB to the mixer track and falls back to AudioSource.volume (linear, clamped to
+        // [0, 1]) only without a track; a dominator past pool capacity is the cheapest trackless player.
         [UnityTest]
         public IEnumerator SetVolume_LeavesARoutedPlayersAudioSourceVolumeAtFull_ButAnUnroutedPlayerTakesTheLinearValue()
         {

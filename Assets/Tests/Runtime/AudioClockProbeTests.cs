@@ -7,26 +7,10 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Fails the PlayMode run when the editor image's audio device is gone, instead of letting the tests
-    /// that need it quietly do nothing.
-    /// <para>
-    /// Every seamless and chained handover, most of the spectrum analyzer suite, the scheduling pins, the
-    /// dominator routing tests, and the only tests that characterize TEST_FINDINGS #38-#40 open with
-    /// <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/>. It calls <c>Assert.Ignore</c> when the DSP clock is off
-    /// wall time by more than <see cref="BroAudioTestFixture.RealtimeAudioClockTolerance"/>, which is right for a developer machine and silent on CI: an ignored test
-    /// is not a failure, so an image that lost its PulseAudio null sink reports green with the heart of the
-    /// suite never executed. The fixtures are all present in the results, they simply ran nothing; on a CI
-    /// leg that promises audio, <c>check_test_suites.py</c> also fails each of those ignores, but this probe
-    /// is the one that names the cause and works in any runner.
-    /// </para>
-    /// <para>
-    /// This is the same hole <see cref="OptionalPackageTests"/> closes for optional packages, and it draws
-    /// the same kind of line: a missing thing is only a failure where it was promised. The promise here is
-    /// <c>BROAUDIO_CI_EXPECTS_AUDIO</c>, baked into .github/docker/Dockerfile — the image CI passes as
-    /// <c>customImage</c> on the PlayMode leg only — so the variable is present exactly where an audio
-    /// device was built in and expected. Anywhere it is unset, an unrealtime clock is a fact about the
-    /// machine rather than a regression, and this test passes so a local run stays green.
-    /// </para>
+    /// Fails the run when the CI image's audio device is gone: <see cref="BroAudioTestFixture.RequireRealtimeAudioClock"/>
+    /// ignores rather than fails, so without this probe a lost device reports green with the DSP-gated tests
+    /// never run. Like <see cref="OptionalPackageTests"/>, a missing device fails only where it was promised
+    /// (<c>BROAUDIO_CI_EXPECTS_AUDIO</c>); elsewhere this passes so a local run stays green.
     /// </summary>
     public class AudioClockProbeTests : BroAudioTestFixture
     {
@@ -36,8 +20,7 @@ namespace Ami.BroAudio.Tests
         [UnityTest]
         public IEnumerator AudioClock_IsRealtime_SoTheTestsGatedOnItActuallyRan()
         {
-            // The same measurement RequireRealtimeAudioClock decides on, cached for the rest of the run:
-            // this probe reports the number that gate uses, it does not take a second opinion.
+            // The cached number the gate decides on, not a second measurement.
             yield return MeasureAudioClockRate();
 
             float rate = AudioClockRate;
@@ -48,8 +31,7 @@ namespace Ami.BroAudio.Tests
 
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(CiExpectsAudioVariable)))
             {
-                // No audio device was promised here, so the ignore gate is doing its job rather than
-                // hiding a broken image. Pass — this must not turn a local run red.
+                // No device was promised here; must not turn a local run red.
                 yield break;
             }
 

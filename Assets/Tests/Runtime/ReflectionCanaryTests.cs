@@ -8,22 +8,17 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Resolves every name in <see cref="TestAudioLibrary.Reflected"/> against the production type it belongs
-    /// to, so a rename or a move fails here, once, naming each member - instead of failing whichever tests
-    /// happen to reach it.
-    /// <para>
-    /// Plain NUnit, no <see cref="BroAudioTestFixture"/>: nothing here plays audio or needs a SoundManager, and
-    /// it must stay green while the manager cannot bootstrap, so it can tell the two failures apart.
-    /// </para>
+    /// Resolves every <see cref="TestAudioLibrary.Reflected"/> name on its production type, so a rename fails
+    /// here once, by name. Plain NUnit, not <see cref="BroAudioTestFixture"/>: it must stay green when the
+    /// manager cannot bootstrap, to tell the two failures apart.
     /// </summary>
     public class ReflectionCanaryTests
     {
         private const BindingFlags AnyInstanceMember = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
         /// <summary>
-        /// The production type each nested class of <see cref="TestAudioLibrary.Reflected"/> names members of.
-        /// Every nested class must appear here; <see cref="EveryReflectedClass_MapsToAProductionType"/> fails
-        /// on one that does not, so a new one cannot escape the canary.
+        /// Every nested Reflected class must appear here; <see cref="EveryReflectedClass_MapsToAProductionType"/>
+        /// enforces it.
         /// </summary>
         private static readonly Dictionary<Type, Type> ProductionTypes = new Dictionary<Type, Type>
         {
@@ -35,10 +30,7 @@ namespace Ami.BroAudio.Tests
         };
 
 #if !PACKAGE_LOCALIZATION
-        /// <summary>
-        /// Members declared only in a <c>.Localization.cs</c> partial, which compiles to nothing without the
-        /// package - their names cannot resolve then, and nothing in that build reaches them.
-        /// </summary>
+        /// <summary>Declared only in a <c>.Localization.cs</c> partial, so absent without the package.</summary>
         private static readonly HashSet<string> LocalizationOnlyMembers = new HashSet<string>
         {
             TestAudioLibrary.Reflected.AudioEntity.LocalizedAudio,
@@ -100,9 +92,7 @@ namespace Ami.BroAudio.Tests
 
 #if UNITY_EDITOR
         /// <summary>
-        /// Where production does publish a name, only under UNITY_EDITOR, the suite's copy must equal it. This
-        /// catches a Reflected constant pointing at the wrong member that happens to exist, which resolving
-        /// alone cannot.
+        /// Catches a Reflected constant naming the wrong member that happens to exist, which resolving cannot.
         /// </summary>
         [Test]
         public void ReflectedNames_MatchTheEditorOnlyProductionNames()
@@ -127,9 +117,8 @@ namespace Ami.BroAudio.Tests
 #endif
 
         /// <summary>
-        /// True when <paramref name="memberName"/> names a field (or an auto-property's backing field) or a
-        /// method declared on <paramref name="type"/> or a base class - the two ways the suite uses these names
-        /// (TestAudioLibrary.GetPrivateField/SetPrivateField and TestAudioLibrary.Reflected.Method).
+        /// A field, auto-property backing field or method on <paramref name="type"/> or a base: the ways the
+        /// suite uses these names.
         /// </summary>
         private static bool Resolves(Type type, string memberName)
         {

@@ -11,30 +11,16 @@ using UnityEngine.UI;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The <see cref="SoundVolume"/> no-code component: a settings array, each entry binding one
-    /// BroAudioType to a volume value that is pushed to the per-type system volume on enable, optionally
-    /// mirrored on a UI Slider, optionally gated to fire only once, and optionally restored to what it was
-    /// when the component recorded it.
+    /// Pins the <see cref="SoundVolume"/> component's two halves: the system volume (per-type prefs, or the
+    /// Master parameter for <see cref="BroAudioType.All"/>) and the bound <see cref="Slider"/>. A
+    /// <see cref="SoundVolume.Setting"/> is a plain class, so it's built with <c>new</c>.
     /// <para>
-    /// Modeled on SoundSourceTests.cs's structure and idioms. Unlike SoundSource, a <see cref="SoundVolume.Setting"/>
-    /// is a plain (non-Unity) serializable class, so it's built directly with <c>new</c> and its private
-    /// fields are written the same way SoundSource's are - via TestAudioLibrary.SetPrivateField and each
-    /// type's own nested NameOf class.
-    /// </para>
-    /// <para>
-    /// The component has two halves and both are covered here. The *system* half is observable through
-    /// <see cref="SoundManager.TryGetAudioTypePref"/> (per-type) or the mixer's Master parameter (the
-    /// composite <see cref="BroAudioType.All"/> case), exactly as in VolumePitchMixerTests. The *slider*
-    /// half needs <c>UnityEngine.UI</c>, which Tests.asmdef now references: asmdef references are not
-    /// transitive, so referencing BroAudio does not bring UnityEngine.UI into scope even though
-    /// SoundVolume.cs uses <see cref="Slider"/> directly and ungated.
+    /// Tests.asmdef must reference UnityEngine.UI itself: asmdef references are not transitive.
     /// </para>
     /// </summary>
     public class SoundVolumeTests : BroAudioTestFixture
     {
-        // SetVolumeToSlider rounds to SoundVolume.RoundingDigits (3), which can only ever move a slider
-        // value by up to 5e-4. Asserting the rounded expectation this tightly is what separates "rounded"
-        // from "not rounded" - a looser tolerance would accept both.
+        // Rounding moves a slider value by at most 5e-4; anything looser would accept unrounded values too.
         private const float RoundingTolerance = 1e-5f;
 
         /// <summary>A single Setting entry, with an optional Slider bound to it.</summary>
@@ -51,10 +37,7 @@ namespace Ami.BroAudio.Tests
         private static float VolumeOf(SoundVolume.Setting setting)
             => TestAudioLibrary.GetPrivateField<float>(setting, SoundVolume.Setting.NameOf.Volume);
 
-        /// <summary>
-        /// A bare 0..1 Slider with no fill or handle - enough for value, normalizedValue and onValueChanged,
-        /// which is all SoundVolume touches. RectTransform is passed up front because Slider requires one.
-        /// </summary>
+        /// <summary>A bare 0..1 Slider - all SoundVolume touches. Slider requires a RectTransform.</summary>
         private Slider NewSlider(float value = 0f)
         {
             GameObject host = Track(new GameObject("VolumeSlider", typeof(RectTransform)));
@@ -66,12 +49,8 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Builds a tracked SoundVolume with its serialized fields already written.
-        /// <para>
-        /// Same gotcha as SoundSourceTests.NewSource: AddComponent on an *active* GameObject runs OnEnable
-        /// immediately, so the host is built deactivated, fields are written, and only then activated -
-        /// otherwise the first OnEnable would fire before _settings is assigned.
-        /// </para>
+        /// Builds a tracked SoundVolume. The host starts inactive: AddComponent on an active GameObject runs
+        /// OnEnable before the fields are written.
         /// </summary>
         private SoundVolume NewVolume(SoundVolume.Setting[] settings, bool applyOnEnable = false, bool onlyApplyOnce = false,
             bool resetOnDisable = false, SliderType sliderType = SliderType.BroVolume, bool allowBoost = false)
@@ -99,9 +78,6 @@ namespace Ami.BroAudio.Tests
         }
 
         #region Apply to the system
-        // Apply On Enable: OnEnable calls Setting.ApplyVolumeToSystem, which is BroAudio.SetVolume(audioType,
-        // volume, fadeTime) - a synchronous write into AudioTypePlaybackPreference, so it's observable the
-        // same frame via TryGetAudioTypePref, exactly like VolumePitchMixerTests' per-type volume tests.
         [UnityTest]
         public IEnumerator OnEnable_WithApplyOnEnable_PushesTheConfiguredVolumeToTheSystem()
         {
@@ -114,8 +90,6 @@ namespace Ami.BroAudio.Tests
                 "Apply On Enable must push the Setting's configured volume to the matching BroAudioType.");
         }
 
-        // Without Apply On Enable the component is inert until something moves its slider: enabling it must
-        // not touch the system volume at all.
         [UnityTest]
         public IEnumerator OnEnable_WithoutApplyOnEnable_LeavesTheSystemVolumeAlone()
         {
@@ -128,9 +102,7 @@ namespace Ami.BroAudio.Tests
                 "A SoundVolume with Apply On Enable off must not write anything on enable.");
         }
 
-        // Only Apply Once: SoundVolume._hasApplyOnce is a single flag on the component (not per-Setting),
-        // set the first time OnEnable applies, so a second OnEnable is silently skipped for the rest of
-        // that component's life - mirrors SoundSourceTests' OnlyPlayOnce idiom.
+        // _hasApplyOnce is one flag per component, not per Setting.
         [UnityTest]
         public IEnumerator OnEnable_WithOnlyApplyOnce_NeverReappliesOnASecondEnable()
         {
@@ -153,8 +125,7 @@ namespace Ami.BroAudio.Tests
                 "Only Apply Once must suppress every OnEnable after the first - the volume must stay at what it was set to afterward, not snap back to 0.4.");
         }
 
-        // Characterizes TEST_FINDINGS #36: the control case. Every entry in the settings array is applied on
-        // enable, each to its own BroAudioType, which is what makes the defect pinned below legible.
+        // Control case for TEST_FINDINGS #36.
         [UnityTest]
         [Category("Finding_36")]
         public IEnumerator OnEnable_WithSeveralSettings_AppliesEveryOneOfThem()
@@ -171,9 +142,7 @@ namespace Ami.BroAudio.Tests
             Assert.AreEqual(0.4f, SystemVolumeOf(BroAudioType.UI), LinearTolerance, "The third setting must be applied.");
         }
 
-        // Characterizes TEST_FINDINGS #36: _hasApplyOnce is set *inside* the per-setting loop but gates that
-        // same loop, so the first entry consumes the one allowed apply and every later entry is skipped - on
-        // the very first enable, not just on re-enables. Characterized, not fixed.
+        // Pins TEST_FINDINGS #36.
         [UnityTest]
         [Category("Finding_36")]
         public IEnumerator OnEnable_WithOnlyApplyOnceAndSeveralSettings_AppliesOnlyTheFirstEntry()
@@ -189,8 +158,6 @@ namespace Ami.BroAudio.Tests
                 "Characterizes TEST_FINDINGS #36: _hasApplyOnce is raised by the first entry, so every later entry of the same array is skipped on the first enable.");
         }
 
-        // A Setting's audio type is a [Flags] value, and SetVolume fans a composite flag out over every
-        // concrete type it contains (SoundManager.SetPlaybackPrefByType -> ForeachConcreteAudioType).
         [UnityTest]
         public IEnumerator OnEnable_WithACompositeAudioType_AppliesToEveryTypeInTheFlag()
         {
@@ -205,10 +172,7 @@ namespace Ami.BroAudio.Tests
                 "SFX is not in the flag and must be left alone.");
         }
 
-        // Characterizes TEST_FINDINGS #37: BroAudioType.All is a legal inspector choice, but the two halves
-        // of the component read it differently: ApplyVolumeToSystem lands on SoundManager.SetMasterVolume (a
-        // mixer parameter), while RecordOrigin/ResetToOrigin only ever walk the per-type preferences. So the
-        // master volume is written on enable and never restored on disable.
+        // Pins TEST_FINDINGS #37.
         [UnityTest]
         [Category("Finding_37")]
         public IEnumerator OnEnable_WithAllAudioType_WritesTheMasterVolumeThatResetOnDisableCannotRestore()
@@ -232,10 +196,7 @@ namespace Ami.BroAudio.Tests
                 "Characterizes TEST_FINDINGS #37: Reset On Disable restores per-type volumes only, so an All-typed setting leaves the master volume where it put it.");
         }
 
-        // Reset On Disable: OnEnable's RecordOrigin snapshots the *system's* current per-type volume for
-        // every concrete type matching the Setting's BroAudioType (OriginVolumeRecorder reads
-        // SoundManager.TryGetAudioTypePref at that moment); OnDisable's ResetToOrigin writes those
-        // snapshotted values back via BroAudio.SetVolume, regardless of whatever changed volume in between.
+        // The origin is the system's per-type volume at enable, not the Setting's own value.
         [UnityTest]
         public IEnumerator OnDisableWithResetOnDisable_RestoresTheSystemVolumeRecordedAtEnable()
         {
@@ -257,8 +218,6 @@ namespace Ami.BroAudio.Tests
                 "Reset On Disable must restore the system volume to what it was when the component was enabled, not to the Setting's own configured 0.4 value.");
         }
 
-        // Without Reset On Disable nothing is recorded and nothing is restored - disabling leaves whatever
-        // the component (or anyone else) last applied.
         [UnityTest]
         public IEnumerator OnDisable_WithoutResetOnDisable_LeavesTheAppliedVolumeInPlace()
         {
@@ -275,10 +234,7 @@ namespace Ami.BroAudio.Tests
         #endregion
 
         #region Slider binding
-        // The slider mirrors the volume through Utility.VolumeToSlider for the component's SliderType, then
-        // rounds to SoundVolume.RoundingDigits. Linear + no boost is the one mapping whose expected value is
-        // readable by eye: 0.5 volume sits at InverseLerp(MinVolume, FullVolume, 0.5) ~ 0.49995, which is
-        // exactly the case the rounding moves to 0.5.
+        // Linear, no boost: 0.5 converts to ~0.49995, which rounding moves to 0.5.
         [UnityTest]
         public IEnumerator OnEnable_WithApplyOnEnable_MovesTheBoundSliderToTheRoundedSliderValue()
         {
@@ -294,9 +250,7 @@ namespace Ami.BroAudio.Tests
                 $"Apply On Enable must place the slider at the rounded slider value ({expected}), not at the raw conversion ({unrounded}).");
         }
 
-        // The SliderType is the component's, not the slider's, and it is a real curve rather than a
-        // pass-through: the same 0.5 volume that sits at ~0.5 on a Linear slider sits far higher on a
-        // BroVolume one, because BroVolume maps decibel split points onto even slider steps.
+        // BroVolume maps dB split points onto even steps, so 0.5 sits far above where Linear puts it.
         [UnityTest]
         public IEnumerator OnEnable_WithABroVolumeSliderType_PlacesTheSliderOnTheBroVolumeCurve()
         {
@@ -312,8 +266,6 @@ namespace Ami.BroAudio.Tests
                 "Sanity check on the curve rather than the call: -6dB is five of BroVolume's six no-boost steps up, nowhere near a linear 0.5.");
         }
 
-        // The other direction: moving the slider runs Setting.OnValueChanged, which converts back through
-        // the same SliderType and writes both the Setting's own volume and the system volume.
         [UnityTest]
         public IEnumerator SliderMoved_ConvertsBackAndPushesTheVolumeToTheSystem()
         {
@@ -332,9 +284,6 @@ namespace Ami.BroAudio.Tests
                 "The Setting must also keep the converted volume, so a later ResetToOrigin has something to undo.");
         }
 
-        // Allow Boost widens the top of the range past full volume: on a Linear slider the maximum maps to
-        // AudioConstant.MaxVolume instead of FullVolume, and nothing clamps it back down on the way to the
-        // per-type preference.
         [UnityTest]
         public IEnumerator SliderMovedToMaximum_WithAllowBoost_PushesTheBoostedVolume()
         {
@@ -350,8 +299,6 @@ namespace Ami.BroAudio.Tests
                 "With Allow Boost on, the top of a Linear slider is MaxVolume, and the per-type preference stores it unclamped.");
         }
 
-        // The listener is added in OnEnable and removed in OnDisable, so a disabled component must stop
-        // reacting to its slider entirely.
         [UnityTest]
         public IEnumerator SliderMoved_AfterDisable_NoLongerReachesTheSystem()
         {
@@ -374,10 +321,7 @@ namespace Ami.BroAudio.Tests
                 "OnDisable removes the slider listener, so a later slider move must not reach the system.");
         }
 
-        // Reset On Disable rewinds both halves at once: the Setting's volume (and with it the slider
-        // position) goes back to the value it was enabled with, and the system goes back to what it read
-        // before the component ever applied. The slider is rewound with SetValueWithoutNotify, so the
-        // rewind itself does not re-enter OnValueChanged.
+        // The slider is rewound with SetValueWithoutNotify, so the rewind does not re-enter OnValueChanged.
         [UnityTest]
         public IEnumerator OnDisable_WithResetOnDisable_RewindsBothTheSliderAndTheSystem()
         {
@@ -403,8 +347,7 @@ namespace Ami.BroAudio.Tests
                 "The system goes back to the volume recorded at enable (0.9), not to the Setting's own restored 0.4.");
         }
 
-        // Every slider path is null-guarded (`if (_slider)`), which is what lets a Setting be used purely as
-        // a scripted volume preset. Enabling, applying and disabling with no slider must stay silent.
+        // Null-guarded slider paths let a Setting serve as a scripted volume preset.
         [UnityTest]
         public IEnumerator SettingWithNoSlider_AppliesAndResetsWithoutTouchingAnySlider()
         {

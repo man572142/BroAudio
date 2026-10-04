@@ -11,59 +11,27 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// The link between <c>Docs/TEST_FINDINGS.md</c> and the tests that pin its findings, checked in both
-    /// directions so neither side can drift silently.
-    /// <para>
-    /// The convention it enforces: a test that pins finding N carries <c>[Category("Finding_N")]</c>, so
-    /// starting work on that finding is <c>-testCategory Finding_N</c> rather than a grep through free-text
-    /// comments. A finding that is deliberately left unpinned says so on its own <c>Status:</c> line with an
-    /// explicit "Not pinned" note, which is what this check accepts in place of a test - there is no exception
-    /// list here to add a finding to, because a list of exceptions is the thing that goes stale.
-    /// </para>
-    /// <para>
-    /// Both test assemblies are read by reflection rather than by parsing source, so a category that a
-    /// <c>#if</c> compiled out is correctly seen as absent, and a category only counts when it sits on a test
-    /// that will actually run: a <c>[Test]</c>-family method, not a helper, and neither it nor its fixture
-    /// <c>[Ignore]</c>d or <c>[Explicit]</c>. <c>EditorTests.asmdef</c> already references the PlayMode
-    /// <c>Tests</c> assembly, which is what makes one EditMode fixture able to see both.
-    /// </para>
-    /// <para>
-    /// A pin that is compiled out is not the same as a missing pin. #14's only pin needs
-    /// <c>PACKAGE_ADDRESSABLES</c>, and the ones for #45 and #48 need <c>!UNITY_WEBGL</c>, so in a project
-    /// without Addressables, or on a WebGL build target, those findings have no pin in the compiled assemblies
-    /// through no fault of the ledger. The sources under <c>Assets/Tests/</c> are therefore scanned too, for
-    /// each <c>[Category("Finding_N")]</c> and the <c>#if</c> conditions around it, and a finding whose pin's
-    /// condition is false in this compilation is accepted as gated out. The gate is read from the code itself,
-    /// never from a list: move the pin out of its <c>#if</c> and the finding is held to the ordinary rule again.
-    /// A condition naming a symbol this fixture cannot evaluate is a failure, not a pass.
-    /// </para>
-    /// <para>
-    /// Reads files it never writes: the two markdown ledgers, the test sources, and the assemblies' metadata.
-    /// No fixture behavior is exercised, but every test still derives from BroEditorTestFixture per the
-    /// suite's contract (see EditorUtilityPureTests).
-    /// </para>
+    /// Reconciles <c>Docs/TEST_FINDINGS.md</c> with the <c>[Category("Finding_N")]</c> pins in both directions.
+    /// A deliberately unpinned finding says "Not pinned" on its own Status line; don't add an exception list,
+    /// it goes stale. Pins are read by reflection, so only runnable, non-skipped tests count. A pin whose
+    /// source <c>#if</c> is false in this compilation is accepted as gated out, read from the code, never a list.
     /// </summary>
     public class FindingCoverageTests : BroEditorTestFixture
     {
         /// <summary>
-        /// The prefix every pinning category carries, as in <c>[Category("Finding_14")]</c>. Don't use '-': NUnit
-        /// rejects a category containing ',', '!', '+' or '-' and fails the test before its body runs.
+        /// Don't use '-': NUnit rejects a category containing ',', '!', '+' or '-' and fails the test unrun.
         /// </summary>
         public const string CategoryPrefix = "Finding_";
 
-        /// <summary>Repo-relative path of the open ledger this fixture reconciles against.</summary>
         private const string FindingsDocRelativePath = "Docs/TEST_FINDINGS.md";
 
-        /// <summary>Repo-relative path of the closed ledger, read only to catch number collisions.</summary>
+        /// <summary>The closed ledger, read only to catch number collisions.</summary>
         private const string FixedDocRelativePath = "Docs/FIXED_ISSUES.md";
 
-        /// <summary>Project-relative folder scanned for <c>#if</c>-gated pins.</summary>
         private const string TestSourcesRelativePath = "Assets/Tests";
 
         /// <summary>
-        /// Floors for the non-vacuity guard. Deliberately far below the real counts: they exist to catch a
-        /// parser or a reflection walk that came back with nothing, not to be a second inventory that has to
-        /// be edited whenever a finding is added or fixed.
+        /// Non-vacuity floors, deliberately far below the real counts so they never need editing as findings change.
         /// </summary>
         private const int MinimumFindings = 20;
         private const int MinimumPinnedFindings = 20;
@@ -71,38 +39,25 @@ namespace Ami.BroAudio.Editor.Tests
         /// <summary>A section header, e.g. "## 14. The addressable unload setting ...", in either ledger.</summary>
         private static readonly Regex HeadingPattern = new Regex(@"^##[ \t]+(\d+)\.[ \t]*(.*)$");
 
-        /// <summary>
-        /// A summary-table row, e.g. "| 14 | Addressables | ... | Open, characterized |". Only rows whose first
-        /// cell is a bare number, so the header and the |---| separator never match.
-        /// </summary>
+        /// <summary>A summary-table row whose first cell is a bare number, so header and separator never match.</summary>
         private static readonly Regex TableRowPattern = new Regex(@"^\|[ \t]*(\d+)[ \t]*\|(.*)\|[ \t]*$");
 
-        /// <summary>
-        /// The line that opens a section's status paragraph: "Status: ...", optionally bolded as "**Status:**".
-        /// The paragraph runs to the next blank line or heading.
-        /// </summary>
+        /// <summary>Opens a Status paragraph, which runs to the next blank line or heading.</summary>
         private static readonly Regex StatusLinePattern = new Regex(@"^[ \t]*(\*\*)?Status:");
 
         /// <summary>
-        /// The explicit "this one has no pinning test, on purpose" note: the phrase "Not pinned" opening a
-        /// sentence, or lowercase inside one ("Deliberately not pinned: ..."). Narrow on purpose - #39's
-        /// "Neither is pinned by a test", which talks about two smaller bugs inside a finding that IS pinned,
-        /// must not match, so this asks for the literal phrase rather than for any mention of pinning. It is
-        /// only honored inside the Status paragraph, so a passing mention elsewhere in a section cannot
-        /// excuse a finding by accident.
+        /// The literal phrase, not any mention of pinning: prose like "Neither is pinned by a test" inside a
+        /// pinned finding must not match. Honored only inside the Status paragraph.
         /// </summary>
         private static readonly Regex NotPinnedPattern = new Regex(@"\b[Nn]ot pinned\b");
 
-        /// <summary>Splits "Finding_14" into its number. Anything else under the prefix is malformed.</summary>
+        /// <summary>Anything else under the prefix is malformed.</summary>
         private static readonly Regex CategoryPattern = new Regex(@"^" + CategoryPrefix + @"(\d+)$");
 
-        /// <summary>A pinning category as written in source, e.g. <c>[Category("Finding_14")]</c>.</summary>
         private static readonly Regex SourceCategoryPattern = new Regex(@"Category\(\s*""" + CategoryPrefix + @"(\d+)""\s*\)");
 
-        /// <summary>A preprocessor directive this scan has to follow.</summary>
         private static readonly Regex DirectivePattern = new Regex(@"^[ \t]*#[ \t]*(if|elif|else|endif)\b(.*)$");
 
-        /// <summary>One "## N." section of the open ledger.</summary>
         private readonly struct Finding
         {
             public readonly int Number;
@@ -125,7 +80,6 @@ namespace Ami.BroAudio.Editor.Tests
             public override string ToString() => "#" + Number + " (" + Title + ")";
         }
 
-        /// <summary>One <c>[Category("Finding_N")]</c> found on a runnable test, with where it was found.</summary>
         private readonly struct Marker
         {
             public readonly string Category;
@@ -138,7 +92,6 @@ namespace Ami.BroAudio.Editor.Tests
             }
         }
 
-        /// <summary>One <c>[Category("Finding_N")]</c> found in source, with the #if conditions around it.</summary>
         private readonly struct SourcePin
         {
             public readonly int Number;
@@ -229,7 +182,7 @@ namespace Ami.BroAudio.Editor.Tests
             return findings;
         }
 
-        /// <summary>The summary table at the top of the open ledger: number to its Status cell, in row order.</summary>
+        /// <summary>Number to Status cell, in row order.</summary>
         private static List<KeyValuePair<int, string>> ReadSummaryTable()
         {
             var rows = new List<KeyValuePair<int, string>>();
@@ -250,7 +203,6 @@ namespace Ami.BroAudio.Editor.Tests
             return rows;
         }
 
-        /// <summary>Every number the closed ledger records, from its section headings and its summary table.</summary>
         private static HashSet<int> ReadFixedNumbers()
         {
             var numbers = new HashSet<int>();
@@ -273,7 +225,6 @@ namespace Ami.BroAudio.Editor.Tests
             return numbers;
         }
 
-        /// <summary>Every Finding_* category carried by a runnable test, across both assemblies.</summary>
         private static List<Marker> ReadMarkers()
         {
             var markers = new List<Marker>();
@@ -302,7 +253,6 @@ namespace Ami.BroAudio.Editor.Tests
         private static bool IsSkipped(MemberInfo member) =>
             member.IsDefined(typeof(IgnoreAttribute), true) || member.IsDefined(typeof(ExplicitAttribute), true);
 
-        /// <summary>A method the runner will execute: a [Test]-family attribute, and not [Ignore]d or [Explicit].</summary>
         private static bool IsRunnableTest(MethodInfo method) =>
             TestMethodAttributes.Any(attribute => method.IsDefined(attribute, true)) && !IsSkipped(method);
 
@@ -315,8 +265,7 @@ namespace Ami.BroAudio.Editor.Tests
             }
             catch (ReflectionTypeLoadException exception)
             {
-                // A half-loadable assembly still tells us about the types that did load; losing the rest
-                // silently would let this check pass while covering less than it claims, so surface it.
+                // Fail loudly: silently dropping unloadable types would pass while covering less.
                 types = exception.Types.Where(t => t != null).ToArray();
                 Assert.Fail("Could not fully load the test assembly '" + assembly.GetName().Name +
                     "'. Finding_N categories in the types that failed to load would be invisible here.");
@@ -327,14 +276,12 @@ namespace Ami.BroAudio.Editor.Tests
 
             foreach (Type type in types)
             {
-                // An [Ignore]d or [Explicit] fixture runs none of its tests, however they are tagged; an abstract
-                // one runs only through a concrete subclass, whose own walk below sees the inherited methods.
+                // An abstract fixture's tests are counted through each concrete subclass's inherited walk.
                 if (type.IsAbstract || IsSkipped(type))
                 {
                     continue;
                 }
 
-                // Walk inherited methods too, so a tag on a base-class test counts for each concrete fixture.
                 MethodInfo[] runnable = HierarchyOf(type)
                     .SelectMany(t => t.GetMethods(MemberFlags))
                     .Where(IsRunnableTest)
@@ -344,7 +291,6 @@ namespace Ami.BroAudio.Editor.Tests
                     continue;
                 }
 
-                // A category on the fixture itself applies to every test it runs.
                 foreach (string category in CategoriesOn(type))
                 {
                     markers.Add(new Marker(category, type.Name));
@@ -381,11 +327,7 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         #region Source scan for #if-gated pins
-        /// <summary>
-        /// Every <c>[Category("Finding_N")]</c> in the test sources, with the conjunction of the preprocessor
-        /// branches around it. Comments are stripped first, so a category quoted in a doc comment (this
-        /// file's own class summary has one) is not a pin.
-        /// </summary>
+        /// <summary>Comments are stripped first, so a category quoted in a comment is not a pin.</summary>
         private static List<SourcePin> ReadSourcePins()
         {
             string root = Path.Combine(RepoRoot, TestSourcesRelativePath);
@@ -459,8 +401,7 @@ namespace Ami.BroAudio.Editor.Tests
 
         private static string StripComments(string line, ref bool inBlockComment)
         {
-            // Good enough for this suite's sources, not a C# lexer: it follows regular and verbatim strings
-            // and char literals only far enough that a "//" or "/*" inside one is not taken for a comment.
+            // Not a C# lexer: follows strings and char literals only so a "//" or "/*" inside one isn't a comment.
             var result = new System.Text.StringBuilder(line.Length);
             bool inString = false;
             bool verbatim = false;
@@ -526,10 +467,8 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         /// <summary>
-        /// Whether a preprocessor symbol is defined for the test assemblies in this compilation, or null when
-        /// this fixture cannot tell. Both test assemblies raise <c>PACKAGE_*</c> from the same
-        /// <c>versionDefines</c> as <c>EditorTests</c>, and the rest are project- or target-wide, so what this
-        /// assembly sees is what the pin's assembly saw. Add a symbol here when a pin is gated on a new one.
+        /// Null when unknown. Valid only because both test assemblies share these defines with this one; add a
+        /// symbol here when a pin is gated on a new one.
         /// </summary>
         private static bool? IsSymbolDefined(string symbol)
         {
@@ -585,9 +524,8 @@ namespace Ami.BroAudio.Editor.Tests
         }
 
         /// <summary>
-        /// Evaluates a preprocessor condition built from symbols, <c>!</c>, <c>&amp;&amp;</c>, <c>||</c> and
-        /// parentheses. Anything else, or a symbol <see cref="IsSymbolDefined"/> cannot answer, fails the test
-        /// rather than guessing - a guess would be an unreviewed exception.
+        /// Unknown syntax, or a symbol <see cref="IsSymbolDefined"/> cannot answer, fails rather than guesses:
+        /// a guess would be an unreviewed exception.
         /// </summary>
         private sealed class ConditionEvaluator
         {
@@ -699,9 +637,7 @@ namespace Ami.BroAudio.Editor.Tests
         [Test]
         public void TheFindingsDocumentAndBothTestAssemblies_AreActuallyRead()
         {
-            // Non-vacuity. Every other test in this fixture compares two sets, and two empty sets agree
-            // perfectly - a parser that matched no heading, or a reflection walk that saw no category,
-            // would report the suite fully reconciled while checking nothing at all.
+            // The other tests compare two sets, and two empty sets agree perfectly.
             List<Finding> findings = ReadFindings();
             Assert.GreaterOrEqual(findings.Count, MinimumFindings,
                 "Only " + findings.Count + " finding(s) parsed out of " + FindingsDocRelativePath + ". The " +
@@ -753,9 +689,7 @@ namespace Ami.BroAudio.Editor.Tests
                     continue;
                 }
 
-                // Accepted when a pin exists in source but its #if is false in this compilation. A pin whose
-                // condition is true yet is absent from the assemblies is not excused: it was compiled in and
-                // still does not count, so it is [Ignore]d, [Explicit], or not on a test method.
+                // Only a false #if excuses a missing pin; a compiled-in pin that still doesn't count is not excused.
                 SourcePin[] gatedOut = sourcePins
                     .Where(pin => pin.Number == finding.Number && !ConditionEvaluator.Evaluate(pin.Condition))
                     .ToArray();
@@ -888,8 +822,7 @@ namespace Ami.BroAudio.Editor.Tests
                 "Summary-table row(s) with no '## N.' section in " + FindingsDocRelativePath + ": " +
                 Join(rowsWithoutSection) + ". A fixed finding's row moves to " + FixedDocRelativePath + " with its section.");
 
-            // The table's Status cell is what a reader skims, so it must not call an unpinned finding
-            // characterized-by-a-test, nor a pinned one unpinned.
+            // Readers skim the table's Status cell, so it must agree with the section on pinning.
             var byNumber = findings.GroupBy(finding => finding.Number).ToDictionary(group => group.Key, group => group.First());
             var mismatched = new List<string>();
             foreach (KeyValuePair<int, string> row in rows)

@@ -5,24 +5,12 @@ using NUnit.Framework;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Fails the PlayMode run when an optional package is not in the state the run promised, instead of
-    /// letting a suite quietly disappear or a configuration quietly go untested.
+    /// Fails the run when an optional package is not in the state the run promised: without
+    /// <c>PACKAGE_ADDRESSABLES</c>, <see cref="AddressablesTests"/> compiles to nothing and CI stays green.
+    /// These probes compile unconditionally, so they cannot vanish the same way.
     /// <para>
-    /// <see cref="AddressablesTests"/> compiles behind <c>PACKAGE_ADDRESSABLES</c>, which this assembly's
-    /// <c>versionDefines</c> raise only while <c>com.unity.addressables</c> is resolved. When it is not, the
-    /// whole file compiles to nothing: the suite is absent from the results, every remaining test passes, and
-    /// CI reports green.
-    /// </para>
-    /// <para>
-    /// These probes are compiled unconditionally, so they cannot vanish the same way. Both packages are pinned
-    /// in <c>Packages/manifest.json</c>, so by default a false here means the project did not resolve — not that
-    /// the package is optional for this project.
-    /// </para>
-    /// <para>
-    /// The one run that removes both packages on purpose — the CI leg that proves the package compiles and
-    /// passes without them (CLAUDE.md's Definition of Done #3) — says so with <see cref="ExpectsNoOptionalPackages"/>,
-    /// and there the probes invert: a package that is still compiled in means the removal did not happen and the
-    /// leg is re-testing the full configuration under a false name.
+    /// Both packages are pinned in the manifest, so a missing one means resolution failed. The CI leg that
+    /// removes them on purpose sets <see cref="ExpectsNoOptionalPackages"/>, which inverts the probes.
     /// </para>
     /// </summary>
     public class OptionalPackageTests
@@ -42,26 +30,21 @@ namespace Ami.BroAudio.Tests
         public const string ExpectsNoOptionalPackagesVariable = "BROAUDIO_CI_EXPECTS_NO_OPTIONAL_PACKAGES";
 
         /// <summary>
-        /// The command-line form of the switch, which is what CI uses: game-ci's unity-test-runner starts the
-        /// Editor inside a container that receives only a fixed set of environment variables, so a step's
-        /// <c>env:</c> never reaches it, while <c>customParameters</c> is appended to the Editor's command line.
-        /// Unity ignores command-line arguments it does not recognise.
+        /// The command-line form, which CI must use: game-ci's container does not forward a step's <c>env:</c>,
+        /// but <c>customParameters</c> reaches the Editor's command line. Unity ignores unknown arguments.
         /// </summary>
         public const string ExpectsNoOptionalPackagesArgument = "-broaudioCiExpectsNoOptionalPackages";
 
         /// <summary>
-        /// True when this run was started without Addressables and Localization on purpose, by either the
-        /// command-line argument or the environment variable. <see cref="OptionalPackageEditorTests"/> reads it too.
+        /// True when this run omits Addressables and Localization on purpose. Also read by
+        /// <see cref="OptionalPackageEditorTests"/>.
         /// </summary>
         public static bool ExpectsNoOptionalPackages =>
             !string.IsNullOrEmpty(Environment.GetEnvironmentVariable(ExpectsNoOptionalPackagesVariable))
             || Environment.GetCommandLineArgs().Any(arg =>
                 string.Equals(arg, ExpectsNoOptionalPackagesArgument, StringComparison.OrdinalIgnoreCase));
 
-        /// <summary>
-        /// The one assertion both probes make, in both assemblies: the package is compiled in exactly when the
-        /// run expects it.
-        /// </summary>
+        /// <summary>Shared by the probes in both assemblies: compiled in exactly when the run expects it.</summary>
         public static void AssertCompiledInAsExpected(bool compiledIn, string define, string package, string whatIsLost)
         {
             if (ExpectsNoOptionalPackages)

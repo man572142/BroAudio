@@ -7,23 +7,14 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// The playback group every shipped entity plays through: an entity authored in the Library Manager lives in
-    /// an AudioAsset, the asset links itself to <see cref="RuntimeSetting.GlobalPlaybackGroup"/>, and a new
-    /// project's global group is a <see cref="DefaultPlaybackGroup"/> with its factory values
-    /// (BroUserDataGenerator creates it with CreateInstance and nothing else). So in a shipped project every Play
-    /// goes through a 0.04s comb-filtering window that does not exempt same-frame plays.
+    /// The group every shipped entity plays through: its AudioAsset links to
+    /// <see cref="RuntimeSetting.GlobalPlaybackGroup"/>, a factory <see cref="DefaultPlaybackGroup"/> whose 0.04s
+    /// comb-filtering window doesn't exempt same-frame plays. Code-built entities reach no group, so tests here use
+    /// <see cref="BroAudioTestFixture.NewAssetBackedSound"/> and contrast with code-built ones where that explains
+    /// why the rest of the suite can replay an ID.
     /// <para>
-    /// The rest of the suite plays code-built entities with no AudioAsset, which no group reaches - that is what
-    /// lets it play one ID twice in quick succession. The tests here use
-    /// <see cref="BroAudioTestFixture.NewAssetBackedSound"/> to play under
-    /// <see cref="BroAudioTestFixture.FactoryGlobalPlaybackGroup"/>, and contrast each rejection with the same
-    /// calls on a code-built entity where that explains a difference from the rest of the suite.
-    /// </para>
-    /// <para>
-    /// Rejection is pinned only for plays in the same frame, which is deterministic: the earlier player is still
-    /// queued, so the rule counts it as the same frame whatever the frame rate. A replay one frame later but
-    /// inside 0.04s depends on the frame rate and is not pinned; the replay after the window is, on a realtime
-    /// audio clock.
+    /// Only same-frame rejection is pinned (the earlier player is still queued, whatever the frame rate); a replay
+    /// one frame later but inside 0.04s depends on frame rate.
     /// </para>
     /// </summary>
     public class DefaultPlaybackGroupTests : BroAudioTestFixture
@@ -31,10 +22,7 @@ namespace Ami.BroAudio.Tests
         /// <summary>The comb-filtering window a factory DefaultPlaybackGroup ships with, as a literal oracle.</summary>
         private const float FactoryCombFilteringSeconds = 0.04f;
 
-        /// <summary>
-        /// Far more than <see cref="FactoryCombFilteringSeconds"/>, so a slow frame cannot land the replay back
-        /// inside the window, and well short of the clip the first play is still playing.
-        /// </summary>
+        /// <summary>Far past the window even with a slow frame, and well short of the first play's clip.</summary>
         private const float PastTheWindowSeconds = 1f;
 
         [UnityTest]
@@ -55,8 +43,6 @@ namespace Ami.BroAudio.Tests
             yield break;
         }
 
-        // Default acceptance: the global group has no voice limit, and its window is per SoundID, so distinct
-        // IDs played in one frame all go through and play.
         [UnityTest]
         public IEnumerator Play_DistinctAssetBackedIdsInOneFrame_AreAllAcceptedAndPlay()
         {
@@ -77,10 +63,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(thirdPlayer, "the third accepted play to start");
         }
 
-        // Same-frame rejection: the first play is still queued (PlaybackStartingTime 0), which the rule counts as
-        // the same frame, and the factory group does not exempt that case. Both plays are global, so no distance
-        // exemption applies either. The rejection is logged as a tagged warning, since the factory group has
-        // "Log Warning When Occurs" on.
+        // Both plays are global, so no distance exemption applies; the factory group logs rejections.
         [UnityTest]
         public IEnumerator Play_SameAssetBackedIdTwiceInOneFrame_RejectsTheSecondWithATaggedWarning()
         {
@@ -94,8 +77,6 @@ namespace Ami.BroAudio.Tests
             Assert.IsFalse(second.IsActive, "A same-ID replay in the same frame must be rejected by the factory comb-filtering rule.");
             Assert.AreEqual(SoundID.Invalid, second.ID, "A rejected play returns the inert empty player.");
 
-            // Contrast: the identical calls on a code-built entity both go through, which is why the rest of the
-            // suite can play one ID twice in a frame.
             SoundID codeBuilt = NewSound("SameFrameCodeBuiltSfx");
             IAudioPlayer codeBuiltFirst = BroAudio.Play(codeBuilt);
             IAudioPlayer codeBuiltSecond = BroAudio.Play(codeBuilt);
@@ -105,8 +86,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // The factory _ignoreIfDistanceIsGreaterThan is 0.1: two positioned plays of one ID in the same frame are
-        // exempt when farther apart than that, and rejected when closer.
+        // Factory _ignoreIfDistanceIsGreaterThan is 0.1.
         [UnityTest]
         public IEnumerator Play_SameAssetBackedIdPositionedInOneFrame_IsExemptOnlyBeyondTheFactoryDistance()
         {
@@ -129,10 +109,9 @@ namespace Ami.BroAudio.Tests
             yield return WaitFrames(1);
         }
 
-        // The other side of the window: once more than 0.04s has passed since the first play started, a replay
-        // of the same ID is accepted. The first play must still be active when the replay is made - a recycled
-        // player leaves the comb-filtering tracker, and the replay would then be accepted for that reason alone.
-        // Hence the realtime gate: without an audio device the DSP clock can finish the clip within a frame.
+        // The first play must still be active at the replay: a recycled player leaves the tracker, which would
+        // accept the replay for that reason alone. Hence the realtime gate: a decoupled DSP clock can finish the
+        // clip within a frame.
         [UnityTest]
         public IEnumerator Play_SameAssetBackedIdAfterTheWindow_IsAccepted()
         {
@@ -153,11 +132,7 @@ namespace Ami.BroAudio.Tests
             yield return WaitForPlaybackStart(second, "the accepted replay to start");
         }
 
-        // PlaybackGroup's parent fallback: a custom group whose comb-filtering rule has its override flag off
-        // runs the global group's rule instead of its own, so a group that sets no window of its own still
-        // rejects a same-frame replay under the shipped global group - and logs with the global group's warning
-        // setting, since the rule that runs belongs to it. The same group with the flag on keeps its own
-        // (disabled) window and accepts both.
+        // A rule with its override flag off runs the global group's rule, warning setting included.
         [UnityTest]
         public IEnumerator Play_CustomGroupNotOverridingCombFiltering_FallsBackToTheGlobalGroupsWindow()
         {

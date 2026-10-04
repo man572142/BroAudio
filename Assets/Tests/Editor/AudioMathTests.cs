@@ -10,25 +10,21 @@ using static Ami.Extension.AudioConstant;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Pure conversion and comparison math: volume/dB conversion, clamp helpers, and <see cref="Effect"/>
-    /// ordering (see Docs/inventory/volume-mixer.md). Plain <c>[Test]</c>s only —
-    /// no SoundManager, no MonoBehaviour, no Play Mode.
+    /// Pure conversion and comparison math: volume/dB, slider models, clamps, and <see cref="Effect"/> ordering
+    /// (Docs/inventory/volume-mixer.md). Plain <c>[Test]</c>s: no SoundManager, no Play Mode.
+    /// dB oracles are hand-computed literals, never production's formula: a DefaultDecibelVolumeScale regression
+    /// would move both sides together. Don't "simplify" them back into the formula.
     /// </summary>
     public class AudioMathTests
     {
         /// <summary>
-        /// Round-trip tolerance for x.ToDecibel().ToNormalizeVolume() ≈ x. Log10/Pow round-tripping through
-        /// float32 accumulates roughly 1e-5..1e-4 relative error; 1% comfortably covers that while still
-        /// failing loudly on a real regression (e.g. a dropped allowBoost flag changes the result by 10x+).
+        /// Log10/Pow through float32 drifts ~1e-4 relative; 1% covers that, while a dropped allowBoost is off 10x+.
         /// </summary>
         private const float RoundTripTolerancePercent = 1f;
 
         /// <summary>
-        /// Effect's (type, value, fading, isDominator) constructor is internal and this assembly has no
-        /// InternalsVisibleTo (tests use reflection throughout, see TestAudioLibrary). Reflection is the only
-        /// way to build a Volume-type Effect at an arbitrary value — unlike LowPass/HighPass/Custom there is
-        /// no public `Effect.Volume(...)` factory. Resolved through <see cref="EditorReflected"/>, which throws
-        /// naming the signature if it changes.
+        /// The only way to build a Volume Effect at an arbitrary value: this ctor is internal and there is no
+        /// public Volume factory. <see cref="EditorReflected"/> throws naming the signature if it changes.
         /// </summary>
         private static ConstructorInfo EffectCtor =>
             EditorReflected.Constructor(typeof(Effect), typeof(EffectType), typeof(float), typeof(Fading), typeof(bool));
@@ -62,11 +58,7 @@ namespace Ami.BroAudio.Tests
         {
             float result = 2f.ToDecibel(allowBoost: true);
 
-            // Hardcoded literal, not Mathf.Log10(2f) * DefaultDecibelVolumeScale: that expression is
-            // production's own formula, so it would still pass if DefaultDecibelVolumeScale silently
-            // regressed from 20 to 10 (an audible defect) - both sides would shrink together. 20 * log10(2)
-            // = 6.0206 is computed independently here so a scale regression is caught. Do not "simplify"
-            // this back into the formula.
+            // 20 * log10(2), a literal on purpose (class doc).
             Assert.That(result, Is.EqualTo(6.0206f).Within(0.001f));
             Assert.That(result, Is.GreaterThan(FullDecibelVolume));
         }
@@ -87,8 +79,7 @@ namespace Ami.BroAudio.Tests
         [TestCase(MaxDecibelVolume + 10f)]
         public void ToNormalizeVolume_AtOrAboveMaxDecibelVolume_WithAllowBoostTrue_EarlyReturnsMaxVolume(float dB)
         {
-            // The dB >= maxVol branch is a hard early return of MaxVolume, not a converging Pow() calculation —
-            // exercising a value well past the boundary (not just the boundary itself) proves that.
+            // A value past the boundary proves a hard early return, not a converging Pow().
             Assert.That(dB.ToNormalizeVolume(allowBoost: true), Is.EqualTo(MaxVolume).Within(0.0001f));
         }
 
@@ -126,10 +117,8 @@ namespace Ami.BroAudio.Tests
 
         #region Slider <-> volume (SoundVolume's slider models)
 
-        // Literal oracles, derived by hand below, for the three slider models SoundVolume and the inspectors
-        // use. SoundVolumeTests reads its expected values back through these same functions, so only here is
-        // the mapping itself pinned. Do not replace a literal with a call to the function under test.
-        //
+        // Hand-derived literal oracles: SoundVolumeTests reads back through these functions, so only here is the
+        // mapping pinned. Never replace a literal with a call to the function under test.
         // Constants: MinVolume 0.0001, FullVolume 1, MaxVolume 10; MinLogValue -4 (log10 0.0001),
         // FullVolumeLogValue 0, MaxLogValue 1; dB = 20 * log10(volume).
         // BroVolume split points (dB): -80, -60, -36, -24, -12, -6, 0, 6, 20.
@@ -208,11 +197,8 @@ namespace Ami.BroAudio.Tests
 
         #region TempoToTime
 
-        // SeamlessType.Tempo is purely an Editor-authoring convenience: AudioEntityEditor writes
-        // TempoToTime(bpm, beats) into the entity's ordinary TransitionTime float, and playback then
-        // treats it identically to a Time-authored seamless loop - there is no separate runtime path.
-        // So the conversion is the only thing a Tempo loop adds, and it is pinned here rather than by a
-        // second PlayMode crossfade test that would re-run an existing scenario.
+        // Tempo is editor-only sugar written into TransitionTime with no separate runtime path, so this
+        // conversion is all a Tempo loop adds - no PlayMode crossfade test needed.
         [TestCase(120f, 2, 1f)]        // 60/120 * 2
         [TestCase(60f, 1, 1f)]
         [TestCase(120f, 4, 2f)]
@@ -254,10 +240,8 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void ClampNormalize_DefaultAllowBoost_IsFalse_UnlikeToDecibelsDefaultOfTrue()
         {
-            // Pins the asymmetry flagged in the inventory: ClampNormalize/ClampDecibel default allowBoost to
-            // false, but ToDecibel/ToNormalizeVolume default it to true. A "harmonize the defaults" refactor
-            // on either side would silently change behavior for every caller that relies on the omitted arg —
-            // this test fails loudly on that instead of passing silently.
+            // Clamp* default allowBoost to false, ToDecibel/ToNormalizeVolume to true. "Harmonizing" either side
+            // silently changes every caller that omits the arg.
             Assert.That(5f.ClampNormalize(), Is.EqualTo(FullVolume).Within(0.0001f),
                 "ClampNormalize() with no args must clamp an above-unity volume down (allowBoost defaults false).");
         }
@@ -265,9 +249,7 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void ToDecibel_DefaultAllowBoost_IsTrue_UnlikeClampNormalizesDefaultOfFalse()
         {
-            // Hardcoded literal (see ToDecibel_AboveOne_WithAllowBoostTrue_ComputesBoostedDecibelAboveZero
-            // for why): Mathf.Log10(5f) * DefaultDecibelVolumeScale is production's own formula and would
-            // stay green through a DefaultDecibelVolumeScale regression. 20 * log10(5) = 13.9794.
+            // 20 * log10(5), a literal on purpose (class doc).
             Assert.That(5f.ToDecibel(), Is.EqualTo(13.9794f).Within(0.001f),
                 "ToDecibel() with no args must let an above-unity volume through boosted (allowBoost defaults true).");
         }
@@ -307,11 +289,8 @@ namespace Ami.BroAudio.Tests
         [Test]
         public void CompareTo_LowPass_LowerCutoffIsMoreIntense_SignIsInvertedVsHighPassAndVolume()
         {
-            // characterizes: LowPass.CompareTo deliberately flips the sign (Value.CompareTo(other.Value) * -1)
-            // because a LOWER cutoff removes more high end, i.e. is the more intense filter — the opposite
-            // ordering of HighPass and Volume, where a HIGHER raw value is more intense. This is the single
-            // most valuable assertion in this file: a refactor that "fixes" LowPass to match the other two
-            // would silently invert audible ducking/filtering behavior.
+            // LowPass deliberately inverts the sign: a lower cutoff removes more. "Fixing" it to match HighPass
+            // and Volume would invert audible ducking/filtering.
             Effect narrow = Effect.LowPass(500f);
             Effect wide = Effect.LowPass(5000f);
 
@@ -347,11 +326,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_8")]
         public void IsDefault_LowPass_ParameterlessConstructor_IsNotDefault()
         {
-            // Characterizes TEST_FINDINGS #8: the parameterless ctor seeds LowPass with
-            // BroAdvice.LowPassFrequency (300Hz, a "recommended starting point"), but IsDefault() compares
-            // against AudioConstant.MaxFrequency (22000Hz, "no filtering" / neutral). Those are two different
-            // constants, so a freshly-constructed `new Effect(EffectType.LowPass)` reads as NOT default.
-            // Likely surprising.
+            // Pins TEST_FINDINGS #8.
             Assert.IsFalse(new Effect(EffectType.LowPass).IsDefault());
         }
 
@@ -366,9 +341,7 @@ namespace Ami.BroAudio.Tests
         [Category("Finding_8")]
         public void IsDefault_HighPass_ParameterlessConstructor_IsNotDefault()
         {
-            // Characterizes TEST_FINDINGS #8: same mismatch as LowPass, mirrored — BroAdvice.HighPassFrequency
-            // (2000Hz) vs. AudioConstant.MinFrequency (10Hz, the neutral value IsDefault() actually checks
-            // against).
+            // Pins TEST_FINDINGS #8.
             Assert.IsFalse(new Effect(EffectType.HighPass).IsDefault());
         }
 
@@ -388,10 +361,7 @@ namespace Ami.BroAudio.Tests
         {
             Effect effect = CreateEffect(EffectType.Volume, 0.5f);
 
-            // Hardcoded literal, not 0.5f.ToDecibel(): that would make the function under test its own
-            // oracle, so it would still pass if the dB conversion regressed (e.g. DefaultDecibelVolumeScale
-            // 20 -> 10) since both sides would move together. 20 * log10(0.5) = -6.0206, computed
-            // independently here so such a regression is caught. Do not "simplify" this back to .ToDecibel().
+            // 20 * log10(0.5), a literal on purpose (class doc).
             Assert.That(effect.Value, Is.EqualTo(-6.0206f).Within(0.001f));
         }
 
@@ -401,9 +371,7 @@ namespace Ami.BroAudio.Tests
             LogAssert.Expect(LogType.Error, TestAudioLibrary.BroAudioLogPrefix);
             Effect effect = CreateEffect(EffectType.LowPass, -100f);
 
-            // this(type) runs first and seeds Value with BroAdvice.LowPassFrequency (a valid frequency, so it
-            // passes IsValidFrequency silently); the ctor body's overwrite to -100 then fails validation and is
-            // dropped, leaving the seeded value in place rather than -100 or 0.
+            // this(type) seeds BroAdvice.LowPassFrequency first; the invalid overwrite is dropped, keeping it.
             Assert.That(effect.Value, Is.EqualTo(300f).Within(0.001f));
         }
 

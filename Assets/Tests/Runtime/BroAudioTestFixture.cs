@@ -14,21 +14,10 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// Base fixture for every PlayMode test.
-    /// <para>
-    /// SoundManager is a DontDestroyOnLoad singleton that survives the whole run, so isolation is solved
-    /// here once: unpause the game clock, stop everything and wait until the player pool has drained,
-    /// destroy what the test created, wait out the master fade, put the mixer's effect parameters, the
-    /// on-disk RuntimeSetting and the volumes back, then check that the global state reads its defaults.
-    /// Do not re-solve it per test file.
-    /// </para>
-    /// <para>
-    /// Every reset here is unconditional - a test that failed half-way through is the one most likely to
-    /// have left something behind - and each drain reports what survived rather than assuming it died,
-    /// naming the test that leaked it (see <see cref="BroAudioTearDown"/>). Each of them costs nothing
-    /// (the player pool) or one or two frames (the mixer parameters) in the ordinary case where the test
-    /// left nothing behind; only an actual leak makes teardown wait.
-    /// </para>
+    /// Base fixture for every PlayMode test, and the one home of test isolation: SoundManager is a
+    /// DontDestroyOnLoad singleton, so <see cref="BroAudioTearDown"/> resets all shared state
+    /// unconditionally (a half-failed test is the likeliest leaker), verifies it, and fails the leaking
+    /// test by name. Do not re-solve isolation per test file.
     /// <para>
     /// Timing rule: fade progress accumulates capped Time.deltaTime (at most Time.maximumDeltaTime, ~0.333s,
     /// per frame) while timeouts and the DSP clock run on wall time, so one slow frame can move a sample point
@@ -40,10 +29,7 @@ namespace Ami.BroAudio.Tests
         /// <summary>Concrete audio types, i.e. All without the composite flag.</summary>
         protected static readonly BroAudioType[] ConcreteAudioTypes = TestAudioLibrary.ConcreteAudioTypes;
 
-        /// <summary>
-        /// Linear volume products are exact float multiplication (fadeTime 0 uses Fader.Complete), so a
-        /// tight tolerance is fine.
-        /// </summary>
+        /// <summary>Tight: fadeTime 0 uses Fader.Complete, so linear volume products are exact multiplication.</summary>
         protected const float LinearTolerance = 0.01f;
 
         /// <summary>dB values go through a log conversion plus a mixer round-trip, so they need a looser tolerance.</summary>
@@ -58,8 +44,7 @@ namespace Ami.BroAudio.Tests
         [UnitySetUp]
         public IEnumerator BroAudioSetUp()
         {
-            // The PlayMode test scene is empty, so Unity warns on every voice unless a listener exists.
-            // One DontDestroyOnLoad listener serves the whole run; it is deliberately never destroyed.
+            // The test scene is empty and Unity warns on every voice without a listener. Run-wide; never destroyed.
             if (!_listener)
             {
                 GameObject listenerObject = new GameObject("TestAudioListener");
@@ -68,10 +53,8 @@ namespace Ami.BroAudio.Tests
             }
 
 #if BroAudio_InitManually
-            // Under manual init nothing bootstraps the manager on its own - the wait below would time out and
-            // every PlayMode test, TeardownTests' BroAudio_InitManually branches included, would fail in setup.
-            // A project on this define calls BroAudio.Init() itself; the suite does the same, once. Guarded
-            // because Init() has no "already have one" check and would leak a second manager.
+            // Nothing auto-bootstraps under this define, so the suite calls Init() itself. Guarded: Init()
+            // has no "already have one" check and would leak a second manager.
             if (!SoundManager.HasInstance)
             {
                 BroAudio.Init();
@@ -96,34 +79,24 @@ namespace Ami.BroAudio.Tests
 
         /// <summary>
         /// The <see cref="RuntimeSetting.GlobalPlaybackGroup"/> every test runs under: a fresh
-        /// <see cref="DefaultPlaybackGroup"/> with its field initializers untouched, which is exactly what
-        /// BroUserDataGenerator creates for a new project - so the suite runs the configuration users ship
-        /// (a 0.04s comb-filtering window, same-frame plays not exempt, no voice limit), not a null group.
+        /// <see cref="DefaultPlaybackGroup"/> with factory field values, i.e. what users ship (a 0.04s
+        /// comb-filtering window, same-frame plays not exempt, no voice limit). Fresh per test.
         /// <para>
-        /// It reaches an entity only through <see cref="AudioAsset.PlaybackGroup"/> or as the parent a custom
-        /// group falls back to for a rule it does not override. <see cref="NewEntity"/>/<see cref="NewSound"/>
-        /// build entities with no AudioAsset and so stay outside it; build with
-        /// <see cref="NewAssetBackedEntity"/>/<see cref="NewAssetBackedSound"/> to play under it, as every
-        /// Library Manager entity does. Fresh per test and destroyed in TearDown, so its playing count and
-        /// lazily built rule list never carry over.
+        /// It reaches an entity only through <see cref="AudioAsset.PlaybackGroup"/> or as a custom group's
+        /// fallback parent: <see cref="NewEntity"/>/<see cref="NewSound"/> have no AudioAsset and stay outside
+        /// it; <see cref="NewAssetBackedEntity"/>/<see cref="NewAssetBackedSound"/> play under it.
         /// </para>
         /// </summary>
         protected DefaultPlaybackGroup FactoryGlobalPlaybackGroup { get; private set; }
 
         /// <summary>
-        /// Puts every RuntimeSetting field a test can observe at its factory value, after the snapshot above has
-        /// saved the developer's own. The asset lives under the gitignored Resources folder, so each checkout
-        /// carries its own copy: CI generates a factory one, while a developer's may have a different fade ease,
-        /// update mode or global playback group. Timing windows across the suite are derived from the factory
-        /// curves, and a test must see the same settings on every machine. A test that needs another value sets
-        /// it in its own body; TearDown puts the developer's asset back either way.
+        /// Puts every observable RuntimeSetting field at its factory value. The asset is gitignored, so each
+        /// checkout's copy differs, while the suite's timing windows derive from the factory curves. A test
+        /// needing another value sets it in its body; TearDown restores the developer's asset.
         /// <para>
-        /// ResetToFactorySettings covers the playback toggles; the fields it leaves alone are written here. The
-        /// obsolete CombFilteringPreventionInSeconds is read by nothing. DefaultAudioPlayerPoolSize is read only
-        /// when a SoundManager bootstraps: the run's first manager has already read the developer's value by the
-        /// time this runs, so the reset reaches only a manager rebuilt mid-run (TeardownTests re-initializes one),
-        /// which then caps its idle player pool at the factory size instead of the developer's. Nothing in the
-        /// suite depends on that cap: the pool instantiates a player whenever none is idle.
+        /// ResetToFactorySettings covers the playback toggles; the rest are written here (the obsolete
+        /// CombFilteringPreventionInSeconds is read by nothing). DefaultAudioPlayerPoolSize is read only at
+        /// bootstrap, so its reset reaches only a manager rebuilt mid-run; no test depends on that cap.
         /// </para>
         /// </summary>
         private static void ApplyFactoryRuntimeSetting(RuntimeSetting setting, PlaybackGroup globalPlaybackGroup)
@@ -138,26 +111,20 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Realtime budget for each of the two drains below. Both only have to outlast state a test left
-        /// in flight on purpose - the longest fade any fixture here starts is about a second - so this is
-        /// several times the worst case: wide enough that a slow frame cannot trip it, tight enough to
-        /// report the leak instead of hanging the run.
+        /// Realtime budget per drain: several times the longest fade a test leaves in flight (~1s), yet
+        /// short enough to report a leak instead of hanging the run.
         /// </summary>
         private const float DrainTimeoutSeconds = 5f;
 
         /// <summary>
-        /// Identical Master readings that end the drain once movement has been seen. A longer quiet run is
-        /// demanded there because a fade's own ease can land two adjacent frames on the same float near the
-        /// end of its curve, which would read as settled while the ramp is still going.
+        /// Identical Master readings that end the drain once movement was seen. Longer than
+        /// <see cref="QuietMasterFrames"/>: near its end a fade's ease can repeat a float on adjacent frames.
         /// </summary>
         private const int SteadyMasterFrames = 5;
 
         /// <summary>
-        /// Identical Master readings that end the drain when no movement was ever seen - the case for
-        /// almost every test in the suite, which never touches the master volume at all. Two rather than
-        /// <see cref="SteadyMasterFrames"/>, because this is the price every test pays: a fade that is
-        /// genuinely running moves the parameter by far more than a float epsilon per frame, so one
-        /// comparison is enough to notice it and switch to the longer count.
+        /// Identical Master readings that end the drain when no movement was seen - the cost every test
+        /// pays. A running fade moves far more than epsilon per frame, so one comparison detects it.
         /// </summary>
         private const int QuietMasterFrames = 2;
 
@@ -176,27 +143,20 @@ namespace Ami.BroAudio.Tests
         [UnityTearDown]
         public IEnumerator BroAudioTearDown()
         {
-            // Collected rather than asserted on the spot: an Assert.Fail here would abandon the rest of
-            // this method, and the resets below are exactly what keeps one leak from becoming every later
-            // test's problem. Everything runs; the report is the last thing this method does.
+            // Collected, not asserted on the spot: an Assert.Fail would skip the resets below. Reported last.
             List<string> leaks = new List<string>();
 
-            // First, because nothing below can drain while the game is paused: under the factory-default
-            // AudioMixerUpdateMode.Normal, Utility.GetDeltaTime() returns Time.deltaTime, which is 0 at
-            // timeScale 0, so every fade freezes instead of finishing. It also keeps the next test's first
-            // WaitForSeconds from hanging forever. Note that derived [UnityTearDown]s run BEFORE this one,
-            // so a fixture that pauses the game and then waits on *scaled* time in its own teardown still
-            // has to restore timeScale itself.
+            // First: under the factory update mode every fade runs on Time.deltaTime, so nothing below can
+            // drain at timeScale 0. Derived [UnityTearDown]s run BEFORE this one, so a fixture that pauses
+            // and then waits on scaled time in its own teardown must restore timeScale itself.
             Time.timeScale = 1f;
 
             BroAudio.Stop(BroAudioType.All, 0f);
             yield return DrainAudioPlayers(leaks);
 
-            // Before any global state is put back, because a component's OnDisable is itself a writer of
-            // global state: a SoundVolume with Reset On Disable calls BroAudio.SetVolume per type from there.
-            // Destroyed after the resets below, it would overwrite them and hand its volumes to the next test.
-            // Destroy is deferred to the end of the frame, hence the frame. After the player drain, though, so
-            // nothing still playing loses its clip or entity underneath it.
+            // After the player drain, so nothing playing loses its clip; before the resets below, because an
+            // OnDisable can write global state (SoundVolume's Reset On Disable) and would overwrite them.
+            // Destroy is deferred to the end of the frame, hence the yield.
             foreach (UnityEngine.Object obj in _createdObjects)
             {
                 if (obj)
@@ -216,11 +176,7 @@ namespace Ami.BroAudio.Tests
             yield return ResetTrackEffects(leaks);
 #endif
 
-            // RuntimeSetting is a real asset on disk - a test that mutates it must not dirty the project.
-            // Guarded rather than a bare SoundManager.Instance: that accessor throws once the manager is
-            // gone, and this method has to stay a silent no-op both for TeardownTests (which destroys it;
-            // its own [UnityTearDown] restores it first, but nothing here may depend on that ordering) and
-            // for a run where BroAudioSetUp never got a manager to snapshot in the first place.
+            // RuntimeSetting is an on-disk asset; a test that mutates it must not dirty the project.
             if (SoundManager.HasInstance && _settingSnapshot != null)
             {
                 JsonUtility.FromJsonOverwrite(_settingSnapshot, SoundManager.Instance.Setting);
@@ -232,12 +188,9 @@ namespace Ami.BroAudio.Tests
                 BroAudio.SetVolume(audioType, AudioConstant.FullVolume, 0f);
             }
 
-            // Per-type pitch leaks exactly like per-type volume: SoundManager.SetPitch stores it into
-            // AudioTypePlaybackPreference, so every *later* player of that type picks
-            // it up through SetInitialPitch. Volume only shifts an amplitude, but pitch rescales duration -
-            // a leaked 0.5x makes every later clip run twice as long and moves every duration window in the
-            // fade, scheduling and loop tests. Mind the argument order: SetPitch(type, pitch, fadeTime) is
-            // the current overload; SetPitch(pitch, type, fadeTime) is [Obsolete].
+            // Per-type pitch persists for every later player of that type, and rescales duration - a leaked
+            // 0.5x doubles every later clip and breaks duration windows. SetPitch(pitch, type, fadeTime) is
+            // the [Obsolete] overload; mind the argument order.
             foreach (BroAudioType audioType in ConcreteAudioTypes)
             {
                 BroAudio.SetPitch(audioType, AudioConstant.DefaultPitch, 0f);
@@ -257,17 +210,10 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Checks that the global state TearDown resets blindly actually reads its default afterwards - the
-        /// per-type playback preferences, and the dominator's Main_LowPass / Main_HighPass parameters, which
-        /// nothing here resets because DominatorPlayer's automation is supposed to revert them itself once
-        /// the drain has stopped its player.
-        /// <para>
-        /// Polled rather than read once: the per-type volume and pitch are written synchronously above and
-        /// normally cost no frame, but a filter tween or a dominator's auto-revert finishes on a later frame.
-        /// What survives <see cref="DrainTimeoutSeconds"/> is a leak - either a writer the resets above do not
-        /// reach, or a revert that never happened - and is reported by name. The dominator parameters are
-        /// then forced back so one broken revert is not inherited by every later test.
-        /// </para>
+        /// Checks that the per-type preferences TearDown resets blindly read their defaults, and that the
+        /// dominator's Main_LowPass / Main_HighPass were reverted by DominatorPlayer's own automation.
+        /// Polled: a filter tween or dominator revert lands on a later frame. A survivor is reported, and the
+        /// dominator parameters forced back so one broken revert is not inherited by every later test.
         /// </summary>
         private static IEnumerator VerifyGlobalStateRestored(List<string> leaks)
         {
@@ -356,14 +302,8 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Fails the test that leaked, naming it and what survived - a leak has to stop the run at its
-        /// source, because by the time it shows up it looks like an unrelated flake somewhere else.
-        /// <para>
-        /// When the test had already failed, this only warns. NUnit would not lose the original failure
-        /// either way (RecordTearDownException prepends the existing message and appends "TearDown : ..."),
-        /// but a test that failed mid-body is *expected* to leave playback running, and burying the real
-        /// assertion under a teardown error it caused itself helps nobody.
-        /// </para>
+        /// Fails the leaking test by name - surfacing later, a leak looks like an unrelated flake. Only
+        /// warns if the test already failed: a mid-body failure is expected to leave playback running.
         /// </summary>
         private static void ReportLeaks(List<string> leaks)
         {
@@ -387,20 +327,15 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Waits until SoundManager's player pool is actually empty, i.e. every AudioPlayer that was
-        /// checked out has been recycled.
-        /// <para>
-        /// Stop(All, 0f) alone does not prove that: a scheduled or paused voice, and above all a Chained
-        /// entity - whose Stop hands its End clip over to a brand new player that SoundManager.Stop's own
-        /// backwards loop cannot reach, because it is appended while that loop is running - can outlive the
-        /// call. So the stop is re-issued every frame until the list is empty. That terminates: the
-        /// handed-over player is already at PlaybackStage.End, where CanHandoverToEnd() is false.
-        /// </para>
+        /// Waits until every checked-out AudioPlayer is recycled. Stop(All, 0f) alone doesn't prove it: a
+        /// scheduled or paused voice, or a Chained entity's End clip handed to a new player during
+        /// SoundManager.Stop's loop, can outlive the call. So Stop is re-issued per frame; that terminates
+        /// because the handed-over player is at PlaybackStage.End, where CanHandoverToEnd() is false.
         /// </summary>
         private static IEnumerator DrainAudioPlayers(List<string> leaks)
         {
-            // TeardownTests destroys the manager; its own [UnityTearDown] restores it before this one runs, but
-            // nothing here may depend on that - a missing manager has no pool to leak.
+            // Every teardown step no-ops without a manager (TeardownTests destroys it) rather than touching
+            // the throwing SoundManager.Instance; none may rely on that fixture restoring it first.
             if (!SoundManager.HasInstance)
             {
                 yield break;
@@ -415,10 +350,7 @@ namespace Ami.BroAudio.Tests
                 }
                 IReadOnlyList<AudioPlayer> players = CurrentAudioPlayers();
 
-                // Costs no frame at all in the ordinary case: an immediate Stop recycles a player inside
-                // the call (TryGetFadeOut is false for fadeTime 0, so StopControl reaches EndPlaying ->
-                // Recycle before it ever yields), so the caller's Stop above has usually already emptied
-                // the list by the time this first reads it.
+                // Usually costs no frame: a zero-fade Stop recycles synchronously.
                 if (players.Count == 0)
                 {
                     yield break;
@@ -455,25 +387,12 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Waits until nothing is writing the Master mixer parameter any more.
+        /// Waits until nothing writes the Master mixer parameter: the SetVolume(FullVolume, 0f) below cannot
+        /// cancel a fade a test left in flight (TEST_FINDINGS #51).
         /// <para>
-        /// SoundManager.SetMasterVolume only stops a running fade coroutine on its `fadeTime != 0f` branch,
-        /// and returns early when the parameter already reads the requested value - so neither the
-        /// SetVolume(FullVolume, 0f) below nor a plain frame wait can cancel a fade a test left in flight,
-        /// and it would go on moving Master while the next test asserts on it (Docs/TEST_FINDINGS.md #51).
-        /// </para>
-        /// <para>
-        /// Waiting for the reading to stop moving, rather than for a particular value, is deliberate: a
-        /// live fade rewrites Master every frame, so a steady reading is the observable end of the
-        /// coroutine whether it completed, was never started, or is still mid-ramp. The quiet run required
-        /// widens from <see cref="QuietMasterFrames"/> to <see cref="SteadyMasterFrames"/> as soon as any
-        /// movement is seen, so the test that never touched the master volume pays two frames and only a
-        /// test that really left a fade running pays for the careful reading.
-        /// </para>
-        /// <para>
-        /// Non-WebGL only in effect: the WebGL branch of SetMasterVolume fades WebGLMasterVolume and the
-        /// players' own volumes instead of this parameter. Nothing here misbehaves there, it just has
-        /// nothing to observe - and the PlayMode suite runs in the Editor.
+        /// Waits for the reading to stop moving, not for a value: a live fade rewrites Master every frame, so
+        /// a steady reading is the coroutine's observable end however it ended. Inert on WebGL, where
+        /// SetMasterVolume fades the players instead of this parameter.
         /// </para>
         /// </summary>
         private static IEnumerator DrainMasterVolumeFade(List<string> leaks)
@@ -486,8 +405,7 @@ namespace Ami.BroAudio.Tests
             AudioMixer mixer = SoundManager.Instance.AudioMixer;
             if (!mixer || !mixer.SafeGetFloat(BroName.MasterTrackName, out float lastDb))
             {
-                // Nothing observable to drain (no mixer, or Master isn't exposed). Every test that cares
-                // asserts on that parameter itself, so this stays quiet rather than failing here too.
+                // Nothing observable; tests that care assert on Master themselves.
                 yield break;
             }
 
@@ -515,8 +433,6 @@ namespace Ami.BroAudio.Tests
                 }
                 else
                 {
-                    // A coroutine is provably writing this parameter, so from here on only a long quiet
-                    // run counts as the end of it.
                     requiredSteadyFrames = SteadyMasterFrames;
                     steadyFrames = 0;
                 }
@@ -526,34 +442,18 @@ namespace Ami.BroAudio.Tests
 
 #if !UNITY_WEBGL
         /// <summary>
-        /// Puts the mixer-routed effects back to their defaults - both halves of what SetEffect changes:
-        /// the exposed Effect_* parameters, and the per-type AudioTypePlaybackPreference.EffectType bit
-        /// that every future Play() of that type reads through AudioPlayer.Playback's SetTrackEffect. That
-        /// pref lives on an in-memory AudioTypePlaybackPreference, not on the RuntimeSetting asset, so the
-        /// JSON snapshot restore knows nothing about it.
+        /// Resets both halves of what SetEffect changes: the Effect_* mixer parameters, and the in-memory
+        /// per-type EffectType bit every later Play() of that type reads (outside the RuntimeSetting snapshot).
         /// <para>
-        /// Effect.ResetLowPass()/ResetHighPass() are *default-valued* effects, so SoundManager.SetEffect
-        /// picks SetEffectMode.Remove, which is what clears that bit. Deliberately NOT
-        /// SetEffect(new Effect(EffectType.None)): that would reset every tracked effect in one call, but
-        /// `new Effect(EffectType.None)` logs an error from Effect's Value setter as it is constructed, and
-        /// ResetAllEffect logs another for every tracked effect whose parameter does not resolve - an
-        /// EffectType.Volume entry on a non-Dominator, which AudioEffectTests leaves registered for the
-        /// rest of the Editor session. An unexpected error log fails the very test being torn down, so a
-        /// shared cleanup path cannot use it.
+        /// Default-valued ResetLowPass()/ResetHighPass() make SetEffect pick SetEffectMode.Remove, which
+        /// clears the bit. Don't use SetEffect(new Effect(EffectType.None)): it logs errors (on construction,
+        /// and per unresolvable tracked effect AudioEffectTests leaves registered), which fail the test
+        /// being torn down.
         /// </para>
         /// <para>
-        /// The dominator parameters (Main_LowPass / Main_HighPass / Main_Dominated) are not reset here:
-        /// DominatorPlayer chains its effect with .While(PlayerIsPlaying), so the automation is supposed to
-        /// reset them itself once the drain above has stopped the player. That this happened for Main_LowPass
-        /// and Main_HighPass is checked, not assumed, by <see cref="VerifyGlobalStateRestored"/>.
-        /// </para>
-        /// <para>
-        /// The reset is then verified rather than waited out for a fixed number of frames. A zero-fade
-        /// Tweak drains its WaitableList synchronously inside StartCoroutine, so
-        /// the parameters are normally already back before the first read and this costs no frame at all;
-        /// what a fixed wait would silently miss is the case that matters, a tweaker still working through
-        /// a fade or a pending auto-reset waitable, which SetEffectTrackParameter queues behind rather than
-        /// restarting.
+        /// Dominator parameters are left to DominatorPlayer's own revert, checked by
+        /// <see cref="VerifyGlobalStateRestored"/>. The reset is polled rather than waited out for fixed
+        /// frames, so a tweaker still mid-fade or a queued auto-reset waitable is reported, not missed.
         /// </para>
         /// </summary>
         private static IEnumerator ResetTrackEffects(List<string> leaks)
@@ -567,12 +467,8 @@ namespace Ami.BroAudio.Tests
             BroAudio.SetEffect(Effect.ResetLowPass());
             BroAudio.SetEffect(Effect.ResetHighPass());
 
-            // The second pole is only written when Setting.AudioFilterSlope is FourPole at the moment of
-            // the reset (EffectAutomationHelper.GetEffectParameterName decides that per call), so the two
-            // resets above cannot be relied on to have covered it - a test that moved it under FourPole and
-            // then left the slope at TwoPole would leave it moved. These two writes are the same defaults
-            // EffectAutomationHelper.GetEffectDefaultValue resets the primary parameter to, and are a no-op
-            // when nothing touched them.
+            // The resets above write the second pole only if the slope is FourPole right now, so a test that
+            // moved it under FourPole and switched to TwoPole would leave it moved. Same defaults as the primary.
             mixer.SafeSetFloat(BroName.LowPassParaName + SecondaryEffectParaSuffix, AudioConstant.MaxFrequency);
             mixer.SafeSetFloat(BroName.HighPassParaName + SecondaryEffectParaSuffix, AudioConstant.MinFrequency);
 
@@ -604,10 +500,9 @@ namespace Ami.BroAudio.Tests
 #endif
 
         /// <summary>
-        /// SoundManager's live player list: every AudioPlayer currently checked out of the pool, whether it
-        /// is playing, scheduled, paused or mid-handover. Read through the internal accessor the runtime
-        /// assembly exposes to this one (InternalsVisibleTo), so a refactor of the pool breaks the build
-        /// instead of every test. Needs a live manager.
+        /// Every AudioPlayer checked out of SoundManager's pool - playing, scheduled, paused or mid-handover.
+        /// Uses an InternalsVisibleTo accessor, so a pool refactor breaks the build, not the tests. Needs a
+        /// live manager.
         /// </summary>
         protected static IReadOnlyList<AudioPlayer> CurrentAudioPlayers()
         {
@@ -616,10 +511,8 @@ namespace Ami.BroAudio.Tests
 
         #region Library
         /// <summary>
-        /// Creates a tracked entity. Configure it further, then wrap it with <see cref="IdOf"/>. It has no
-        /// AudioAsset, so no playback group applies to it unless one is wired onto it explicitly - which is what
-        /// lets most of the suite play one ID twice in quick succession. <see cref="NewAssetBackedEntity"/>
-        /// builds the shipped shape instead.
+        /// Creates a tracked entity; wrap it with <see cref="IdOf"/>. No AudioAsset, so no playback group
+        /// applies unless wired explicitly - which lets most tests replay one ID in quick succession.
         /// </summary>
         protected AudioEntity NewEntity(string name = "TestSfx", BroAudioType audioType = BroAudioType.SFX, params AudioClip[] clips)
         {
@@ -633,10 +526,9 @@ namespace Ami.BroAudio.Tests
             => IdOf(NewEntity(name, audioType, clips));
 
         /// <summary>
-        /// Creates a tracked entity owned by its own tracked <see cref="AudioAsset"/>, as every entity authored
-        /// in the Library Manager is. Unlike <see cref="NewEntity"/>, it plays under
-        /// <see cref="FactoryGlobalPlaybackGroup"/>: the asset links it on first use. Two plays of the same ID in
-        /// one frame, or within 0.04s of each other, are therefore rejected - see DefaultPlaybackGroupTests.
+        /// Creates a tracked entity owned by a tracked <see cref="AudioAsset"/>, the shipped shape. Plays under
+        /// <see cref="FactoryGlobalPlaybackGroup"/>, so two plays of one ID in the same frame or within 0.04s
+        /// are rejected - see DefaultPlaybackGroupTests.
         /// </summary>
         protected AudioEntity NewAssetBackedEntity(string name = "TestAssetSfx", BroAudioType audioType = BroAudioType.SFX, params AudioClip[] clips)
         {
@@ -687,13 +579,9 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// The concrete <see cref="AudioPlayer"/> a caller's handle currently resolves to, or null once it
-        /// has been recycled. Reaches through the <see cref="AudioPlayerInstanceWrapper"/> that
-        /// BroAudio.Play() returns, for the cases where the public surface genuinely cannot observe the
-        /// result — GetComponent() on the player's MonoBehaviour, or its Transform.
-        /// <para>
-        /// A looping handle changes what this returns at every seam — that is what UpdateInstance does.
-        /// </para>
+        /// The concrete <see cref="AudioPlayer"/> behind a handle's <see cref="AudioPlayerInstanceWrapper"/>,
+        /// or null once recycled - for what the public surface can't observe (GetComponent, Transform). A
+        /// looping handle's target changes at every seam (UpdateInstance).
         /// </summary>
         protected static AudioPlayer InstanceOf(IAudioPlayer player)
             => player is AudioPlayerInstanceWrapper wrapper ? (AudioPlayer)wrapper : null;
@@ -726,34 +614,26 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// The shared timeout for <see cref="WaitForPlaybackStart"/> and <see cref="WaitForRecycle"/>, and the
-        /// default budget for a short state flip elsewhere in the suite (IsPlaying/IsActive toggling, a mixer
-        /// parameter landing on a requested value) that is not itself gated by a fade, a handover seam or an
-        /// Addressables load. Name a call site's own arithmetic (e.g. <c>fadeTime + 1f</c>) instead of this
-        /// constant whenever the wait is genuinely bounded by the test's own timed data - this one is for
-        /// everything that budget doesn't cover.
+        /// Budget for a short state flip not gated by a fade, handover seam or Addressables load (IsPlaying /
+        /// IsActive toggling, a mixer parameter landing). A wait bounded by the test's own timed data uses
+        /// that arithmetic instead (e.g. <c>fadeTime + 1f</c>).
         /// </summary>
         protected const float DefaultPlaybackWaitSeconds = 2f;
 
         /// <summary>
-        /// Budget for a value that ramps or converges rather than flipping in one frame and is not bounded by
-        /// a test-local duration - a SpectrumAnalyzer band settling into its attack/decay target, an explicit
-        /// schedule racing a longer clip.Delay. Wider than <see cref="DefaultPlaybackWaitSeconds"/> because the
-        /// target is approached over several frames, not reached in the one right after a state change.
+        /// Budget for a value that converges over several frames and is not bounded by a test-local duration
+        /// (a SpectrumAnalyzer band settling, an explicit schedule racing a longer clip.Delay).
         /// </summary>
         protected const float RampConvergenceWaitSeconds = 3f;
 
         /// <summary>
-        /// Budget for a loop/BGM/dominator handover or crossfade to complete - spans at least one seam
-        /// (<c>AudioConstant.MixerWarmUpTime</c> plus however long the transition itself runs), so it needs
-        /// more headroom than a plain state flip. Multiply it (rather than inventing a new constant) for a
-        /// wait that has to outlast more than one seam, e.g. <c>HandoverWaitSeconds * 2</c>.
+        /// Budget for a loop/BGM/dominator handover or crossfade - one seam (<c>AudioConstant.MixerWarmUpTime</c>
+        /// plus the transition). Multiply it for more seams, e.g. <c>HandoverWaitSeconds * 2</c>.
         /// </summary>
         protected const float HandoverWaitSeconds = 5f;
 
         /// <summary>
-        /// Budget for an Addressables load, preload handle or group preload to finish - network/IO-bound, so
-        /// the most generous budget in the suite. Tests that wait on this belong under
+        /// Budget for an Addressables load or preload - IO-bound. Tests that wait on this belong under
         /// <c>[Category("Slow")]</c>.
         /// </summary>
         protected const float SlowAddressableWaitSeconds = 10f;
@@ -772,17 +652,13 @@ namespace Ami.BroAudio.Tests
         protected const float RealtimeAudioClockTolerance = 0.1f;
 
         /// <summary>
-        /// The DSP clock's rate as a multiple of wall time, as last measured by
-        /// <see cref="MeasureAudioClockRate"/>; negative before the first measurement. 1 means a real
-        /// output device. Exposed so <see cref="AudioClockProbeTests"/> can report on the same number the
-        /// ignore gate below decides on, rather than measuring a second, possibly different one.
+        /// DSP clock rate as a multiple of wall time (1 on a real output device; negative until
+        /// <see cref="MeasureAudioClockRate"/> runs). Shared so <see cref="AudioClockProbeTests"/> reports the
+        /// same number the ignore gate decides on.
         /// </summary>
         protected static float AudioClockRate => _audioClockRate;
 
-        /// <summary>
-        /// Measures the DSP clock against wall time, once per run — the result is cached in
-        /// <see cref="AudioClockRate"/> and every later call returns immediately.
-        /// </summary>
+        /// <summary>Measures the DSP clock against wall time once per run, cached in <see cref="AudioClockRate"/>.</summary>
         protected static IEnumerator MeasureAudioClockRate()
         {
             if (_audioClockRate < 0f)
@@ -795,13 +671,11 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// A machine with no audio output device (CI runners) runs the engine's DSP clock decoupled from
-        /// wall time, so a voice can start and finish between two frames. Tests that need the voice itself
-        /// to advance in real time gate on this; the rate is measured once and reused for the whole run.
+        /// Gate for tests that need the voice to advance in real time: without an audio output device (CI)
+        /// the DSP clock is decoupled from wall time, so a voice can start and finish between two frames.
         /// <para>
-        /// This ignores rather than fails, so a local run without an audio device stays green.
-        /// <see cref="AudioClockProbeTests"/> is what turns the same condition into a CI failure — without
-        /// it, an image that lost its audio device silently skips every test that gates on this.
+        /// Ignores rather than fails, so a local deviceless run stays green; <see cref="AudioClockProbeTests"/>
+        /// turns the condition into a CI failure so a lost device cannot silently skip these tests.
         /// </para>
         /// </summary>
         protected static IEnumerator RequireRealtimeAudioClock()
@@ -815,18 +689,13 @@ namespace Ami.BroAudio.Tests
         }
 
         /// <summary>
-        /// Waits on the DSP clock — the clock scheduling, seamless loops and handovers actually run on.
-        /// <para>
-        /// Only for asserting on DSP-scheduled state (timeSamples, scheduled start/end). Fades, pitch ramps
-        /// and every other FaderModule-driven value run on the frame clock (Utility.GetDeltaTime), so time
-        /// those with WaitForSeconds — a machine with no audio device runs the two clocks at different rates.
-        /// </para>
+        /// Waits on the DSP clock. Only for DSP-scheduled state (timeSamples, scheduled start/end); fades,
+        /// pitch ramps and other FaderModule values run on the frame clock, so time those with WaitForSeconds -
+        /// without an audio device the two clocks run at different rates.
         /// </summary>
         /// <param name="timeout">
-        /// Realtime deadline. Negative derives one from <paramref name="seconds"/>, generously: the DSP clock
-        /// is never slower than wall time in practice (a machine with no audio device runs it hundreds of
-        /// times faster, returning almost immediately), so the derived deadline only has to outlast a
-        /// realtime clock plus scheduling noise — it exists to name a stalled clock, not to time anything.
+        /// Realtime deadline; negative derives a generous one from <paramref name="seconds"/>. It only names a
+        /// stalled clock - the DSP clock is never slower than wall time in practice.
         /// </param>
         protected static IEnumerator WaitDspSeconds(double seconds, float timeout = -1f)
         {

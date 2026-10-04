@@ -8,22 +8,15 @@ using UnityEngine;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Small editor-side decision points with no other coverage: how many clip rows each play mode accepts
-    /// (<see cref="BroEditorUtility.GetMaxAcceptableClipCount"/>), the legacy core-data parser
-    /// (<see cref="BroEditorUtility.TryParseCoreData"/>), and the version gates inside <see cref="BroUpdater"/>
-    /// that decide which upgrade steps an older install gets.
-    /// <para>
-    /// BroUpdater's steps are private and <c>Process</c> itself moves assets, opens a dialog and writes the
-    /// version file, so the gates are driven one step at a time through reflection, against in-memory settings
-    /// objects - never the project's own assets. The one gate whose open branch writes an asset to disk
-    /// (<c>CreateGlobalPlaybackGroup</c>) is only driven down its closed branches.
-    /// </para>
+    /// Pins <see cref="BroEditorUtility.GetMaxAcceptableClipCount"/>, <see cref="BroEditorUtility.TryParseCoreData"/>
+    /// and the version gates in <see cref="BroUpdater"/>. <c>Process</c> touches the project, so each private
+    /// step is invoked by reflection against in-memory settings; <c>CreateGlobalPlaybackGroup</c>'s open
+    /// branch writes an asset to disk, so only its closed branches are driven.
     /// </summary>
     public class CoreDataAndUpdaterTests : BroEditorTestFixture
     {
         #region GetMaxAcceptableClipCount
-        // ReorderableClips disables every clip row at or past this count. Single plays only the first clip and
-        // Chained only intro/loop/outro; every other mode, Localization included, takes any number.
+        // ReorderableClips disables rows at or past this count: Single plays one clip, Chained intro/loop/outro.
         [TestCase(MulticlipsPlayMode.Single, 1)]
         [TestCase(MulticlipsPlayMode.Chained, 3)]
         [TestCase(MulticlipsPlayMode.Sequence, int.MaxValue)]
@@ -65,10 +58,7 @@ namespace Ami.BroAudio.Editor.Tests
             CollectionAssert.AreEqual(written.GUIDs, read.GUIDs);
         }
 
-        // characterizes: the only guard is "null or empty text"; anything else goes straight to
-        // JsonUtility.FromJson, which throws on malformed JSON - so this Try* method throws instead of
-        // returning false for a corrupted core-data file. Characterizes TEST_FINDINGS #69; a fix that returns
-        // false turns the Assert.Catch red.
+        // Pins TEST_FINDINGS #69.
         [Test]
         [Category("Finding_69")]
         public void TryParseCoreData_WithMalformedText_ThrowsInsteadOfReturningFalse()
@@ -114,8 +104,6 @@ namespace Ami.BroAudio.Editor.Tests
             return (bool)args[0];
         }
 
-        // The two thresholds every gate below compares against. Process additionally only runs at all while the
-        // stored version is below BroVersion.CodeBaseVersion, and runs the Sound ID upgrade only below 3.1.0.
         [Test]
         public void VersionGates_AreThePlaybackGroupAndAssetBasedSoundIdReleases()
         {
@@ -123,8 +111,7 @@ namespace Ami.BroAudio.Editor.Tests
             Assert.AreEqual(new Version(3, 1, 0), ReflectedBroUpdater.VersionProperty(ReflectedBroUpdater.AssetBasedSoundIDFirstReleasedVersion));
         }
 
-        // `oldVersion < 2.0.0` is strict: an install already on 2.0.0 is left alone. Below it, every audio type
-        // gains the PlaybackGroup row on top of what it already drew, and the setting is reported dirty.
+        // Strict `<`: an install already on 2.0.0 is left alone.
         [TestCase("1.9.9", true)]
         [TestCase("2.0.0", false)]
         [TestCase("3.2.3", false)]
@@ -149,9 +136,7 @@ namespace Ami.BroAudio.Editor.Tests
             }
         }
 
-        // The gate needs both an old install AND no global group yet. Either half closed leaves the setting
-        // untouched and clean. (The open branch creates a DefaultPlaybackGroup asset next to the RuntimeSetting
-        // asset, so it is not driven here.)
+        // The gate needs both an old install AND no global group yet.
         [TestCase("2.0.0", false)]
         [TestCase("1.0.0", true)]
         public void CreateGlobalPlaybackGroup_WithEitherHalfOfItsGateClosed_LeavesTheSettingUntouched(string oldVersion, bool alreadyHasGroup)
