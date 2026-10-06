@@ -14,7 +14,7 @@ namespace Ami.BroAudio.Tests
     /// FadeOut, StartPosition/EndPosition trims, and the Stop() re-entrancy guards.
     /// <para>
     /// Two clocks: fade progress is frame-clocked, but the natural-end fade's start gate is DSP-clocked
-    /// (Stop(fadeOut) has no gate). Poll for transitions and ranges, not exact counts (Docs/inventory/time-dependent.md).
+    /// (Stop(fadeOut) has no gate). Poll for transitions and ranges, not exact counts (Docs/Tests/inventory/time-dependent.md).
     /// </para>
     /// </summary>
     public class FadeAndTrimTests : BroAudioTestFixture

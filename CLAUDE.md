@@ -67,7 +67,7 @@ Hand-verified engine behavior that shapes this codebase — where it conflicts w
 Defer to `.editorconfig` (4-space indent, CRLF, no final newline; `_camelCase` private fields, `PascalCase` types/public fields, `I`-prefixed interfaces; explicit type over `var` for built-ins). Public serialized data prefers `[field: SerializeField] public T X { get; private set; }`.
 
 ## Record files
-Only `Docs/TEST_FINDINGS.md`, `Docs/FIXED_ISSUES.md`, and `Docs/TEST_INVENTORY.md` may record point-in-time state — counts, run results, commit hashes, dates, finding status. Everything else (code comments, other docs, commit messages, memory) records principles, not state, and cites code by symbol, not line number.
+Only `Docs/Tests/TEST_FINDINGS.md`, `Docs/Tests/FIXED_ISSUES.md`, and `Docs/Tests/TEST_INVENTORY.md` may record point-in-time state — counts, run results, commit hashes, dates, finding status. Everything else (code comments, other docs, commit messages, memory) records principles, not state, and cites code by symbol, not line number.
 
 ## Boundaries
 - ✅ Always: read the governing `.asmdef` before editing files in that assembly so `using` directives match.

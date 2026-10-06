@@ -10,7 +10,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// <c>RuntimeSetting.AlwaysPlayMusicAsBGM</c>: a Music Play() is auto-wrapped with AsBGM()+SetTransition.
-    /// See Docs/inventory/time-dependent.md.
+    /// See Docs/Tests/inventory/time-dependent.md.
     /// </summary>
     public class AlwaysPlayMusicAsBGMTests : BroAudioTestFixture
     {

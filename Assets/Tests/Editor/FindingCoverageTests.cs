@@ -11,7 +11,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Editor.Tests
 {
     /// <summary>
-    /// Reconciles <c>Docs/TEST_FINDINGS.md</c> with the <c>[Category("Finding_N")]</c> pins in both directions.
+    /// Reconciles <c>Docs/Tests/TEST_FINDINGS.md</c> with the <c>[Category("Finding_N")]</c> pins in both directions.
     /// A deliberately unpinned finding says "Not pinned" on its own Status line; don't add an exception list,
     /// it goes stale. Pins are read by reflection, so only runnable, non-skipped tests count. A pin whose
     /// source <c>#if</c> is false in this compilation is accepted as gated out, read from the code, never a list.
@@ -23,10 +23,10 @@ namespace Ami.BroAudio.Editor.Tests
         /// </summary>
         public const string CategoryPrefix = "Finding_";
 
-        private const string FindingsDocRelativePath = "Docs/TEST_FINDINGS.md";
+        private const string FindingsDocRelativePath = "Docs/Tests/TEST_FINDINGS.md";
 
         /// <summary>The closed ledger, read only to catch number collisions.</summary>
-        private const string FixedDocRelativePath = "Docs/FIXED_ISSUES.md";
+        private const string FixedDocRelativePath = "Docs/Tests/FIXED_ISSUES.md";
 
         private const string TestSourcesRelativePath = "Assets/Tests";
 

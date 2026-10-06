@@ -6,7 +6,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// <c>BroAudio.OnBGMChanged</c> across a <c>CurrentBGMPlayer</c> change. See Docs/inventory/time-dependent.md.
+    /// <c>BroAudio.OnBGMChanged</c> across a <c>CurrentBGMPlayer</c> change. See Docs/Tests/inventory/time-dependent.md.
     /// </summary>
     public class BGMChangedEventTests : BroAudioTestFixture
     {

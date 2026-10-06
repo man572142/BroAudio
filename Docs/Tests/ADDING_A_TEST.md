@@ -1,7 +1,9 @@
 # Adding a Test
 
-The working rules for a new test, in one place. [GOAL.md](GOAL.md) says why; the base fixtures' XML
-comments hold the detail behind each rule.
+The working rules for a new test, in one place; the base fixtures' XML comments hold the detail behind
+each rule. The suite exists so BroAudio can be refactored and upgraded across Unity versions without
+silently changing what the user hears. A test earns its place by the confidence it adds: one
+user-meaningful scenario, not one per method or branch, and coverage percentage is not a target.
 
 ## 1. Characterize, don't fix
 
@@ -115,7 +117,9 @@ maintainer.
 ## 6. Findings
 
 - Before recording a finding, read its callers. Its section names the shipped path that reaches it and
-  what the user observes; if you can't name both, it isn't a finding ([GOAL.md](GOAL.md)).
+  what the user observes; if you can't name both, it isn't a finding. The consequence must be one a user
+  would notice: wrong or missing sound, an exception, a leak, lost or corrupted data. A latent trap no
+  caller reaches, a sub-perceptual difference or a style lapse is not a finding.
 - A test that pins an open finding carries `[Category("Finding_N")]`, with an underscore: NUnit rejects a
   category containing a hyphen and fails the test before it runs.
 - A new defect gets a number above every one ever used in TEST_FINDINGS.md and FIXED_ISSUES.md (shipped
@@ -137,7 +141,7 @@ maintainer.
 - Mark the behavior in the per-behavior ledger of [TEST_INVENTORY.md](TEST_INVENTORY.md): **covered**,
   **partial** (with the gap named), **deferred** or **out of scope** (with the reason), citing the test as
   `Class.Method`. TEST_INVENTORY is the only place coverage status is recorded.
-- A behavior the section files under `Docs/inventory/` do not describe is added there as behavior only:
+- A behavior the section files under `Docs/Tests/inventory/` do not describe is added there as behavior only:
   what it does and how it can be observed, with no status, verdict or finding state.
 - List a new test file in TEST_INVENTORY.md. There is no CI list to add it to:
   `.github/scripts/derive_test_suites.py` derives each leg's fixtures from the sources (the owning asmdef
@@ -159,6 +163,6 @@ maintainer.
   test that only passes after another fails there.
 - **Static checks**, with no Editor: `check_log_expectations.py` (§5), `derive_test_suites.py` (§7), and
   `check_fixed_issues_record.py`, which fails a commit (and a pull request or push as a whole) that changes
-  production `.cs` under `Assets/BroAudio/` and tests together without touching `Docs/FIXED_ISSUES.md` (§1).
+  production `.cs` under `Assets/BroAudio/` and tests together without touching `Docs/Tests/FIXED_ISSUES.md` (§1).
   A commit that genuinely needs no entry (a comment-only edit, a rename a test follows) says so with a
   `No-Fixed-Issue: <reason>` trailer, which the check prints for review.

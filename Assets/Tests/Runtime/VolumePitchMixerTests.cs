@@ -10,7 +10,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// Volume composition, per-type volume's live/future behavior, mixer track acquisition/return, and
-    /// pitch via AudioSource. See Docs/inventory/volume-mixer.md.
+    /// pitch via AudioSource. See Docs/Tests/inventory/volume-mixer.md.
     /// </summary>
     public class VolumePitchMixerTests : BroAudioTestFixture
     {
@@ -29,7 +29,7 @@ namespace Ami.BroAudio.Tests
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db));
             Assert.AreEqual(0.25f.ToDecibel(), db, DecibelTolerance, "Master volume should write vol.ToDecibel() straight to the mixer's Master parameter.");
 
-            // characterizes: master is a separate mixer stage (Docs/inventory/volume-mixer.md "Conflicts observed").
+            // characterizes: master is a separate mixer stage (Docs/Tests/inventory/volume-mixer.md "Conflicts observed").
             Assert.AreEqual(baselineLinear, player.GetVolume(), LinearTolerance, "Master volume must never appear in IAudioPlayer.GetVolume()'s linear product.");
         }
 

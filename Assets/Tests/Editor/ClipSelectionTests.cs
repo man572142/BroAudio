@@ -269,7 +269,7 @@ namespace Ami.BroAudio.Tests
 
             Assert.IsTrue(sawDisagreement,
                 "Expected the fallback scan to return a clip that does not match its own out index. " +
-                "If this now fails, the mismatch was fixed — update Docs/TEST_FINDINGS.md and delete this test.");
+                "If this now fails, the mismatch was fixed — update Docs/Tests/TEST_FINDINGS.md and delete this test.");
         }
 
         [Test]

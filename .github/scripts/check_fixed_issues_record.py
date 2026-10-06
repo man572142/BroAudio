@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Flag commits that change production code and tests together without recording it in FIXED_ISSUES.md.
 
-Docs/GOAL.md: production code changes only when the maintainer asks, every production change that lands is
-recorded in Docs/FIXED_ISSUES.md with its commit, and it lands in its own commit, never folded into the diff
+Docs/Tests/ADDING_A_TEST.md §1: production code changes only when the maintainer asks, every production change that lands is
+recorded in Docs/Tests/FIXED_ISSUES.md with its commit, and it lands in its own commit, never folded into the diff
 that adds a test. A commit touching both Assets/BroAudio/**/*.cs and Assets/Tests/ is exactly how a fix gets
-folded into a test diff unrecorded, so each such commit must also touch Docs/FIXED_ISSUES.md.
+folded into a test diff unrecorded, so each such commit must also touch Docs/Tests/FIXED_ISSUES.md.
 
 The same holds for the range as a whole (a pull request, or a push): if it changes production .cs and tests
 anywhere, FIXED_ISSUES.md must change somewhere in it.
@@ -23,7 +23,7 @@ Usage: check_fixed_issues_record.py <base> <head>
 import subprocess
 import sys
 
-FIXED_ISSUES = "Docs/FIXED_ISSUES.md"
+FIXED_ISSUES = "Docs/Tests/FIXED_ISSUES.md"
 TRAILER = "No-Fixed-Issue:"
 
 
@@ -94,7 +94,7 @@ def main(argv):
         sys.exit(
             f"\n{len(problems)} change(s) touch Assets/BroAudio/**/*.cs and Assets/Tests/ without {FIXED_ISSUES}:\n  "
             + "\n  ".join(problems) + "\n"
-            "Record the production change in FIXED_ISSUES.md, in its own commit (Docs/GOAL.md). If it genuinely "
+            "Record the production change in FIXED_ISSUES.md, in its own commit (Docs/Tests/ADDING_A_TEST.md §1). If it genuinely "
             f"needs no entry, add a '{TRAILER} <reason>' trailer to the commit that makes it.")
     print("No commit folds an unrecorded production change into a test change.")
 

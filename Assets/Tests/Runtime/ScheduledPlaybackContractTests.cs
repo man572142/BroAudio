@@ -7,7 +7,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// The ISchedulable start/end-time contract, including the documented "pause on reschedule" quirk,
-    /// and mid-play pitch rescaling the derived end time. See Docs/inventory/time-dependent.md.
+    /// and mid-play pitch rescaling the derived end time. See Docs/Tests/inventory/time-dependent.md.
     /// </summary>
     public class ScheduledPlaybackContractTests : BroAudioTestFixture
     {

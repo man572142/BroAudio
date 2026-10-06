@@ -11,7 +11,7 @@ namespace Ami.BroAudio.Tests
 {
     /// <summary>
     /// Pure conversion and comparison math: volume/dB, slider models, clamps, and <see cref="Effect"/> ordering
-    /// (Docs/inventory/volume-mixer.md). Plain <c>[Test]</c>s: no SoundManager, no Play Mode.
+    /// (Docs/Tests/inventory/volume-mixer.md). Plain <c>[Test]</c>s: no SoundManager, no Play Mode.
     /// dB oracles are hand-computed literals, never production's formula: a DefaultDecibelVolumeScale regression
     /// would move both sides together. Don't "simplify" them back into the formula.
     /// </summary>

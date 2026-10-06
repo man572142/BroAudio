@@ -10,7 +10,7 @@ using UnityEngine.TestTools;
 namespace Ami.BroAudio.Tests
 {
     /// <summary>
-    /// <see cref="LocalizationClipStrategy"/> in isolation (Docs/inventory/selection-policy.md). With no AssetTable
+    /// <see cref="LocalizationClipStrategy"/> in isolation (Docs/Tests/inventory/selection-policy.md). With no AssetTable
     /// the Play() path is untestable; <c>Inject()</c> with string table references and a cached clip never reaches
     /// <c>LoadAssetAsync</c>.
     /// </summary>

@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0 # the FIXED_ISSUES check walks the commits a push or pull request brings
 
-      # GOAL.md: expected logs are matched by LogType and BroAudio's tag, never by their text.
+      # ADDING_A_TEST.md §5: expected logs are matched by LogType and BroAudio's tag, never by their text.
       - name: Every expected log is matched by its tag, not its text
         run: python3 .github/scripts/check_log_expectations.py
 
@@ -50,7 +50,7 @@ jobs:
       - name: Derive the fixtures each leg must run
         run: python3 .github/scripts/derive_test_suites.py
 
-      # GOAL.md: a production change lands in its own commit with a FIXED_ISSUES.md entry, never folded into
+      # ADDING_A_TEST.md §1: a production change lands in its own commit with a FIXED_ISSUES.md entry, never folded into
       # a test diff. Pushes to main are skipped: main only receives merges of branches this already checked,
       # and a merge would re-check history that predates the rule.
       - name: No production change is folded into a test change unrecorded
