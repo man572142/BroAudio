@@ -393,15 +393,16 @@ namespace Ami.BroAudio.Editor.Tests
 
         private static string ReadTag(byte[] bytes, int offset) => Encoding.ASCII.GetString(bytes, offset, 4);
 
-        [TestCase(2, 22050, 88200, 4, 12)]
-        [TestCase(1, 11025, 22050, 2, 6)]
+        [TestCase(2, 22050, 2205, 88200, 4, 8820)]
+        [TestCase(1, 11025, 2205, 22050, 2, 4410)]
         public void Save_EditedClip_WritesA16BitPcmHeaderWithTheClipsChannelsAndRate(
-            int channels, int frequency, int expectedByteRate, int expectedBlockAlign, int expectedDataBytes)
+            int channels, int frequency, int frames, int expectedByteRate, int expectedBlockAlign, int expectedDataBytes)
         {
             // The Clip Editor's path: an edited helper's result clip goes to SavWav.Save. Stereo catches a header
-            // hard-coded to mono, mono one hard-coded to stereo, and neither rate is 44100. Three silent frames:
-            // only the header matters here.
-            AudioClip clip = CreateClip("SaveHeader", new float[3 * channels], channels, frequency);
+            // hard-coded to mono, mono one hard-coded to stereo, and neither rate is 44100. Silent frames: only the
+            // header matters here. The clip lasts 0.1s / 0.2s: at 3 frames the helper's sample range, derived from the
+            // clip's length in seconds, came out empty ("Invalid sample range") and HasEdited stayed false.
+            AudioClip clip = CreateClip("SaveHeader", new float[frames * channels], channels, frequency);
             using var helper = new AudioClipEditingHelper(clip);
             helper.AdjustVolume(0.5f);
             Assert.IsTrue(helper.HasEdited, "Precondition: the helper re-creates the clip, as it does before a Save.");
