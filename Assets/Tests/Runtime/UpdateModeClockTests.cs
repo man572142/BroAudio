@@ -58,6 +58,15 @@ namespace Ami.BroAudio.Tests
             Assert.Less(player.GetVolume(), NearSilenceThreshold,
                 "Clip fade-in should start near silence regardless of UpdateMode.");
 
+            // The master fades down, so its ramp eases with the factory DefaultFadeOutEase (OutSine) and
+            // reaches targetDb + 1dB (-19dB, ease 0.95) only at t = 2 * asin(0.95) / pi = 0.80s - later than
+            // the clip check above already tolerates (InCubic reaches 0.15 at t = 0.53s).
+            float targetDb = MasterFadeTargetVolume.ToDecibel();
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float masterDbAtStart));
+            Assert.Greater(masterDbAtStart, targetDb + 1f,
+                "Master should not have reached its target yet when the ramp has only just started - a master fade " +
+                "that applied the target at once would satisfy the completion poll below without ever ramping.");
+
             // Frames still step at timeScale 0 (only WaitForSeconds would hang), so a working UnscaledTime
             // branch finishes in about the fade's own duration; 1.5s of slack for frame-time noise.
             const float fadeTimeout = FadeDuration + 1.5f;
@@ -66,7 +75,6 @@ namespace Ami.BroAudio.Tests
                 "timing out here means Utility.GetDeltaTime() froze it, i.e. the UnscaledTime branch is gone or unreachable",
                 fadeTimeout);
 
-            float targetDb = MasterFadeTargetVolume.ToDecibel();
             yield return WaitUntilOrTimeout(
                 () => SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float db) && db <= targetDb + DecibelTolerance,
                 "SoundManager's master-volume ramp (a separate coroutine from FaderModule) to reach target " +
@@ -100,6 +108,11 @@ namespace Ami.BroAudio.Tests
             Assert.Less(clipVolumeAtStart, NearSilenceThreshold,
                 "Clip fade-in should start near silence regardless of UpdateMode.");
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float masterDbAtStart));
+            // A frozen ramp rewrites Lerp(0dB, target, ease(0) = 0) = 0dB every frame, so Master still reads its
+            // baseline. Without this, the start-equals-end check below also passes for an instant master fade.
+            Assert.AreEqual(0f, masterDbAtStart, DecibelTolerance,
+                "Master should still read full volume (0dB) once the frozen ramp has started - a master fade that " +
+                "applied the target at once would already read the -20dB target here.");
 
             // Well past the fade's duration, so an unfrozen fade would be long complete. Must be realtime:
             // WaitForSeconds never returns at timeScale 0.

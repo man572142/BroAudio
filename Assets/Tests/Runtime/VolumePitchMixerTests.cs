@@ -182,11 +182,17 @@ namespace Ami.BroAudio.Tests
 
         // The ramp and WaitForSeconds share the scaled frame clock, so fade time plus two frames is past the
         // ramp's last pass, which evaluates the ease past t = 1, by construction, not by margin.
+        // At the half-way read the ramp has run 1s +/- one frame, and Time.deltaTime is capped at the project's
+        // 0.33s Maximum Allowed Timestep, so t/F is within [1/3, 2/3]. From -6.02dB, InCirc then reads
+        // -6.02 * sqrt(1 - t^2): -5.68dB to -4.49dB (-5.21dB at t = 0.5). A ramp that ignores the ease (Linear, never
+        // below -4.01dB there) or picks FadeOutEase (OutSine, never below -3.01dB) reads above -4.25dB even at
+        // that worst case, and an instant fade reads 0dB.
         [UnityTest]
         public IEnumerator SetVolume_MasterFadeWithInCircEase_LandsOnTheTarget()
         {
             const float StartVolume = 0.5f;
-            const float FadeSeconds = 0.5f;
+            const float FadeSeconds = 2f;
+            const float InCircHalfwayCeilingDb = -4.25f;
             SoundManager.Instance.Setting.DefaultFadeInEase = Ease.InCirc;
 
             BroAudio.SetVolume(StartVolume, 0f);
@@ -196,7 +202,14 @@ namespace Ami.BroAudio.Tests
 
             // Rising, so SetMasterVolume's coroutine picks FadeInEase.
             BroAudio.SetVolume(AudioConstant.FullVolume, FadeSeconds);
-            yield return new WaitForSeconds(FadeSeconds);
+            yield return new WaitForSeconds(FadeSeconds / 2f);
+
+            Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float halfwayDb));
+            Assert.Less(halfwayDb, InCircHalfwayCeilingDb,
+                "Half-way through, a rising master fade should still be on InCirc's slow start (DefaultFadeInEase), " +
+                "not already at its target or on a faster curve.");
+
+            yield return new WaitForSeconds(FadeSeconds / 2f);
             yield return WaitFrames(2);
 
             Assert.IsTrue(SoundManager.Instance.AudioMixer.GetFloat(BroName.MasterTrackName, out float endDb));

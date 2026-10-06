@@ -15,6 +15,11 @@ namespace Ami.BroAudio.Tests
     /// An acceptance-inside-the-window test uses the same 10s window as its rejecting twin: with a short
     /// window, a stall between the plays would expire it and the acceptance would pass for the wrong reason.
     /// </para>
+    /// <para>
+    /// The AudioAsset-group tests use asset-backed entities, which resolve entity group, then asset group, then
+    /// the global group. They play distinct IDs in one frame, which the global group always accepts (its window
+    /// is per SoundID and it has no voice limit), so only the asset's own voice limit can explain a rejection.
+    /// </para>
     /// </summary>
     public class PlaybackGroupTests : BroAudioTestFixture
     {
@@ -32,6 +37,18 @@ namespace Ami.BroAudio.Tests
             TestAudioLibrary.SetPrivateField(entity, TestAudioLibrary.Reflected.AudioEntity.Group, group);
             return IdOf(entity);
         }
+
+        /// <summary>Creates a tracked, empty AudioAsset whose own group is <paramref name="group"/>.</summary>
+        private AudioAsset NewAssetWithGroup(DefaultPlaybackGroup group, string name)
+        {
+            AudioAsset asset = Track(TestAudioLibrary.CreateAudioAsset(name));
+            TestAudioLibrary.SetPrivateField(asset, AudioAsset.NameOf.Group, group);
+            return asset;
+        }
+
+        /// <summary>Creates a tracked entity owned by <paramref name="asset"/>, with no group of its own.</summary>
+        private AudioEntity NewEntityInAsset(AudioAsset asset, string name, float clipSeconds = 2f)
+            => Track(TestAudioLibrary.CreateAssetBackedEntity(name, BroAudioType.SFX, asset, NewClip(clipSeconds, name + "Clip")));
 
         [UnityTest]
         public IEnumerator Play_BeyondMaxPlayableCount_RejectsThenAcceptsAfterASlotFrees()
@@ -211,6 +228,54 @@ namespace Ami.BroAudio.Tests
             IAudioPlayer player3 = BroAudio.Play(id, new AllowingValidator());
             Assert.IsTrue(player3.IsActive,
                 "A custom IPlayableValidator passed to Play() overrides the group entirely - even one that allows a play the group would have rejected.");
+
+            yield return WaitFrames(1);
+        }
+
+        [UnityTest]
+        public IEnumerator Play_TwoIdsInAnAssetWhoseGroupAllowsOneVoice_RejectsTheSecond()
+        {
+            AudioAsset limited = NewAssetWithGroup(NewGroup(maxPlayableCount: 1), "AssetLimitAsset");
+            SoundID limitedA = IdOf(NewEntityInAsset(limited, "AssetLimitA"));
+            SoundID limitedB = IdOf(NewEntityInAsset(limited, "AssetLimitB"));
+
+            AudioAsset ungrouped = Track(TestAudioLibrary.CreateAudioAsset("AssetNoGroupAsset"));
+            SoundID ungroupedA = IdOf(NewEntityInAsset(ungrouped, "AssetNoGroupA"));
+            SoundID ungroupedB = IdOf(NewEntityInAsset(ungrouped, "AssetNoGroupB"));
+
+            IAudioPlayer limitedFirst = BroAudio.Play(limitedA);
+            IAudioPlayer limitedSecond = BroAudio.Play(limitedB);
+            IAudioPlayer ungroupedFirst = BroAudio.Play(ungroupedA);
+            IAudioPlayer ungroupedSecond = BroAudio.Play(ungroupedB);
+
+            Assert.IsTrue(limitedFirst.IsActive, "The first play takes the asset group's only voice.");
+            Assert.IsFalse(limitedSecond.IsActive,
+                "An entity with no group of its own plays under its AudioAsset's group, so a second ID from that asset is rejected once the one voice is taken.");
+            Assert.AreEqual(SoundID.Invalid, limitedSecond.ID, "A rejected play returns the inert empty player.");
+            Assert.IsTrue(ungroupedFirst.IsActive && ungroupedSecond.IsActive,
+                "Contrast: the same two IDs in an asset with no group fall back to the global group, which has no voice limit, so both are accepted.");
+
+            yield return WaitFrames(1);
+        }
+
+        [UnityTest]
+        public IEnumerator Play_EntityWithItsOwnGroupInAFullAsset_IsJudgedByItsOwnGroup()
+        {
+            AudioAsset limited = NewAssetWithGroup(NewGroup(maxPlayableCount: 1), "PrecedenceAsset");
+            SoundID assetGroupedA = IdOf(NewEntityInAsset(limited, "PrecedenceAssetGroupedA"));
+            SoundID assetGroupedB = IdOf(NewEntityInAsset(limited, "PrecedenceAssetGroupedB"));
+            AudioEntity ownGroupedEntity = NewEntityInAsset(limited, "PrecedenceOwnGrouped");
+            TestAudioLibrary.SetPrivateField(ownGroupedEntity, TestAudioLibrary.Reflected.AudioEntity.Group, NewGroup());
+            SoundID ownGrouped = IdOf(ownGroupedEntity);
+
+            IAudioPlayer first = BroAudio.Play(assetGroupedA);
+            IAudioPlayer second = BroAudio.Play(assetGroupedB);
+            IAudioPlayer third = BroAudio.Play(ownGrouped);
+
+            Assert.IsTrue(first.IsActive, "The first play takes the asset group's only voice.");
+            Assert.IsFalse(second.IsActive, "Baseline: the asset group rejects a second entity that has no group of its own.");
+            Assert.IsTrue(third.IsActive,
+                "An entity's own group takes precedence over its AudioAsset's group, so the full asset group does not reject it.");
 
             yield return WaitFrames(1);
         }

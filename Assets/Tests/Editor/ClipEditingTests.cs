@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Text;
 using Ami.BroAudio.Tests;
 using Ami.Extension;
 using NUnit.Framework;
@@ -12,6 +15,10 @@ namespace Ami.BroAudio.Editor.Tests
     /// <para>
     /// At <see cref="SampleRate"/> one sample is one millisecond, so every <see cref="Seconds"/> value survives the
     /// float round-trip (including PrependSilence's (int) cast) and index math can be asserted exactly.
+    /// </para>
+    /// <para>
+    /// The Clip Editor's Save hands the helper's result clip to <see cref="SavWav.Save"/>, so the written WAV file is
+    /// checked here too, byte by byte.
     /// </para>
     /// </summary>
     public class ClipEditingTests : BroEditorTestFixture
@@ -350,6 +357,94 @@ namespace Ami.BroAudio.Editor.Tests
             float[] actual = ReadAllSamples(result);
             float[] expected = { 0f, 0.25f, 1f, 1.5f }; // index0 *0, index1 *(1/2); index2,3 untouched
             Assert.That(actual, Is.EqualTo(expected).Within(Tolerance));
+        }
+        #endregion
+
+        #region Save (SavWav)
+        // The saved file is parsed directly rather than re-imported: the importer's default compression is lossy and
+        // would blur the 16-bit values, and an importer may tolerate a wrong byte rate or block align that another
+        // player would not.
+        private const int WavHeaderBytes = 44;
+
+        private AudioClip CreateClip(string name, float[] interleaved, int channels, int frequency)
+        {
+            AudioClip clip = AudioClip.Create(name, interleaved.Length / channels, channels, frequency, false);
+            clip.SetData(interleaved, 0);
+            return Track(clip);
+        }
+
+        /// <summary>
+        /// Saves into the temp folder and returns the file's bytes. The file is deleted straight away, before any
+        /// refresh could import it.
+        /// </summary>
+        private byte[] SaveAndReadBack(AudioClip clip)
+        {
+            string path = Path.Combine(EnsureTempFolder(), "SavedClip.wav");
+            try
+            {
+                Assert.IsTrue(SavWav.Save(path, clip));
+                return File.ReadAllBytes(path);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
+        private static string ReadTag(byte[] bytes, int offset) => Encoding.ASCII.GetString(bytes, offset, 4);
+
+        [TestCase(2, 22050, 88200, 4, 12)]
+        [TestCase(1, 11025, 22050, 2, 6)]
+        public void Save_EditedClip_WritesA16BitPcmHeaderWithTheClipsChannelsAndRate(
+            int channels, int frequency, int expectedByteRate, int expectedBlockAlign, int expectedDataBytes)
+        {
+            // The Clip Editor's path: an edited helper's result clip goes to SavWav.Save. Stereo catches a header
+            // hard-coded to mono, mono one hard-coded to stereo, and neither rate is 44100. Three silent frames:
+            // only the header matters here.
+            AudioClip clip = CreateClip("SaveHeader", new float[3 * channels], channels, frequency);
+            using var helper = new AudioClipEditingHelper(clip);
+            helper.AdjustVolume(0.5f);
+            Assert.IsTrue(helper.HasEdited, "Precondition: the helper re-creates the clip, as it does before a Save.");
+
+            byte[] bytes = SaveAndReadBack(Track(helper.GetResultClip()));
+
+            Assert.AreEqual(WavHeaderBytes + expectedDataBytes, bytes.Length, "file length = 44-byte header + data");
+            Assert.AreEqual("RIFF", ReadTag(bytes, 0));
+            Assert.AreEqual(36 + expectedDataBytes, BitConverter.ToInt32(bytes, 4), "RIFF chunk size = file length - 8");
+            Assert.AreEqual("WAVE", ReadTag(bytes, 8));
+            Assert.AreEqual("fmt ", ReadTag(bytes, 12));
+            Assert.AreEqual(16, BitConverter.ToInt32(bytes, 16), "fmt chunk size of plain PCM");
+            Assert.AreEqual(1, BitConverter.ToInt16(bytes, 20), "audio format 1 = integer PCM");
+            Assert.AreEqual(channels, BitConverter.ToInt16(bytes, 22), "channel count");
+            Assert.AreEqual(frequency, BitConverter.ToInt32(bytes, 24), "sample rate");
+            Assert.AreEqual(expectedByteRate, BitConverter.ToInt32(bytes, 28), "byte rate = rate x channels x 2");
+            Assert.AreEqual(expectedBlockAlign, BitConverter.ToInt16(bytes, 32), "block align = channels x 2");
+            Assert.AreEqual(16, BitConverter.ToInt16(bytes, 34), "bits per sample");
+            Assert.AreEqual("data", ReadTag(bytes, 36));
+            Assert.AreEqual(expectedDataBytes, BitConverter.ToInt32(bytes, 40), "data chunk size = frames x channels x 2");
+        }
+
+        [Test]
+        public void Save_WritesEachSampleInterleavedAs16BitPcmTruncatedFromTimes32767()
+        {
+            // Frames (L, R): (0.5, 0.25), (-0.5, -0.75), (1, -1). Each product with 32767 is exact in float, and the
+            // (short) cast truncates toward zero: 16383.5 -> 16383, 8191.75 -> 8191, -16383.5 -> -16383,
+            // -24575.25 -> -24575. A 32768 scale, rounding or flooring changes at least one value, and so does
+            // writing the channels in any order but interleaved.
+            float[] input = { 0.5f, 0.25f, -0.5f, -0.75f, 1f, -1f };
+            AudioClip clip = CreateClip("SaveSamples", input, 2, 22050);
+            Assert.That(ReadAllSamples(clip), Is.EqualTo(input), "Precondition: the clip holds the input floats exactly.");
+
+            byte[] bytes = SaveAndReadBack(clip);
+
+            Assert.AreEqual(WavHeaderBytes + 12, bytes.Length, "6 samples x 2 bytes after the header");
+            short[] actual = new short[input.Length];
+            for (int i = 0; i < actual.Length; i++)
+            {
+                actual[i] = BitConverter.ToInt16(bytes, WavHeaderBytes + i * 2);
+            }
+            short[] expected = { 16383, 8191, -16383, -24575, 32767, -32767 };
+            Assert.That(actual, Is.EqualTo(expected));
         }
         #endregion
     }

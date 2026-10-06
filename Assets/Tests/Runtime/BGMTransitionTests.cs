@@ -203,6 +203,55 @@ namespace Ami.BroAudio.Tests
                 "The fade-in should take roughly its stated time, not complete almost at once.");
         }
 
+        // The fade half of SetTransition_Default_OutgoingAndIncomingBGMNeverOverlap, which only pins the
+        // sequencing and so runs without an audio device. Default fades both ways with the one override time:
+        // the outgoing BGM out, then the incoming one in from silence once the fade-out has finished.
+        [UnityTest]
+        public IEnumerator SetTransition_Default_OutgoingFadesOutThenIncomingFadesInFromSilence()
+        {
+            yield return RequireRealtimeAudioClock();
+            SoundManager.Instance.Setting.DefaultBGMTransition = Transition.Immediate;
+
+            SoundID firstId = NewSound("DefaultFadeBgmA", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+            SoundID secondId = NewSound("DefaultFadeBgmB", BroAudioType.Music, NewClip(TransitionBgmClipLength));
+
+            IAudioPlayer first = BroAudio.Play(firstId);
+            first.AsBGM().SetTransition(Transition.Immediate);
+            yield return WaitForPlaybackStart(first, "first BGM to start");
+
+            IAudioPlayer second = BroAudio.Play(secondId);
+            second.AsBGM().SetTransition(Transition.Default, TransitionFadeSeconds);
+
+            bool overlapped = false;
+            float sampleAt = Time.realtimeSinceStartup + 1f;
+            float outgoingMidFade = -1f;
+            float deadline = Time.realtimeSinceStartup + TransitionFadeSeconds + 2f;
+            while (!second.IsPlaying)
+            {
+                Assert.Less(Time.realtimeSinceStartup, deadline, "Timed out waiting for the incoming BGM to start after the outgoing fade-out.");
+                overlapped |= first.IsPlaying && second.IsPlaying;
+                if (outgoingMidFade < 0f && Time.realtimeSinceStartup >= sampleAt)
+                {
+                    outgoingMidFade = first.GetVolume();
+                }
+                yield return null;
+            }
+            float startedAt = Time.realtimeSinceStartup;
+
+            Assert.IsFalse(overlapped, "Default must be sequential - the incoming BGM waits for the outgoing fade-out to finish.");
+            Assert.Greater(outgoingMidFade, 0.05f, "1s into a 3s fade-out the outgoing BGM should still be audible - a read near 0 (or none, -1) means it was cut, not faded.");
+            Assert.Less(outgoingMidFade, 0.95f, "1s into a 3s fade-out the outgoing BGM should already be well below full volume.");
+            Assert.IsFalse(first.IsActive, "The outgoing BGM should have ended by the time the incoming one starts.");
+
+            yield return new WaitForSeconds(1f);
+            Assert.Less(second.GetVolume(), 0.5f, "1s into a 3s fade-in the incoming BGM should still be well short of full volume - a full read means Default skipped its fade-in.");
+
+            yield return WaitUntilOrTimeout(() => second.GetVolume() >= AudioConstant.FullVolume - 0.001f,
+                "the incoming BGM's fade-in to reach full volume", TransitionFadeSeconds + 1.5f);
+            Assert.Greater(Time.realtimeSinceStartup - startedAt, TransitionFadeSeconds - 1f,
+                "The fade-in should take roughly its stated time, not complete almost at once.");
+        }
+
         // The other half of the CrossFade overlap test: the overlap has to end.
         [UnityTest]
         public IEnumerator SetTransition_CrossFade_EndsOutgoingBGMOnceItsFadeOutCompletes()

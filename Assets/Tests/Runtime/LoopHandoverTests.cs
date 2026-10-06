@@ -284,15 +284,113 @@ namespace Ami.BroAudio.Tests
             yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
                 "the dsp clock to reach the start of the crossfade window", HandoverWaitSeconds * 2);
 
-            // Accumulate the overlap every frame, don't sample chosen instants: an overshoot then only trims it.
-            double firstOverlapDsp = -1d;
-            double lastOverlapDsp = -1d;
-            float outgoingVolumeFirst = 0f;
-            float outgoingVolumeLast = 0f;
-            float incomingVolumeFirst = 0f;
-            float incomingVolumeLast = 0f;
-            int incomingPlayheadLast = 0;
-            float scanDeadline = Time.realtimeSinceStartup + TransitionSeconds + 5f;
+            CrossfadeScan scan = new CrossfadeScan();
+            yield return ScanCrossfadeUntil(id, seamDsp, TransitionSeconds + 5f, scan);
+
+            Assert.IsTrue(scan.HasOverlapped,
+                "Two players of this sound were never simultaneously active and audible during the transition " +
+                "window - nothing was crossfaded at all.");
+            Assert.Greater(scan.OverlapSeconds, MinOverlapSeconds,
+                $"The two players overlapped for only {scan.OverlapSeconds:F3}s of the " +
+                $"{TransitionSeconds}s transition. A seamless loop holds both open for the whole transition " +
+                "time; a plain loop overlaps only for ScheduledPlaybackWarmUpTime (~0.1s) before the seam.");
+            Assert.Greater(scan.IncomingPlayheadLast, 0,
+                "The incoming player must already be rendering samples while the outgoing one is still audible. " +
+                "AudioSource.isPlaying reports true from the PlayScheduled call onwards, so only the playhead " +
+                "tells a crossfade apart from a player that is merely warmed up and waiting for the seam.");
+            Assert.Less(scan.OutgoingVolumeLast, scan.OutgoingVolumeFirst - MinVolumeTravel,
+                "The outgoing player must be fading out across the transition window - PlaybackPreference." +
+                "ApplySeamlessFade applies TransitionTime as its fade-out.");
+            Assert.Greater(scan.IncomingVolumeLast, scan.IncomingVolumeFirst + MinVolumeTravel,
+                "The incoming player must be fading in across the same window - the other half of the crossfade, " +
+                "carried over on the handed-over pref.");
+
+            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
+                "the crossfade to finish, leaving only the handed-over player active", HandoverWaitSeconds);
+        }
+
+        // The Library Manager's default "Transition By: Clip Setting" stores TransitionTime = UseClipSetting (-1),
+        // which ApplySeamlessFade passes through as both fade bases, so each player falls back to its clip's own
+        // fades: the successor is scheduled FadeOut before the seam and fades in over FadeIn. FadeOut is kept apart
+        // from any TransitionTime a mangled -1 could become: a clamp to 0 leaves only the ~0.1s warm-up overlap and
+        // Mathf.Abs a ~1.1s one, both under MinOverlapSeconds, which the real 3s overlap clears by a second.
+        [UnityTest]
+        public IEnumerator Play_WithSeamlessLoopByClipSetting_CrossfadesForTheClipsOwnFadeOut()
+        {
+            yield return RequireRealtimeAudioClock();
+
+            // Must exceed FadeOutSeconds * 2, for the same reason as the TransitionTime crossfade above.
+            const float ClipSeconds = 7f;
+            const float FadeInSeconds = 1f;
+            const float FadeOutSeconds = 3f;
+            const double MinOverlapSeconds = FadeOutSeconds - 1d;
+            // Safe under the factory clip-fade eases (InCubic in, OutSine out), which a 1s fade-in completes well inside.
+            const float MinVolumeTravel = 0.25f;
+            AudioEntity entity = NewEntity("ClipSettingSeamlessSfx", BroAudioType.SFX, NewClip(ClipSeconds));
+            entity.Clips[0].FadeIn = FadeInSeconds;
+            entity.Clips[0].FadeOut = FadeOutSeconds;
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.SeamlessLoop), true);
+            // What AudioEntityEditor.DrawSeamlessSetting writes for SeamlessType.ClipSetting, the field's default.
+            TestAudioLibrary.SetPrivateField(entity, nameof(AudioEntity.TransitionTime), FadeData.UseClipSetting);
+            SoundID id = IdOf(entity);
+
+            double? startDsp = null;
+            IAudioPlayer player = BroAudio.Play(id);
+            player.OnStart(_ => startDsp ??= AudioSettings.dspTime);
+
+            yield return WaitForPlaybackStart(player);
+            yield return WaitUntilOrTimeout(() => startDsp.HasValue, "OnStart to fire for the first iteration", DefaultPlaybackWaitSeconds);
+
+            double crossfadeStartDsp = startDsp.Value + ClipSeconds - FadeOutSeconds;
+            double seamDsp = startDsp.Value + ClipSeconds;
+            yield return WaitUntilOrTimeout(() => AudioSettings.dspTime >= crossfadeStartDsp,
+                "the dsp clock to reach the start of the clip's fade-out", HandoverWaitSeconds * 2);
+
+            CrossfadeScan scan = new CrossfadeScan();
+            yield return ScanCrossfadeUntil(id, seamDsp, FadeOutSeconds + 5f, scan);
+
+            Assert.IsTrue(scan.HasOverlapped,
+                "Two players of this sound were never simultaneously active and audible during the clip's fade-out - " +
+                "a TransitionTime of UseClipSetting (-1) produced no crossfade at all.");
+            Assert.Greater(scan.OverlapSeconds, MinOverlapSeconds,
+                $"The two players overlapped for only {scan.OverlapSeconds:F3}s of the clip's {FadeOutSeconds}s FadeOut. " +
+                "Under Clip Setting the successor is scheduled the clip's FadeOut before the seam; ~0.1s means the -1 " +
+                "was treated as 0 (no crossfade), ~1.1s that it was taken as a 1s transition.");
+            Assert.Greater(scan.IncomingPlayheadLast, 0,
+                "The incoming player must already be rendering samples while the outgoing one is still audible, " +
+                "not merely warmed up and waiting for the seam.");
+            Assert.Less(scan.OutgoingVolumeLast, scan.OutgoingVolumeFirst - MinVolumeTravel,
+                "The outgoing player must be fading out across the window - with the fade base left at -1, " +
+                "TryGetFadeOut falls back to the clip's FadeOut.");
+            Assert.Greater(scan.IncomingVolumeLast, scan.IncomingVolumeFirst + MinVolumeTravel,
+                "The incoming player must be fading in across the same window - with the fade base left at -1, " +
+                "TryGetFadeIn falls back to the clip's FadeIn.");
+
+            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
+                "the crossfade to finish, leaving only the handed-over player active", HandoverWaitSeconds);
+        }
+
+        /// <summary>
+        /// What ScanCrossfadeUntil saw on the frames where exactly two players of the sound were live.
+        /// </summary>
+        private sealed class CrossfadeScan
+        {
+            public double FirstOverlapDsp = -1d;
+            public double LastOverlapDsp = -1d;
+            public float OutgoingVolumeFirst;
+            public float OutgoingVolumeLast;
+            public float IncomingVolumeFirst;
+            public float IncomingVolumeLast;
+            public int IncomingPlayheadLast;
+
+            public bool HasOverlapped => FirstOverlapDsp >= 0d;
+            public double OverlapSeconds => LastOverlapDsp - FirstOverlapDsp;
+        }
+
+        // Accumulates the overlap every frame rather than sampling chosen instants: an overshoot then only trims it.
+        private static IEnumerator ScanCrossfadeUntil(SoundID id, double seamDsp, float timeoutSeconds, CrossfadeScan scan)
+        {
+            float scanDeadline = Time.realtimeSinceStartup + timeoutSeconds;
             while (AudioSettings.dspTime < seamDsp)
             {
                 if (Time.realtimeSinceStartup > scanDeadline)
@@ -308,40 +406,19 @@ namespace Ami.BroAudio.Tests
                     bool isFirstOutgoing = PlayheadOf(active[0]) > PlayheadOf(active[1]);
                     AudioPlayer outgoing = isFirstOutgoing ? active[0] : active[1];
                     AudioPlayer incoming = isFirstOutgoing ? active[1] : active[0];
-                    if (firstOverlapDsp < 0d)
+                    if (!scan.HasOverlapped)
                     {
-                        firstOverlapDsp = AudioSettings.dspTime;
-                        outgoingVolumeFirst = VolumeOf(outgoing);
-                        incomingVolumeFirst = VolumeOf(incoming);
+                        scan.FirstOverlapDsp = AudioSettings.dspTime;
+                        scan.OutgoingVolumeFirst = VolumeOf(outgoing);
+                        scan.IncomingVolumeFirst = VolumeOf(incoming);
                     }
-                    lastOverlapDsp = AudioSettings.dspTime;
-                    outgoingVolumeLast = VolumeOf(outgoing);
-                    incomingVolumeLast = VolumeOf(incoming);
-                    incomingPlayheadLast = PlayheadOf(incoming);
+                    scan.LastOverlapDsp = AudioSettings.dspTime;
+                    scan.OutgoingVolumeLast = VolumeOf(outgoing);
+                    scan.IncomingVolumeLast = VolumeOf(incoming);
+                    scan.IncomingPlayheadLast = PlayheadOf(incoming);
                 }
                 yield return null;
             }
-
-            Assert.GreaterOrEqual(firstOverlapDsp, 0d,
-                "Two players of this sound were never simultaneously active and audible during the transition " +
-                "window - nothing was crossfaded at all.");
-            Assert.Greater(lastOverlapDsp - firstOverlapDsp, MinOverlapSeconds,
-                $"The two players overlapped for only {lastOverlapDsp - firstOverlapDsp:F3}s of the " +
-                $"{TransitionSeconds}s transition. A seamless loop holds both open for the whole transition " +
-                "time; a plain loop overlaps only for ScheduledPlaybackWarmUpTime (~0.1s) before the seam.");
-            Assert.Greater(incomingPlayheadLast, 0,
-                "The incoming player must already be rendering samples while the outgoing one is still audible. " +
-                "AudioSource.isPlaying reports true from the PlayScheduled call onwards, so only the playhead " +
-                "tells a crossfade apart from a player that is merely warmed up and waiting for the seam.");
-            Assert.Less(outgoingVolumeLast, outgoingVolumeFirst - MinVolumeTravel,
-                "The outgoing player must be fading out across the transition window - PlaybackPreference." +
-                "ApplySeamlessFade applies TransitionTime as its fade-out.");
-            Assert.Greater(incomingVolumeLast, incomingVolumeFirst + MinVolumeTravel,
-                "The incoming player must be fading in across the same window - the other half of the crossfade, " +
-                "carried over on the handed-over pref.");
-
-            yield return WaitUntilOrTimeout(() => GetActivePlayers(id).Count == 1,
-                "the crossfade to finish, leaving only the handed-over player active", HandoverWaitSeconds);
         }
 
         // Unlike every other handover here, the outro handover has no DSP gate: it is in effect when Stop() returns.
