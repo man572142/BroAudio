@@ -459,6 +459,57 @@ namespace Ami.BroAudio.Tests
                 $"After the reset {trackName}{BroName.EffectParaNameSuffix} should be muted again.");
         }
 
+        // HighPass resolves its own parameter in GetEffectParameterName, so the LowPass test above does not cover it.
+        [UnityTest]
+        public IEnumerator SetEffect_HighPass_WritesFrequencyToBothPolesAndRoutesFuturePlayersThroughEffectSend()
+        {
+            const float Cutoff = 1200f;
+            string secondaryParaName = BroName.HighPassParaName + "2";
+            AudioMixer mixer = SoundManager.Instance.AudioMixer;
+            Assert.AreEqual(FilterSlope.FourPole, SoundManager.Instance.Setting.AudioFilterSlope,
+                "Precondition: the factory slope is FourPole, which drives Effect_HighPass2 alongside Effect_HighPass.");
+            Assert.IsTrue(mixer.GetFloat(BroName.LowPassParaName, out float lowPassBefore));
+
+            BroAudio.SetEffect(Effect.HighPass(Cutoff)); // fadeTime 0 -> Tweak() applies immediately, no wait needed
+            yield return WaitFrames(1);
+
+            Assert.IsTrue(mixer.GetFloat(BroName.HighPassParaName, out float primary));
+            Assert.IsTrue(mixer.GetFloat(secondaryParaName, out float secondary),
+                "Effect_HighPass2 should be a real exposed parameter on the mixer.");
+            Assert.AreEqual(Cutoff, primary, FrequencyTolerance, "SetEffect(Effect.HighPass) should move Effect_HighPass to the requested frequency.");
+            Assert.AreEqual(Cutoff, secondary, FrequencyTolerance, "Under the FourPole slope SetEffect(Effect.HighPass) should also move Effect_HighPass2.");
+            Assert.IsTrue(mixer.GetFloat(BroName.LowPassParaName, out float lowPassAfter));
+            Assert.AreEqual(lowPassBefore, lowPassAfter, FrequencyTolerance, "A HighPass effect must leave Effect_LowPass untouched.");
+
+            SoundID id = NewSound("HighPassSendFx", BroAudioType.SFX, NewClip(2f));
+            IAudioPlayer player = BroAudio.Play(id);
+            yield return WaitForPlaybackStart(player);
+
+            AudioPlayer concrete = InstanceOf(player);
+            Assert.IsTrue(concrete.IsUsingTrackEffect, "A player started after SetEffect(HighPass) should route through the effect send channel.");
+            Assert.AreNotEqual(EffectType.None, concrete.CurrentActiveTrackEffects & EffectType.HighPass, "HighPass should be part of the player's active track effects.");
+
+            ReadTrackAndSend(concrete, out string trackName, out float trackDb, out float sendDb);
+            Assert.AreEqual(AudioConstant.FullDecibelVolume, sendDb, DecibelTolerance,
+                $"A player routed through the effect send should carry its level on {trackName}{BroName.EffectParaNameSuffix}.");
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, trackDb, DecibelTolerance,
+                $"A player routed through the effect send should leave its dry track {trackName} muted, or it is heard twice.");
+
+            BroAudio.SetEffect(Effect.ResetHighPass());
+            yield return WaitUntilOrTimeout(() => !concrete.IsUsingTrackEffect,
+                "the HighPass reset to take the live player off the effect send", DefaultPlaybackWaitSeconds);
+
+            Assert.IsTrue(mixer.GetFloat(BroName.HighPassParaName, out float resetPrimary));
+            Assert.IsTrue(mixer.GetFloat(secondaryParaName, out float resetSecondary));
+            Assert.AreEqual(AudioConstant.MinFrequency, resetPrimary, FrequencyTolerance, "The reset should put Effect_HighPass back to its default.");
+            Assert.AreEqual(AudioConstant.MinFrequency, resetSecondary, FrequencyTolerance, "The reset should put Effect_HighPass2 back to its default too.");
+            ReadTrackAndSend(concrete, out _, out float trackDbAfterReset, out float sendDbAfterReset);
+            Assert.AreEqual(AudioConstant.FullDecibelVolume, trackDbAfterReset, DecibelTolerance,
+                $"After the reset the player's level should be back on its dry track {trackName}.");
+            Assert.AreEqual(AudioConstant.MinDecibelVolume, sendDbAfterReset, DecibelTolerance,
+                $"After the reset {trackName}{BroName.EffectParaNameSuffix} should be muted again.");
+        }
+
         [UnityTest]
         public IEnumerator SetEffect_ScopedToMusic_ReroutesLivePlayerOfThatTypeOnly()
         {
@@ -606,6 +657,84 @@ namespace Ami.BroAudio.Tests
                 SoundManager.Instance.AudioMixer.GetFloat(BroName.LowPassParaName, out float v);
                 return Mathf.Abs(v - AudioConstant.MaxFrequency) <= FrequencyTolerance;
             }, "ForSeconds to auto-reset Effect_LowPass to its default once the duration elapses", DefaultPlaybackWaitSeconds);
+        }
+
+        // Weaker first, then stronger: the stronger one restarts the tween and the held weaker one waits under it.
+        // Non-zero fades on purpose: a zero-fade Tweak never yields, which moves where the queue drains (see
+        // SetEffect_WithDefaultZeroFade_ThenForSeconds_AutoResetsWithoutThrowing).
+        [UnityTest]
+        public IEnumerator SetEffect_StrongerLowPassOverAHeldWeakerOne_TakesOverThenDropsBackToTheWeakerValueUntilReleased()
+        {
+            const float WeakCutoff = 2000f;
+            const float StrongCutoff = 500f;
+            const float FadeSeconds = 0.1f;
+            const float HoldSeconds = 1.5f;
+            AudioMixer mixer = SoundManager.Instance.AudioMixer;
+
+            // A local flag, not a playing sound, so the hold doesn't depend on the audio clock. Released in
+            // finally: a weaker effect left held would queue every later, weaker LowPass behind it.
+            bool holdWeak = true;
+            try
+            {
+                BroAudio.SetEffect(Effect.LowPass(WeakCutoff, FadeSeconds)).While(() => holdWeak);
+                yield return WaitUntilOrTimeout(() => LowPassReads(mixer, WeakCutoff),
+                    "the held weaker LowPass to reach its cutoff", DefaultPlaybackWaitSeconds);
+
+                // Same clock and frame as the waitable's own EndTime, so no frame before strongHoldEnd may see the drop.
+                float strongHoldEnd = Time.time + HoldSeconds;
+                BroAudio.SetEffect(Effect.LowPass(StrongCutoff, FadeSeconds)).ForSeconds(HoldSeconds);
+                yield return WaitUntilOrTimeout(() => LowPassReads(mixer, StrongCutoff),
+                    "the stronger LowPass to take over from the held weaker one", DefaultPlaybackWaitSeconds);
+                yield return AssertLowPassHoldsUntil(mixer, StrongCutoff, strongHoldEnd,
+                    "The stronger effect should hold for its whole ForSeconds duration");
+
+                // The way back must come straight down from the stronger cutoff: a reset to the default on the way,
+                // even for a frame, reads above the weaker cutoff.
+                float highestOnTheWayBack = float.MinValue;
+                yield return WaitUntilOrTimeout(() =>
+                {
+                    mixer.GetFloat(BroName.LowPassParaName, out float v);
+                    highestOnTheWayBack = Mathf.Max(highestOnTheWayBack, v);
+                    return Mathf.Abs(v - WeakCutoff) <= FrequencyTolerance;
+                }, "Effect_LowPass to drop back to the still-held weaker cutoff once the stronger one ends", DefaultPlaybackWaitSeconds);
+                Assert.LessOrEqual(highestOnTheWayBack, WeakCutoff + FrequencyTolerance,
+                    $"The stronger effect's end must hand over to the queued weaker one without lifting the filter (read up to {highestOnTheWayBack:F0}Hz).");
+
+                yield return AssertLowPassHoldsUntil(mixer, WeakCutoff, Time.time + HoldSeconds,
+                    "The weaker effect should keep holding while its While condition is true");
+
+                holdWeak = false;
+                yield return WaitUntilOrTimeout(() => LowPassReads(mixer, AudioConstant.MaxFrequency),
+                    "releasing the last queued effect to auto-reset Effect_LowPass to its default", DefaultPlaybackWaitSeconds);
+            }
+            finally
+            {
+                holdWeak = false;
+            }
+        }
+
+        private static bool LowPassReads(AudioMixer mixer, float cutoff)
+            => mixer.GetFloat(BroName.LowPassParaName, out float v) && Mathf.Abs(v - cutoff) <= FrequencyTolerance;
+
+        /// <summary>Samples Effect_LowPass every frame until Time.time reaches <paramref name="endTime"/>; each must read <paramref name="cutoff"/>.</summary>
+        private static IEnumerator AssertLowPassHoldsUntil(AudioMixer mixer, float cutoff, float endTime, string message)
+        {
+            int samples = 0;
+            float lowest = float.MaxValue;
+            float highest = float.MinValue;
+            while (Time.time < endTime)
+            {
+                Assert.IsTrue(mixer.GetFloat(BroName.LowPassParaName, out float held));
+                lowest = Mathf.Min(lowest, held);
+                highest = Mathf.Max(highest, held);
+                samples++;
+                yield return null;
+            }
+
+            Assert.Greater(samples, 0, "The hold window should have been sampled at least once.");
+            string observed = $" (read {lowest:F0}-{highest:F0}Hz over {samples} frames).";
+            Assert.AreEqual(cutoff, lowest, FrequencyTolerance, message + observed);
+            Assert.AreEqual(cutoff, highest, FrequencyTolerance, message + observed);
         }
 
         // Pins TEST_FINDINGS #71. The explicit reset at the end is both the contrast and this test's cleanup,
