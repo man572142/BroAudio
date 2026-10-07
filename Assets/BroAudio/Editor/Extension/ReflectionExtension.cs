@@ -76,6 +76,7 @@ namespace Ami.Extension
 				return Activator.CreateInstance(type);
 			}
 
+			// Invokes every constructor and keeps the last one that accepts these parameters; failures are swallowed.
 			object result = null;
 			for (int i = 0; i < constructors.Length; i++)
 			{

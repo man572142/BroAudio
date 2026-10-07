@@ -47,7 +47,7 @@ namespace Ami.BroAudio.Runtime
         {
             if (_pendingPitchFadeTime > 0f && TargetPitch.HasValue)
             {
-                // Fade from the entity's base pitch to StaticPitch (the pending target) instead of snapping.
+                // Fade from the entity's base pitch to TargetPitch (the pending target) instead of snapping.
                 AudioSource.pitch = GetBasePitch(entity, audioTypePlaybackPref);
                 float target = Mathf.Clamp(TargetPitch.Value, AudioConstant.MinAudioSourcePitch, AudioConstant.MaxAudioSourcePitch);
                 this.RestartCoroutine(PitchControl(target, _pendingPitchFadeTime), ref _pitchCoroutine);

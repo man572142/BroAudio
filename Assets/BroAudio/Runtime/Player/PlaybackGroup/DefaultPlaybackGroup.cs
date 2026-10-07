@@ -119,7 +119,7 @@ namespace Ami.BroAudio
                 }
             }
             
-            // Only one is played globally
+            // Only one is played globally. A global play has no position, so the pair counts as farther apart than any threshold.
             // TODO: use the AudioListener's position as the global position?
             if ((currentIsGlobal != previousIsGlobal) && _ignoreIfDistanceIsGreaterThan > 0f)
             {

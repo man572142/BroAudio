@@ -1,0 +1,29 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# The stock unityci/editor image installs no audio libraries at all, so FMOD finds no output
+# device and falls back to a non-realtime null sink pumped by the frame loop, far faster
+# than wall time. A short voice can start and finish between two
+# frames, which makes every PlayMode timing test a coin flip.
+#
+# A PulseAudio null sink is timer-paced at realtime, which is the clock those tests need. We are
+# not after audible sound, only a sink that advances at 1x. libasound2-plugins plus the asound.conf
+# below routes ALSA to PulseAudio too, since FMOD does not reliably fall back on its own.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pulseaudio libasound2-plugins \
+ && rm -rf /var/lib/apt/lists/* \
+ && echo 'load-module module-null-sink sink_name=ci' >> /etc/pulse/system.pa \
+ && printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > /etc/asound.conf
+
+# /usr/bin/unity-editor sources every readable *.sh in this directory before launching the Editor,
+# which is the image's supported pre-launch hook. System mode is what lets the daemon run as root.
+RUN printf '%s\n' \
+      'pulseaudio --system --disallow-exit --exit-idle-time=-1 --daemonize > /dev/null 2>&1 || true' \
+      > /usr/bin/unity-editor.d/00-audio.sh
+
+# AudioClockProbeTests reads this to tell "this image promised an audio device and lost it" (a failure)
+# from "this machine simply has none" (a local run, which stays green). It is set here rather than in the
+# workflow because customImage is only passed on the PlayMode leg, so the variable exists exactly where a
+# realtime DSP clock is expected. Bump the image tag in test.yml when you change anything above - an
+# already-published tag is reused as-is and would never carry this.
+ENV BROAUDIO_CI_EXPECTS_AUDIO=1

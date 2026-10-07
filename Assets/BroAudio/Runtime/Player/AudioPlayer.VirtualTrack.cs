@@ -62,7 +62,7 @@ namespace Ami.BroAudio.Runtime
             // listener. We normally keep that at full and drive loudness via the track, so preserve
             // the player's real computed level here to avoid a full-volume blip while released.
             AudioSource.volume = (_clipVolume.Current * _trackVolume.Current * _audioTypeVolume.Current).ClampNormalize();
-            AudioTrack = null; // clears outputAudioMixerGroup and the cached track/send names
+            AudioTrack = null;
             _trackReleasedByVirtual = true;
             _virtualElapsed = 0f;
         }

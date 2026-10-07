@@ -33,6 +33,7 @@ namespace Ami.Extension
 			set => _sampleDatas = value;
 		}
 
+		// Without an edit this returns the source clip itself, not a copy.
 		public AudioClip GetResultClip()
 		{
 			if (!HasClip)
@@ -62,16 +63,16 @@ namespace Ami.Extension
 			HasEdited = _originalClip.TryGetSampleData(out _sampleDatas, startPos, endPos);
 		}
 
-		public void AddSlient(float time)
+		public void PrependSilence(float time)
 		{
 			if(!CanEdit)
 			{
 				return;
 			}
 
-			int slientSampleLength = (int)(time * _originalClip.frequency * GetChannelCount());
-			float[] newSampleDatas = new float[Samples.Length + slientSampleLength];
-			Array.Copy(Samples, 0, newSampleDatas, slientSampleLength, Samples.Length);
+			int silenceSampleLength = (int)(time * _originalClip.frequency * GetChannelCount());
+			float[] newSampleDatas = new float[Samples.Length + silenceSampleLength];
+			Array.Copy(Samples, 0, newSampleDatas, silenceSampleLength, Samples.Length);
             Samples = newSampleDatas;
 			HasEdited = true;
 		}
@@ -113,7 +114,7 @@ namespace Ami.Extension
 
 			void Downmix()
 			{
-				// Multi-Channel would require addtional weight calculation, we only 
+				// Averages all channels equally; a true multichannel downmix would need per-channel weights.
 				float sum = 0f;
                 for (int i = 0; i < Samples.Length; i++)
                 {

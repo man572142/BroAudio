@@ -4,9 +4,6 @@ using Ami.Extension;
 
 namespace Ami.BroAudio.Editor
 {
-    // HISTORY NOTE:
-    // This class used to be called EditorPlayAudioClip.
-    // The original EditorAudioPreviewer has been moved to EditorVolumeTransporter.
     public class EditorAudioPreviewer
     {
         public const string IgnoreSettingTooltip = "Right-click to play the audio clip directly";

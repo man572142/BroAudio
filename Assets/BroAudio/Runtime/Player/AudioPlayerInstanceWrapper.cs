@@ -18,7 +18,7 @@ namespace Ami.BroAudio
 
         protected override void LogInstanceIsNull()
         {
-            if (SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning)
+            if (SoundManager.HasInstance && SoundManager.Instance.Setting.LogAccessRecycledPlayerWarning)
             {
                 Debug.LogWarning(Utility.LogTitle + "This audio player has been recycled after playback and can no longer be accessed. \n" +
                     "To avoid this warning, check IsActive before use, or use the OnEnd callback to clear your IAudioPlayer reference when playback completes.");

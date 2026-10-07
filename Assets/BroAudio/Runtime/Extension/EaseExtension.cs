@@ -6,7 +6,7 @@ namespace Ami.Extension
     {
         public static float SetEase(this float value, Ease ease)
         {
-            Mathf.Clamp01(value);
+            value = Mathf.Clamp01(value);
 
             return ease switch
             {

@@ -8,7 +8,7 @@ namespace Ami.BroAudio.Runtime
     public struct ClipSelectionContext
     {
         /// <summary>
-        /// The velocity value used for velocity-based selection
+        /// The velocity for velocity-based selection, or the (int)PlaybackStage for chained selection
         /// </summary>
         public int Value { get; set; }
 

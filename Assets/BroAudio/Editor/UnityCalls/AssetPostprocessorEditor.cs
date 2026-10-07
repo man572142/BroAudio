@@ -1,4 +1,6 @@
+using Ami.BroAudio.Data;
 using Ami.BroAudio.Editor.Setting;
+using Ami.BroAudio.Runtime;
 using UnityEditor;
 using UnityEngine;
 
@@ -8,10 +10,38 @@ namespace Ami.BroAudio.Editor
     {
         private static bool _userDataChecked = false;
 
+#if UNITY_2021_2_OR_NEWER && BroAudio_DevOnly
+        // A warm Library imports nothing of BroAudio's, so the import check alone never fires when the
+        // generated user data is missing from disk (e.g. a gitignored Resources folder on a fresh checkout).
+        // Dev-only: consumers keep their user data, so this would only add a per-compile cost for them.
+        static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths, bool didDomainReload)
+        {
+            OnReimportAsset(importedAssets);
+            if (!_userDataChecked && didDomainReload && IsUserDataMissing())
+            {
+                _userDataChecked = true;
+                BroUserDataGenerator.CheckAndGenerateUserData(OnUserDataChecked);
+                return;
+            }
+            CheckUserDataOnBroAudioImport(importedAssets);
+        }
+
+        private static bool IsUserDataMissing()
+        {
+            return !Resources.Load<SoundManager>(nameof(SoundManager))
+                || !BroEditorUtility.TryLoadResources<RuntimeSetting>(BroEditorUtility.RuntimeSettingPath, out _)
+                || !BroEditorUtility.TryLoadResources<EditorSetting>(BroEditorUtility.EditorSettingPath, out _);
+        }
+#else
         static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
         {
             OnReimportAsset(importedAssets);
+            CheckUserDataOnBroAudioImport(importedAssets);
+        }
+#endif
 
+        private static void CheckUserDataOnBroAudioImport(string[] importedAssets)
+        {
             if (_userDataChecked)
             {
                 return;

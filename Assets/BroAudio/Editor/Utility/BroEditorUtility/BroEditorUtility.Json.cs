@@ -31,8 +31,15 @@ namespace Ami.BroAudio.Editor
 			coreData = default;
             if (textAsset != null && !string.IsNullOrEmpty(textAsset.text))
 			{
-                coreData = JsonUtility.FromJson<SerializedCoreData>(textAsset.text);
-				return true;
+                try
+                {
+                    coreData = JsonUtility.FromJson<SerializedCoreData>(textAsset.text);
+                    return true;
+                }
+                catch (ArgumentException ex)
+                {
+                    Debug.LogWarning(Utility.LogTitle + $"Ignoring malformed core data '{textAsset.name}': {ex.Message}");
+                }
             }
 			return false;
 		}

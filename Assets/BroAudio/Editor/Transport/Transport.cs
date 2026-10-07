@@ -23,6 +23,7 @@ namespace Ami.BroAudio.Editor
 			FadingValues = new float[2]; // FadeIn, FadeOut
 		}
 
+		// Delay counts: the clip editor saves it as silence prepended to the clip.
 		public bool HasDifferentPosition => StartPosition != 0f || EndPosition != 0f || (Delay > StartPosition);
 		public bool HasFading => FadeIn != 0f || FadeOut != 0f;
 

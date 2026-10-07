@@ -59,7 +59,7 @@ namespace Ami.BroAudio.Data
 
         public AsyncOperationHandle<IList<AudioClip>> LoadAssetsAsync()
         {
-            // A whole bunch of code so we can still return an AsyncOperationHandle<IList<AudioClip>>, since we need to group them all together
+            // Clips load individually; group their handles into one so callers still get an AsyncOperationHandle<IList<AudioClip>>.
             var handles = new List<AsyncOperationHandle>();
 
             foreach (var clip in Clips)

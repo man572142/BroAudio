@@ -56,7 +56,8 @@ namespace Ami.BroAudio.Runtime
         }
 
         private AudioTrackType TrackType { get; set; } = AudioTrackType.Generic;
-        private AudioMixerGroup AudioTrack 
+        // Only a null assignment clears the cached track/send names, so assign null before switching to a different track.
+        private AudioMixerGroup AudioTrack
         {
             set
             {
@@ -147,11 +148,7 @@ namespace Ami.BroAudio.Runtime
                     transform.position = position;
                     SetTo3D();
                 }
-                // The log is unnecessary and may cause misunderstandings, as the Play method already provides clear summaries.
-                //else if (setting != null && !setting.SpatialBlend.IsDefaultCurve(AudioConstant.SpatialBlend_2D) && pref.Entity is IEntityIdentity entity)
-                //{
-                //	Debug.LogWarning(Utility.LogTitle + $"You've set a non-2D SpatialBlend for :{entity.Name}, but didn't specify a position or a follow target when playing it");
-                //}
+                // Don't warn about a non-2D SpatialBlend played without a position: the warning misleads, and the Play docs already cover it.
             }
 
             void SetTo3D()
@@ -180,6 +177,7 @@ namespace Ami.BroAudio.Runtime
             AudioSource.maxDistance = AudioConstant.AttenuationMaxDistance;
             AudioSource.reverbZoneMix = AudioConstant.DefaultReverZoneMix;
             AudioSource.spread = AudioConstant.DefaultSpread;
+            // The CustomRolloff curve is not cleared, so anything that selects Custom must also set the curve.
             AudioSource.rolloffMode = AudioConstant.DefaultRolloffMode;
         }
 
@@ -387,7 +385,13 @@ namespace Ami.BroAudio.Runtime
             for (int i = 0; i < previousPlayerEffects.Count; i++)
             {
                 var copiedEffect = previousPlayerEffects[i];
-                var newComponent = go.AddComponent(Utility.GetFilterTypeFromProxy(copiedEffect.Modifier));
+                var filterType = Utility.GetFilterTypeFromProxy(copiedEffect.Modifier);
+                // A handover transfers once per decorator plus once; Unity allows one filter of each type per GameObject.
+                if (go.GetComponent(filterType))
+                {
+                    continue;
+                }
+                var newComponent = go.AddComponent(filterType);
                 copiedEffect.Modifier.TransferValueTo(newComponent as Behaviour);
                 copiedEffect.Component = newComponent;
                 _addedEffects ??= new List<AddedEffect>();
