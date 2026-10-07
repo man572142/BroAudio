@@ -17,7 +17,7 @@ on:
           Space-separated paths (files or dirs) to exclude from the merge. Each is
           forced to match the target: restored if the target has it, deleted if not.
         type: string
-        default: CLAUDE.md AGENTS.md Packages ProjectSettings .claude .agents Docs Assets/AddressableAssetsData Assets/Localization Assets/AddressableAssetsData.meta Assets/Localization.meta UserFacingContextFiles
+        default: CLAUDE.md AGENTS.md Packages ProjectSettings .claude .agents Docs Assets/AddressableAssetsData Assets/Localization Assets/AddressableAssetsData.meta Assets/Localization.meta UserFacingContextFiles Assets/Tests Assets/Tests.meta .github/workflows/test.yml .github/scripts .github/docker .github/test-results-policy.json
 
 jobs:
   merge:
